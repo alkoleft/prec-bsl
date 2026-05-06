@@ -42,7 +42,7 @@ Dependencies:
 
 - None.
 
-### T2. TODO: Add CLI skeleton and command contract
+### T2. DONE: Add CLI skeleton and command contract
 
 Replace the placeholder binary with a CLI that exposes the v1 command surface.
 
@@ -60,6 +60,13 @@ Validation:
 - `cargo run -- prek-hook --help`
 - `cargo run -- exec-rules --help`
 - A command-contract test asserts that `exec-rules` accepts positional `<repo>`.
+
+Completion evidence:
+
+- 2026-05-06: Replaced the placeholder binary with a CLI skeleton for
+  `prek-hook` and `exec-rules`; added focused command-contract tests covering
+  public options, `exec-rules <repo>`, invalid `--format`, unknown commands, and
+  missing `<repo>`.
 
 Dependencies:
 
