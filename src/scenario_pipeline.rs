@@ -21,6 +21,7 @@ use crate::text_fixers::{
     trailing_whitespace,
 };
 use crate::unit_tests_processing::{UNIT_TESTS_PROCESSING_RULE, unit_tests_processing};
+use crate::xml_forms::{XML_FORM_CORRECTION_RULE, xml_form_correction};
 
 pub type ScenarioHandler = fn(&ScenarioExecutionContext<'_>) -> ScenarioRun;
 
@@ -454,6 +455,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         REGIONS_RULE => regions,
         PROFANITY_RULE => profanity,
         UNIT_TESTS_PROCESSING_RULE => unit_tests_processing,
+        XML_FORM_CORRECTION_RULE => xml_form_correction,
         _ => skipped_until_implemented,
     }
 }

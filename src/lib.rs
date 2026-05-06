@@ -12,3 +12,4 @@ pub mod text_checkers;
 pub mod text_fixers;
 pub mod unit_tests_processing;
 pub mod xml_edt;
+pub mod xml_forms;

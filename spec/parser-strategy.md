@@ -101,6 +101,35 @@ Use XML/EDT/platform-specific mechanisms instead of tree-sitter for:
 - `СортировкаСостава`
 - `УдалениеДублейМетаданных`
 
+### XML form correction contract
+
+`КорректировкаXMLФорм` is an XML/EDT fixer for form description files. The
+initial v1 slice applies to EDT `Form.form` files and uses the shared XML/EDT
+parser boundary to validate XML before rewriting text.
+
+The fixer collects form elements from ordered `<name>...</name>` and
+`<id>...</id>` pairs under the current XML element path. Duplicate element ids
+are corrected deterministically:
+
+- if an id is used by multiple elements and none of those elements is borrowed
+  from a base form, all but the last occurrence receive free ids;
+- free ids are the lowest positive integers not currently used, then
+  monotonically increasing ids after the current maximum;
+- if a sibling `BaseForm/Form.form` exists for the EDT form, elements matching
+  the same XML path and name keep the base form id and are treated as borrowed;
+- duplicate groups containing borrowed elements keep borrowed ids and reassign
+  the non-borrowed elements;
+- if more than one current-form element matches the same base-form path/name,
+  the scenario reports a hard failure instead of guessing.
+
+The scenario must skip non-`Form.form` files and `BaseForm/Form.form` files when
+they are processed directly. When an owning `Form.form` has a sibling
+`BaseForm/Form.form`, the base form may also be corrected and reported as a
+modified path. The fixer must preserve unrelated XML text, report modified
+files, and prove idempotence through focused tests. XML parse errors, invalid
+numeric ids, and ambiguous base-form matches are hard failures for the
+processed file.
+
 ## Implementation Contract
 
 - Create a shared BSL parser module instead of each scenario initializing its own parser ad hoc.

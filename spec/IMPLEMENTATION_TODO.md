@@ -822,19 +822,45 @@ Dependencies:
 
 - T8, T10.
 
-### T24. TODO: Implement XML form correction
+### T24. DONE: Implement XML form correction
 
 Scenario: `КорректировкаXMLФорм`.
 
 Acceptance criteria:
 
 - Discovers `Form.form` files.
-- Applies parity transformations.
+- Validates XML through the shared XML/EDT parser boundary before rewriting.
+- Corrects duplicate EDT form element ids deterministically.
+- Preserves sibling `BaseForm/Form.form` ids for matching extension form
+  elements and reports ambiguous base-form matches as hard failures.
 - Is idempotent.
 
 Validation:
 
 - `cargo test xml_forms`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/xml_forms.rs` with the EDT `Form.form`
+  `КорректировкаXMLФорм` implementation, registered it in the reference
+  scenario registry, and documented the XML form correction contract in
+  `spec/parser-strategy.md`.
+- The fixer validates XML through the shared XML/EDT parser boundary, collects
+  form elements from XML events, corrects duplicate element ids with lazy
+  free-id allocation, preserves matching sibling `BaseForm/Form.form` ids,
+  reports modified current/base form paths, skips direct base-form and
+  non-`Form.form` files, and reports malformed XML, invalid ids, and ambiguous
+  base-form matches as hard failures.
+- Added `tests/xml_forms.rs` coverage for first-run modification and
+  second-run idempotence, compact XML layout, sibling base-form binding,
+  modified base-form reporting, ambiguous base matches, invalid numeric ids,
+  multiple duplicate groups, large and `u64::MAX` id allocation, malformed XML,
+  and skip behavior.
+- Verification passed: `cargo fmt --check`, `cargo test xml_forms`,
+  `cargo test`, and `git diff --check`.
+- Independent review found line-layout, eager free-id allocation, missing
+  BaseForm/invalid-id/multiple-group coverage, and `u64::MAX` edge gaps; all
+  were fixed and covered before completion.
 
 Dependencies:
 
