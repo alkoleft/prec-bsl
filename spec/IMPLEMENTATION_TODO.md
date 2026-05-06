@@ -399,7 +399,7 @@ Dependencies:
 
 - T4, T9.
 
-### T12. TODO: Implement extra blank line fixer
+### T12. DONE: Implement extra blank line fixer
 
 Scenario: `УдалениеЛишнихПустыхСтрок`.
 
@@ -412,6 +412,17 @@ Acceptance criteria:
 Validation:
 
 - `cargo test empty_lines`
+
+Completion evidence:
+
+- 2026-05-07: Added the lexical `УдалениеЛишнихПустыхСтрок` implementation to
+  `src/text_fixers.rs`, registered it in the reference scenario registry, and
+  added `tests/empty_lines.rs` plus Cyrillic golden fixtures covering
+  excessive blank-line removal, preservation of meaningful single blank-line
+  spacing, CRLF behavior, modified-file reporting, hook-mode blocking after
+  unreviewed modifications, and second-run idempotence.
+- Verification passed: `cargo fmt --check`, `cargo test empty_lines`, and
+  `cargo test`.
 
 Dependencies:
 

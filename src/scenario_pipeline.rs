@@ -10,7 +10,9 @@ use crate::scenarios::{
     normalize_scenario_id,
 };
 use crate::source_files::{SourceFile, SourceRoot, classify_repo_path};
-use crate::text_fixers::{TRAILING_WHITESPACE_RULE, trailing_whitespace};
+use crate::text_fixers::{
+    EXTRA_BLANK_LINES_RULE, TRAILING_WHITESPACE_RULE, extra_blank_lines, trailing_whitespace,
+};
 
 pub type ScenarioHandler = fn(&ScenarioExecutionContext<'_>) -> ScenarioRun;
 
@@ -434,6 +436,7 @@ fn skipped_until_implemented(context: &ScenarioExecutionContext<'_>) -> Scenario
 fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
     match scenario_id {
         TRAILING_WHITESPACE_RULE => trailing_whitespace,
+        EXTRA_BLANK_LINES_RULE => extra_blank_lines,
         _ => skipped_until_implemented,
     }
 }
@@ -472,8 +475,9 @@ mod tests {
         )
         .unwrap();
 
-        let registry =
-            ScenarioRegistry::reference().with_handler(TRAILING_WHITESPACE, hard_failure);
+        let registry = ScenarioRegistry::reference()
+            .with_handler(TRAILING_WHITESPACE, hard_failure)
+            .with_handler(EXTRA_BLANK_LINES, hard_failure);
 
         let report = run_pipeline(
             &registry,
@@ -515,8 +519,10 @@ mod tests {
         )
         .unwrap();
 
+        let registry = ScenarioRegistry::reference().with_handler(EXTRA_BLANK_LINES, hard_failure);
+
         let report = run_pipeline(
-            &ScenarioRegistry::reference(),
+            &registry,
             PipelineRequest {
                 repo_root: &repo,
                 source_roots: &roots,
