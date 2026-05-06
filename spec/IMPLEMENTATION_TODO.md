@@ -180,7 +180,7 @@ Non-goals:
 
 ## Milestone 2: Core Architecture Layers
 
-### T6. TODO: Implement configuration model and resolver
+### T6. DONE: Implement configuration model and resolver
 
 Implement parsing and resolution for the three-layer configuration contract.
 
@@ -199,6 +199,19 @@ Acceptance criteria:
 Validation:
 
 - `cargo test config`
+
+Completion evidence:
+
+- 2026-05-06: Added `src/config.rs` with typed `v8config.json` parsing,
+  default discovery from repository root, explicit `--config` path precedence,
+  built-in defaults, optional CLI rule override resolution, normalized scenario
+  ids, repository scenario settings, base/project scenario settings, and
+  project-path override lookup.
+- Validation now rejects enabled `РазборОбычныхФормНаИсходники` and enabled
+  repository-local scenarios with clear diagnostics, while unknown disabled
+  scenario ids remain parse-compatible warnings for `0.x`; credential-like
+  keys and non-repository-relative local-scenario/project paths are rejected.
+- Verification passed: `cargo test config` and `cargo test`.
 
 Dependencies:
 
