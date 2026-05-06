@@ -6,14 +6,8 @@ fn main() {
             println!("{}", cli::help(topic));
             0
         }
-        Ok(CliCommand::PrekHook(_args)) => {
-            println!("prec-bsl prek-hook: command contract accepted");
-            0
-        }
-        Ok(CliCommand::ExecRules(_args)) => {
-            println!("prec-bsl exec-rules: command contract accepted");
-            0
-        }
+        Ok(CliCommand::PrekHook(args)) => prec_bsl::app::run_prek_hook(&args),
+        Ok(CliCommand::ExecRules(args)) => prec_bsl::app::run_exec_rules(&args),
         Err(error) => {
             eprintln!("error: {}", error.message());
             eprintln!();
