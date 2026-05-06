@@ -152,14 +152,27 @@ pub fn classify_staged_files(roots: &[SourceRoot], staged_files: &[StagedFile]) 
         .iter()
         .filter_map(|staged_file| {
             let source_root = matching_source_root(roots, &staged_file.path)?;
-            Some(source_file(
+            Some(classify_repo_path_with_root(
                 source_root,
                 staged_file.path.clone(),
-                classify_path(&staged_file.path),
                 Some(staged_file.status.clone()),
             ))
         })
         .collect()
+}
+
+pub fn classify_repo_path(
+    roots: &[SourceRoot],
+    repo_path: impl Into<PathBuf>,
+    staged_status: Option<StagedStatus>,
+) -> Option<SourceFile> {
+    let repo_path = repo_path.into();
+    let source_root = matching_source_root(roots, &repo_path)?;
+    Some(classify_repo_path_with_root(
+        source_root,
+        repo_path,
+        staged_status,
+    ))
 }
 
 pub fn collect_source_files(roots: &[SourceRoot]) -> Result<Vec<SourceFile>, SourceFileError> {
@@ -203,10 +216,9 @@ fn collect_source_files_into(
                 path.strip_prefix(&source_root.absolute_path)
                     .unwrap_or(&path),
             );
-            files.push(source_file(
+            files.push(classify_repo_path_with_root(
                 source_root,
                 repo_path.clone(),
-                classify_path(&repo_path),
                 None,
             ));
         }
@@ -215,12 +227,12 @@ fn collect_source_files_into(
     Ok(())
 }
 
-fn source_file(
+fn classify_repo_path_with_root(
     source_root: &SourceRoot,
     repo_path: PathBuf,
-    kind: SourceFileKind,
     staged_status: Option<StagedStatus>,
 ) -> SourceFile {
+    let kind = classify_path(&repo_path);
     let source_relative_path = if source_root.repo_relative_path.as_os_str().is_empty() {
         repo_path.clone()
     } else {

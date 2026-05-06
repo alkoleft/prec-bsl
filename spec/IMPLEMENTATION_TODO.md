@@ -286,7 +286,7 @@ Dependencies:
 
 - T6.
 
-### T9. TODO: Implement scenario registry and execution pipeline
+### T9. DONE: Implement scenario registry and execution pipeline
 
 Create the shared scenario registry, execution context, queue, and result model.
 
@@ -308,6 +308,26 @@ Validation:
 - `cargo test scenario_pipeline`
 - A scenario-order contract test asserts normalized `.os` and non-`.os` ids keep
   the resolved execution order.
+
+Completion evidence:
+
+- 2026-05-07: Added `src/scenario_pipeline.rs` with a reference scenario
+  registry, normalized lookup, execution context, post-processing queue,
+  scenario result statuses for modifications, warnings, hard failures, skips
+  and unsupported scenarios, critical-result accumulation, modified-path
+  aggregation, and hook/exec-rules exit-code aggregation. Required scenarios
+  without implementation handlers fail closed as hard failures instead of
+  passing silently.
+- Added explicit deleted-file dispatch gating: scenarios receive deleted files
+  only when registered with deleted-file capability; other scenarios produce a
+  skip result without requiring file contents or invoking the handler.
+- Added focused `scenario_pipeline` tests for normalized `.os`/non-`.os`
+  execution order, project-specific scenario order, post-processing queue
+  append behavior, result status distinctions, traversal continuing after hard
+  failures, unregistered scenario diagnostics, deleted-file dispatch gating,
+  and hook/exec-rules exit aggregation.
+- Verification passed: `cargo fmt --check`, `cargo test scenario_pipeline`,
+  and `cargo test`.
 
 Dependencies:
 
