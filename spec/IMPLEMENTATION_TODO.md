@@ -605,7 +605,7 @@ Dependencies:
 
 - T10.
 
-### T18. TODO: Implement goto checker
+### T18. DONE: Implement goto checker
 
 Scenario: `ЗапретИспользованияПерейти`.
 
@@ -618,6 +618,20 @@ Acceptance criteria:
 Validation:
 
 - `cargo test goto`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/bsl_checkers.rs` with the parser-backed
+  `ЗапретИспользованияПерейти` implementation, registered it in the reference
+  scenario registry, and added `tests/goto.rs` coverage.
+- The checker matches `tree-sitter-bsl` `goto_statement` syntax, reports hard
+  failures with source spans anchored to `GOTO_KEYWORD`, detects both
+  `Перейти` and `goto`, ignores comments and string literals, skips non-BSL
+  files, and never modifies source files.
+- Verification passed: `cargo fmt --check`, `cargo test goto`, and
+  `cargo test`.
+- Independent explorer pass confirmed the grammar shape and recommended
+  anchoring diagnostics on `GOTO_KEYWORD`.
 
 Dependencies:
 

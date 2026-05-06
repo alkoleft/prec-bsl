@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::bsl_checkers::{FORBID_GOTO_RULE, forbid_goto};
 use crate::config::ResolvedConfig;
 use crate::git_index::StagedStatus;
 use crate::scenarios::{
@@ -443,6 +444,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         EXTRA_BLANK_LINES_RULE => extra_blank_lines,
         KEYWORD_SPACING_RULE => keyword_spacing,
         CANONICAL_SPELLING_RULE => canonical_spelling,
+        FORBID_GOTO_RULE => forbid_goto,
         PROFANITY_RULE => profanity,
         _ => skipped_until_implemented,
     }

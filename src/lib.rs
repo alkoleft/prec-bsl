@@ -1,3 +1,4 @@
+pub mod bsl_checkers;
 pub mod bsl_parser;
 pub mod cli;
 pub mod config;
