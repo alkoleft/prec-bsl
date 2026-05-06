@@ -20,6 +20,7 @@ use crate::text_fixers::{
     TRAILING_WHITESPACE_RULE, canonical_spelling, copyright, extra_blank_lines, keyword_spacing,
     trailing_whitespace,
 };
+use crate::unit_tests_processing::{UNIT_TESTS_PROCESSING_RULE, unit_tests_processing};
 
 pub type ScenarioHandler = fn(&ScenarioExecutionContext<'_>) -> ScenarioRun;
 
@@ -452,6 +453,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         PREPROCESSOR_RULE => preprocessor_instructions,
         REGIONS_RULE => regions,
         PROFANITY_RULE => profanity,
+        UNIT_TESTS_PROCESSING_RULE => unit_tests_processing,
         _ => skipped_until_implemented,
     }
 }

@@ -751,7 +751,7 @@ Dependencies:
 
 - T17, T20.
 
-### T22. TODO: Implement unit test processing scenario
+### T22. DONE: Implement unit test processing scenario
 
 Scenario: `ОбработкаЮнитТестов`.
 
@@ -765,6 +765,23 @@ Acceptance criteria:
 Validation:
 
 - `cargo test unit_tests_processing`
+
+Completion evidence:
+
+- 2026-05-07: Added the parser-backed `ОбработкаЮнитТестов` implementation in
+  `src/unit_tests_processing.rs`, registered it in the reference scenario
+  registry, and documented the scenario contract in `spec/parser-strategy.md`.
+- The fixer applies only to BSL modules under a `tests` path component,
+  discovers exported `@unit-test:` procedures/functions and the existing
+  `ИсполняемыеСценарии` loader through `tree-sitter-bsl`, replaces or inserts
+  the `#Область ТестыAPI` loader region, reports modified files, skips
+  non-BSL/non-test files, and fails without modifying the module when BSL parse
+  errors are present.
+- Added `tests/unit_tests_processing.rs` plus Cyrillic golden fixtures covering
+  loader insertion, existing-loader replacement, idempotence, no annotated
+  method clean runs, skip behavior, and parse-error hard failure.
+- Verification passed: `cargo fmt --check`, `cargo test unit_tests_processing`,
+  `cargo test`, and `git diff --check`.
 
 Dependencies:
 

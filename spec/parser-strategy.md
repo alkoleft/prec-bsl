@@ -163,6 +163,37 @@ unmatched `#КонецОбласти`, case-insensitive directives, comments/str
 literals containing region-looking text, ordinary non-region BSL parse errors,
 and non-BSL file skipping.
 
+### Unit test processing fixer contract
+
+`ОбработкаЮнитТестов` is parser-backed and may modify BSL test modules.
+
+The scenario applies only to BSL modules whose repository path or source-root
+relative path contains a `tests` directory component, case-insensitively.
+Non-BSL files and BSL modules outside test paths are skipped.
+
+Test methods are exported procedure or function definitions discovered from the
+`tree-sitter-bsl` syntax tree. A method is included when the line immediately
+before the definition is a line comment containing `@unit-test:`. Comments and
+string literals elsewhere in the module must not create test entries.
+Existing loader methods named `ИсполняемыеСценарии` are also detected from the
+syntax tree before the surrounding loader region is replaced.
+
+When at least one test method is found, the scenario generates the
+`#Область ТестыAPI` loader region with an exported
+`ИсполняемыеСценарии(ДополнительныеПараметры = Неопределено)` function. The
+function returns a `Массив` and appends discovered test method names in source
+order through `ИсполняемыеСценарии.Добавить("<method>");`.
+
+If a `ТестыAPI` region already exists, the scenario replaces that region. If no
+loader region exists but a `#Область Тесты` region exists, the loader region is
+inserted before it. Otherwise the loader region is prepended to the module.
+
+The fixer must preserve unrelated module text, report modified files, and prove
+idempotence through fixtures or focused tests. It must not generate a loader
+region when no annotated exported test methods are present. If the BSL parser
+reports syntax errors, the scenario must return a hard failure and must not
+modify the module.
+
 ## Open Validation Tasks
 
 - Build a fixture matrix for Russian and English keyword spellings.
