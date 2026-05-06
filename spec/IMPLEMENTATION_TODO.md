@@ -135,7 +135,7 @@ Dependencies:
 
 - T3.
 
-### T5. TODO: Add RAT acceptance harness with copy-only safety
+### T5. DONE: Add RAT acceptance harness with copy-only safety
 
 Add tests or scripts that use `/home/alko/develop/open-source/rat` as a
 read-only external corpus.
@@ -151,7 +151,23 @@ Acceptance criteria:
 Validation:
 
 - `cargo test rat`
-- Manual safety check: `git -C /home/alko/develop/open-source/rat status --short`
+- Manual safety check:
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`
+
+Completion evidence:
+
+- 2026-05-06: Added RAT acceptance tests that copy required source roots into
+  `target/rat-acceptance` temporary directories, verify BSL/EDT source files
+  and Cyrillic paths are preserved in the copy, and assert the real RAT checkout
+  status is unchanged after the test.
+- Added live `rat/v8config.json` parsing coverage for `GLOBAL`,
+  `Precommt4onecСценарии`, disabled `РазборОбычныхФормНаИсходники`, and clear
+  diagnostics for enabled repository-local scenarios whose dynamic `.os`
+  execution is unsupported in v1.
+- Verification passed: `cargo test rat`, `cargo test`, `git diff --check`, and
+  manual safety check
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`
+  with the pre-existing `?? .build/` entry only.
 
 Dependencies:
 

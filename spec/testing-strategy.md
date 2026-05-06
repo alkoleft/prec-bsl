@@ -108,6 +108,8 @@ Acceptance:
 
 - Never run mutating acceptance tests directly on `/home/alko/develop/open-source/rat`.
 - Copy only the needed source roots into a temp directory.
+- Run Git status probes against RAT with `GIT_OPTIONAL_LOCKS=0` so safety checks
+  do not refresh or lock the external checkout index.
 - Keep generated artifacts under `target/` or a test temp directory.
 - Do not clean, reset, or modify the RAT repository.
 - Do not rely on RAT's untracked `.build/`.
