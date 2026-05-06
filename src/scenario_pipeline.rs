@@ -10,6 +10,7 @@ use crate::scenarios::{
     normalize_scenario_id,
 };
 use crate::source_files::{SourceFile, SourceRoot, classify_repo_path};
+use crate::text_checkers::{PROFANITY_RULE, profanity};
 use crate::text_fixers::{
     CANONICAL_SPELLING_RULE, EXTRA_BLANK_LINES_RULE, KEYWORD_SPACING_RULE,
     TRAILING_WHITESPACE_RULE, canonical_spelling, extra_blank_lines, keyword_spacing,
@@ -441,6 +442,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         EXTRA_BLANK_LINES_RULE => extra_blank_lines,
         KEYWORD_SPACING_RULE => keyword_spacing,
         CANONICAL_SPELLING_RULE => canonical_spelling,
+        PROFANITY_RULE => profanity,
         _ => skipped_until_implemented,
     }
 }

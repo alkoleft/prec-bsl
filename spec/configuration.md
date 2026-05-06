@@ -258,7 +258,30 @@ Within domain config:
 - Unknown disabled scenario ids are warnings, because existing `v8config.json` files can keep disabled legacy or local scenario names.
 - Paths are repository-relative unless absolute paths are explicitly allowed by a setting.
 - Config must not contain credentials.
-- `v8config.json` parser must preserve `precommit4onec` behavior and should not emit migration hints to another domain format in v1.
+- `v8config.json` parser must preserve `precommit4onec` behavior and should
+  not emit migration hints to another domain format in v1.
+
+## Scenario Setting Policies
+
+### ПроверкаНецензурныхСлов
+
+Dictionary setting:
+
+- `НастройкиСценариев.ПроверкаНецензурныхСлов.ФайлСНецензурнымиСловами`
+
+Behavior:
+
+- If the setting is present, the path is resolved relative to repository root.
+- If the setting is present but empty or not a string, the scenario reports a
+  hard failure for the processed file.
+- If the configured dictionary file is missing or unreadable, the scenario
+  reports a hard failure for the processed file.
+- If the setting is absent, the scenario looks for `НецензурныеСлова.txt` in
+  repository root.
+- If the default dictionary file is absent, the scenario reports a skipped
+  result and does not block by itself.
+- The checker reports matched dictionary words with rule id and file path.
+- The checker never modifies source files.
 
 ## Decision Table
 

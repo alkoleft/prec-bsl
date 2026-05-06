@@ -495,7 +495,7 @@ Dependencies:
 
 - T13.
 
-### T15. TODO: Implement profanity checker
+### T15. DONE: Implement profanity checker
 
 Scenario: `ПроверкаНецензурныхСлов`.
 
@@ -509,6 +509,25 @@ Acceptance criteria:
 Validation:
 
 - `cargo test profanity`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/text_checkers.rs` with the lexical
+  `ПроверкаНецензурныхСлов` implementation, registered it in the reference
+  scenario registry, and documented the dictionary-setting policy in
+  `spec/configuration.md`.
+- The checker loads `ФайлСНецензурнымиСловами` when configured, falls back to
+  repository-root `НецензурныеСлова.txt` only when the setting is absent,
+  reports missing/invalid configured dictionaries as hard failures, skips when
+  the default dictionary is absent, reports dictionary matches as warnings with
+  rule id and file path, and never modifies source files.
+- Added `tests/profanity.rs` coverage for configured dictionary matches,
+  default dictionary lookup, absent-default skip, missing configured dictionary
+  failure, non-string setting failure, and empty setting failure.
+- Verification passed: `cargo fmt --check`, `cargo test profanity`, and
+  `cargo test`.
+- Independent reviewer pass found a blank-setting policy gap; it was fixed and
+  covered by `profanity_fails_when_dictionary_setting_is_empty`.
 
 Dependencies:
 
