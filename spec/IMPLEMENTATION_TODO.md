@@ -637,7 +637,7 @@ Dependencies:
 
 - T17.
 
-### T19. TODO: Implement duplicate procedure/function checker
+### T19. DONE: Implement duplicate procedure/function checker
 
 Scenario: `ПроверкаДублейПроцедурИФункций`.
 
@@ -650,6 +650,23 @@ Acceptance criteria:
 Validation:
 
 - `cargo test duplicate_methods`
+
+Completion evidence:
+
+- 2026-05-07: Added the parser-backed
+  `ПроверкаДублейПроцедурИФункций` implementation to `src/bsl_checkers.rs`,
+  registered it in the reference scenario registry, and added
+  `tests/duplicate_methods.rs` coverage.
+- The checker collects `procedure_definition` and `function_definition` names
+  from `tree-sitter-bsl` syntax trees, detects duplicates case-insensitively
+  across procedures and functions, reports every duplicate definition as a hard
+  failure with file path and source span anchored to the method name, skips
+  non-BSL files, and never modifies source files.
+- Verification passed: `cargo fmt --check`, `cargo test duplicate_methods`,
+  and `cargo test`.
+- Independent explorer pass confirmed the grammar node strategy:
+  `procedure_definition` / `function_definition` with the required `name`
+  field.
 
 Dependencies:
 
