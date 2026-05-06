@@ -109,6 +109,36 @@ Use XML/EDT/platform-specific mechanisms instead of tree-sitter for:
 - Keep fixture parity against `precommit4onec` for every scenario that switches from regex scanning to AST traversal.
 - Do not use tree-sitter to reformat or regenerate BSL source. Use it only to identify syntax ranges and semantic structure.
 
+### Preprocessor instruction checker contract
+
+`ПроверкаКорректностиИнструкцийПрепроцессора` is parser-backed and does not
+modify source text.
+
+Blocking diagnostics for this scenario are limited to tree-sitter `ERROR` or
+missing nodes that are preprocessor-related:
+
+- the error node is inside a `preprocessor` node;
+- the error subtree contains `preprocessor`, `preproc`, `annotation`, or
+  `PREPROC_*` nodes;
+- the error source span starts with a preprocessor or annotation marker (`#` or
+  `&`).
+
+Ordinary BSL parse errors outside preprocessor/annotation constructs are not
+reported by this scenario. They may be handled by a later syntax scenario if one
+is accepted.
+
+The published `tree-sitter-bsl` 0.1.x grammar recognizes preprocessor
+instructions as individual nodes and does not yet model every directive as a
+nested block. After parser evaluation, this scenario may add a narrow
+line-oriented stack for `#Если` / `#ИначеЕсли` / `#Иначе` / `#КонецЕсли`
+ordering and balance. This fallback is limited to directive lines and must not
+rewrite or parse ordinary BSL statements.
+
+Initial fixtures must cover a valid `#Если ... Тогда ... #КонецЕсли` block,
+incomplete directives, missing directive expressions, standalone unmatched
+directive branches such as `#Иначе`, comments/string literals containing
+preprocessor-looking text, and non-BSL file skipping.
+
 ## Open Validation Tasks
 
 - Build a fixture matrix for Russian and English keyword spellings.

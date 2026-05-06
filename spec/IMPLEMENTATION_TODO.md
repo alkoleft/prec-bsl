@@ -672,7 +672,7 @@ Dependencies:
 
 - T17.
 
-### T20. TODO: Implement preprocessor instruction checker
+### T20. DONE: Implement preprocessor instruction checker
 
 Scenario: `ПроверкаКорректностиИнструкцийПрепроцессора`.
 
@@ -685,6 +685,27 @@ Acceptance criteria:
 Validation:
 
 - `cargo test preprocessor`
+
+Completion evidence:
+
+- 2026-05-07: Added the parser-backed
+  `ПроверкаКорректностиИнструкцийПрепроцессора` implementation to
+  `src/bsl_checkers.rs`, registered it in the reference scenario registry, and
+  documented the T20 parser/error-node contract in `spec/parser-strategy.md`.
+- The checker reports preprocessor-related tree-sitter `ERROR` and missing
+  nodes as hard failures with source spans, skips non-BSL files, does not modify
+  files, ignores ordinary BSL parse errors outside preprocessor/annotation
+  constructs, and uses a narrow case-insensitive line stack for
+  `#Если` / `#ИначеЕсли` / `#Иначе` / `#КонецЕсли` ordering and balance where
+  published `tree-sitter-bsl` 0.1.x does not model nested directive blocks.
+- Added `tests/preprocessor.rs` coverage for valid directive blocks,
+  incomplete `#Если`, missing directive expressions, unmatched/duplicate branch
+  ordering, malformed annotations, comments/string literals, ordinary BSL parse
+  errors, non-BSL file skipping, and hook/exec-rules exit behavior.
+- Verification passed: `cargo fmt --check`, `cargo test preprocessor`,
+  `cargo test`, and `git diff --check`.
+- Independent reviewer pass returned `APPROVED` after case-insensitive fallback
+  and missing verification gaps were fixed.
 
 Dependencies:
 
