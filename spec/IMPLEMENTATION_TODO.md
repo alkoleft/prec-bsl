@@ -249,7 +249,7 @@ Dependencies:
 
 - T2.
 
-### T8. TODO: Implement source root and file classification
+### T8. DONE: Implement source root and file classification
 
 Add source-root resolution and file type classification for Designer, EDT, and
 external artifacts.
@@ -265,7 +265,22 @@ Acceptance criteria:
 
 Validation:
 
-- `cargo test source_root file_classification`
+- `cargo test source_root`
+- `cargo test file_classification`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/source_files.rs` as a separate source-root and file
+  classification boundary with comma-separated source-dir parsing, explicit and
+  default source-root resolution, blocking diagnostics for missing roots,
+  canonicalized in-repository root context with blocking diagnostics for roots
+  outside the repository, recursive source traversal for multiple `exec-rules`
+  roots, staged-file classification without requiring deleted-file contents,
+  source-root context preservation per file, and file kind classification for
+  BSL, EDT `.mdo`, EDT `.form`, `Configuration.mdo`, XML metadata, and
+  unsupported files.
+- Verification passed: `cargo test source_root` and
+  `cargo test file_classification`.
 
 Dependencies:
 
