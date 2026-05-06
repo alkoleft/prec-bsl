@@ -533,7 +533,7 @@ Dependencies:
 
 - T6, T9.
 
-### T16. TODO: Implement copyright insertion fixer
+### T16. DONE: Implement copyright insertion fixer
 
 Scenario: `ВставкаКопирайтов`.
 
@@ -546,6 +546,27 @@ Acceptance criteria:
 Validation:
 
 - `cargo test copyright`
+
+Completion evidence:
+
+- 2026-05-07: Added the lexical `ВставкаКопирайтов` implementation to
+  `src/text_fixers.rs`, registered it in the reference scenario registry, and
+  documented the scenario settings policy in `spec/configuration.md`.
+- The fixer loads configured repository-relative `ПутьКФайлуКопирайта` or the
+  default `COPYRIGHT`, inserts or replaces `//©` copyright blocks, skips modules
+  with configured `ИсключаемыеТеги` / `ИсключаемыеТэги`, reports ambiguous
+  copyright shapes as hard failures, preserves final line endings when rewriting,
+  reports modified files, and is idempotent.
+- Added `tests/copyright.rs` plus Cyrillic golden fixtures covering first-run
+  insertion, second-run idempotence, stale-header replacement, skip tags,
+  ambiguous marker blocks, missing default/configured copyright files, invalid
+  repository-relative paths, and Windows/backslash path rejection.
+- Verification passed: `cargo fmt --check`, `cargo test copyright`, and
+  `cargo test`.
+- Independent reviewer pass found malformed-marker and Windows/backslash path
+  policy gaps; both were fixed and covered by focused regressions. Follow-up
+  reviewer pass confirmed the remaining scope stayed within T16 after the
+  stricter backslash path policy was added.
 
 Dependencies:
 

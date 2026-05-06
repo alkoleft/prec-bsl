@@ -283,6 +283,47 @@ Behavior:
 - The checker reports matched dictionary words with rule id and file path.
 - The checker never modifies source files.
 
+### ВставкаКопирайтов
+
+Copyright settings:
+
+- `НастройкиСценариев.ВставкаКопирайтов.ПутьКФайлуКопирайта`
+- `НастройкиСценариев.ВставкаКопирайтов.ИсключаемыеТеги`
+- `НастройкиСценариев.ВставкаКопирайтов.ИсключаемыеТэги`
+- `НастройкиСценариев.ВставкаКопирайтов.ИгнорироватьМодулиОбъектовПоставки`
+
+Behavior:
+
+- If `ПутьКФайлуКопирайта` is present, the path is resolved relative to
+  repository root.
+- If `ПутьКФайлуКопирайта` is present but empty, not a string, absolute, or
+  outside the repository, the scenario reports a hard failure for the processed
+  file.
+- If the configured copyright file is missing or unreadable, the scenario
+  reports a hard failure for the processed file.
+- If the setting is absent, the scenario looks for `COPYRIGHT` in repository
+  root.
+- If the default `COPYRIGHT` file is absent, the scenario reports a skipped
+  result and does not block by itself.
+- The copyright file text is trimmed before insertion.
+- BSL modules without a copyright block receive the configured copyright text,
+  followed by one blank line and the trimmed original module text. If the
+  original module ended with a line ending, the rewritten module keeps a final
+  line ending.
+- BSL modules with exactly one existing copyright block, identified by two
+  `//©` marker lines, keep the block when it already matches the configured
+  copyright text and replace it when it differs.
+- BSL modules with an ambiguous copyright shape, for example more than one
+  block or only one marker line, report a hard failure instead of rewriting.
+- `ИсключаемыеТеги` and historic typo `ИсключаемыеТэги` are accepted as string
+  arrays. If absent, the default skip tag is `// IMPORT`.
+- A module containing a configured skip tag as a line prefix is skipped and is
+  not modified.
+- `ИгнорироватьМодулиОбъектовПоставки` is parsed-compatible in v1, but this
+  pure BSL text fixer does not infer supplier-object ownership. Supplier module
+  skipping belongs to a later metadata-aware boundary.
+- The fixer reports modified files and is idempotent.
+
 ## Decision Table
 
 | Setting kind | `.pre-commit-hooks.yaml` | `prek.toml` / `.pre-commit-config.yaml` | `v8config.json` |

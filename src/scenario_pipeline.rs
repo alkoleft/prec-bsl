@@ -12,8 +12,8 @@ use crate::scenarios::{
 use crate::source_files::{SourceFile, SourceRoot, classify_repo_path};
 use crate::text_checkers::{PROFANITY_RULE, profanity};
 use crate::text_fixers::{
-    CANONICAL_SPELLING_RULE, EXTRA_BLANK_LINES_RULE, KEYWORD_SPACING_RULE,
-    TRAILING_WHITESPACE_RULE, canonical_spelling, extra_blank_lines, keyword_spacing,
+    CANONICAL_SPELLING_RULE, COPYRIGHT_RULE, EXTRA_BLANK_LINES_RULE, KEYWORD_SPACING_RULE,
+    TRAILING_WHITESPACE_RULE, canonical_spelling, copyright, extra_blank_lines, keyword_spacing,
     trailing_whitespace,
 };
 
@@ -438,6 +438,7 @@ fn skipped_until_implemented(context: &ScenarioExecutionContext<'_>) -> Scenario
 
 fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
     match scenario_id {
+        COPYRIGHT_RULE => copyright,
         TRAILING_WHITESPACE_RULE => trailing_whitespace,
         EXTRA_BLANK_LINES_RULE => extra_blank_lines,
         KEYWORD_SPACING_RULE => keyword_spacing,

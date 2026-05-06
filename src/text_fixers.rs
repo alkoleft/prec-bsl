@@ -1,12 +1,102 @@
 use std::fs;
+use std::path::{Component, Path, PathBuf};
+
+use serde_json::Value;
 
 use crate::scenario_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
 use crate::source_files::SourceFileKind;
 
+pub const COPYRIGHT_RULE: &str = "ВставкаКопирайтов";
 pub const TRAILING_WHITESPACE_RULE: &str = "УдалениеЛишнихКонцевыхПробелов";
 pub const EXTRA_BLANK_LINES_RULE: &str = "УдалениеЛишнихПустыхСтрок";
 pub const KEYWORD_SPACING_RULE: &str = "ДобавлениеПробеловПередКлючевымиСловами";
 pub const CANONICAL_SPELLING_RULE: &str = "ИсправлениеНеКаноническогоНаписания";
+
+const COPYRIGHT_PATH_SETTING: &str = "ПутьКФайлуКопирайта";
+const EXCLUDED_TAGS_SETTING: &str = "ИсключаемыеТеги";
+const EXCLUDED_TAGS_LEGACY_SETTING: &str = "ИсключаемыеТэги";
+const DEFAULT_COPYRIGHT_PATH: &str = "COPYRIGHT";
+const DEFAULT_EXCLUDED_TAG: &str = "// IMPORT";
+
+pub fn copyright(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    if context.file.kind != SourceFileKind::BslModule {
+        return ScenarioRun::single(ScenarioResult::skipped(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "scenario handles only BSL modules",
+        ));
+    }
+
+    let copyright = match load_copyright_text(context) {
+        CopyrightLoad::Loaded(copyright) => copyright,
+        CopyrightLoad::Skipped(message) => {
+            return ScenarioRun::single(ScenarioResult::skipped(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                message,
+            ));
+        }
+        CopyrightLoad::Failed(message) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                message,
+            ));
+        }
+    };
+
+    let excluded_tags = match excluded_tags(context.settings) {
+        Ok(tags) => tags,
+        Err(message) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                message,
+            ));
+        }
+    };
+
+    let path = context.repo_root.join(&context.file.repo_path);
+    let input = match fs::read_to_string(&path) {
+        Ok(input) => input,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                format!("failed to read file: {error}"),
+            ));
+        }
+    };
+
+    match insert_or_update_copyright(&input, &copyright, &excluded_tags) {
+        CopyrightFix::Clean => ScenarioRun::clean(),
+        CopyrightFix::Skipped => ScenarioRun::single(ScenarioResult::skipped(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "module contains configured copyright skip tag",
+        )),
+        CopyrightFix::Modified(output) => {
+            if let Err(error) = fs::write(&path, output) {
+                return ScenarioRun::single(ScenarioResult::hard_failure(
+                    context.rule_id,
+                    context.file.repo_path.clone(),
+                    format!("failed to write file: {error}"),
+                ));
+            }
+
+            ScenarioRun::single(ScenarioResult::modified(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                "inserted or updated copyright header",
+            ))
+        }
+        CopyrightFix::Failed(message) => ScenarioRun::single(ScenarioResult::hard_failure(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            message,
+        )),
+    }
+}
 
 pub fn trailing_whitespace(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
     run_bsl_text_fixer(
@@ -83,6 +173,274 @@ fn run_bsl_text_fixer(
         context.file.repo_path.clone(),
         modified_message,
     ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CopyrightLoad {
+    Loaded(String),
+    Skipped(String),
+    Failed(String),
+}
+
+fn load_copyright_text(context: &ScenarioExecutionContext<'_>) -> CopyrightLoad {
+    let copyright_path = match copyright_path(context.settings) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            let path = PathBuf::from(DEFAULT_COPYRIGHT_PATH);
+            return load_default_copyright(context.repo_root, &path);
+        }
+        Err(message) => return CopyrightLoad::Failed(message),
+    };
+
+    if !is_repository_relative_path(&copyright_path) {
+        return CopyrightLoad::Failed(format!(
+            "copyright path must be repository-relative: {}",
+            copyright_path.display()
+        ));
+    }
+
+    load_configured_copyright(context.repo_root, &copyright_path)
+}
+
+fn copyright_path(settings: Option<&Value>) -> Result<Option<PathBuf>, String> {
+    let Some(settings) = settings else {
+        return Ok(None);
+    };
+    let Some(value) = settings.get(COPYRIGHT_PATH_SETTING) else {
+        return Ok(None);
+    };
+    match value {
+        Value::String(path) if path.trim().is_empty() => Err(format!(
+            "copyright setting {COPYRIGHT_PATH_SETTING} must not be empty"
+        )),
+        Value::String(path) => Ok(Some(PathBuf::from(path.trim()))),
+        _ => Err(format!(
+            "copyright setting {COPYRIGHT_PATH_SETTING} must be a string"
+        )),
+    }
+}
+
+fn load_default_copyright(repo_root: &Path, path: &Path) -> CopyrightLoad {
+    if !repo_root.join(path).is_file() {
+        return CopyrightLoad::Skipped(format!(
+            "copyright file is not configured or found: {}",
+            path.display()
+        ));
+    }
+
+    match fs::read_to_string(repo_root.join(path)) {
+        Ok(content) => CopyrightLoad::Loaded(trim_text(&content).to_owned()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            CopyrightLoad::Skipped(format!(
+                "copyright file is not configured or found: {}",
+                path.display()
+            ))
+        }
+        Err(error) => CopyrightLoad::Failed(format!(
+            "failed to read copyright file {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+fn load_configured_copyright(repo_root: &Path, path: &Path) -> CopyrightLoad {
+    match fs::read_to_string(repo_root.join(path)) {
+        Ok(content) => CopyrightLoad::Loaded(trim_text(&content).to_owned()),
+        Err(error) => CopyrightLoad::Failed(format!(
+            "failed to read configured copyright file {}: {error}",
+            path.display()
+        )),
+    }
+}
+
+fn excluded_tags(settings: Option<&Value>) -> Result<Vec<String>, String> {
+    let Some(settings) = settings else {
+        return Ok(vec![DEFAULT_EXCLUDED_TAG.to_owned()]);
+    };
+
+    if let Some(value) = settings.get(EXCLUDED_TAGS_SETTING) {
+        return parse_excluded_tags(EXCLUDED_TAGS_SETTING, value);
+    }
+    if let Some(value) = settings.get(EXCLUDED_TAGS_LEGACY_SETTING) {
+        return parse_excluded_tags(EXCLUDED_TAGS_LEGACY_SETTING, value);
+    }
+
+    Ok(vec![DEFAULT_EXCLUDED_TAG.to_owned()])
+}
+
+fn parse_excluded_tags(setting: &str, value: &Value) -> Result<Vec<String>, String> {
+    let Value::Array(items) = value else {
+        return Err(format!("copyright setting {setting} must be an array"));
+    };
+
+    let mut tags = Vec::new();
+    for item in items {
+        match item {
+            Value::String(tag) if !tag.trim().is_empty() => tags.push(tag.trim().to_owned()),
+            Value::String(_) => {
+                return Err(format!(
+                    "copyright setting {setting} must not contain empty tags"
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "copyright setting {setting} must contain only strings"
+                ));
+            }
+        }
+    }
+
+    Ok(tags)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CopyrightFix {
+    Clean,
+    Skipped,
+    Modified(String),
+    Failed(String),
+}
+
+pub fn insert_or_update_copyright(
+    input: &str,
+    copyright: &str,
+    excluded_tags: &[String],
+) -> CopyrightFix {
+    if trim_text(input).is_empty() {
+        return CopyrightFix::Clean;
+    }
+    if contains_excluded_tag(input, excluded_tags) {
+        return CopyrightFix::Skipped;
+    }
+    if copyright.is_empty() {
+        return CopyrightFix::Failed("copyright text must not be empty".to_owned());
+    }
+
+    let line_ending = dominant_line_ending(input);
+    match copyright_block_end(input) {
+        Ok(Some(end)) => {
+            let current_header = trim_text(&input[..end]).replace("\r\n", "\n");
+            let expected_header = trim_text(copyright).replace("\r\n", "\n");
+            if current_header == expected_header {
+                CopyrightFix::Clean
+            } else {
+                CopyrightFix::Modified(format!(
+                    "{}{}{}{}{}",
+                    trim_text(copyright),
+                    line_ending,
+                    line_ending,
+                    trim_text(&input[end..]),
+                    final_line_ending(input, line_ending)
+                ))
+            }
+        }
+        Ok(None) => CopyrightFix::Modified(format!(
+            "{}{}{}{}{}",
+            trim_text(copyright),
+            line_ending,
+            line_ending,
+            trim_text(input),
+            final_line_ending(input, line_ending)
+        )),
+        Err(message) => CopyrightFix::Failed(message),
+    }
+}
+
+fn contains_excluded_tag(input: &str, excluded_tags: &[String]) -> bool {
+    input.lines().any(|line| {
+        let line = line.trim_start();
+        excluded_tags.iter().any(|tag| {
+            let Some(prefix) = line.get(..tag.len()) else {
+                return false;
+            };
+            prefix.to_lowercase() == tag.to_lowercase()
+                && line[tag.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|char| char.is_whitespace())
+        })
+    })
+}
+
+fn copyright_block_end(input: &str) -> Result<Option<usize>, String> {
+    let total_markers = input
+        .lines()
+        .filter(|line| line.trim_start().starts_with("//©"))
+        .count();
+    if total_markers == 0 {
+        return Ok(None);
+    }
+    if total_markers != 2 {
+        return Err("copyright block shape is ambiguous".to_owned());
+    }
+
+    let mut marker_count = 0;
+    let mut offset = 0;
+    for line in input.split_inclusive('\n') {
+        let line_end = offset + line.len();
+        if line.trim_start().starts_with("//©") {
+            marker_count += 1;
+            if marker_count == 2 {
+                return Ok(Some(line_end));
+            }
+            offset = line_end;
+            continue;
+        }
+        if marker_count == 1 {
+            if !line.trim_start().starts_with("//") && !line.trim().is_empty() {
+                return Err("copyright block shape is ambiguous".to_owned());
+            }
+            offset = line_end;
+            continue;
+        }
+        if marker_count == 0 && line.trim().is_empty() {
+            offset = line_end;
+            continue;
+        }
+        break;
+    }
+
+    Err("copyright block shape is ambiguous".to_owned())
+}
+
+fn dominant_line_ending(input: &str) -> &'static str {
+    if input.contains("\r\n") { "\r\n" } else { "\n" }
+}
+
+fn final_line_ending(input: &str, line_ending: &str) -> &'static str {
+    if input.ends_with('\n') || input.ends_with('\r') {
+        if line_ending == "\r\n" { "\r\n" } else { "\n" }
+    } else {
+        ""
+    }
+}
+
+fn trim_text(input: &str) -> &str {
+    input.trim_matches([' ', '\t', '\r', '\n'])
+}
+
+fn is_repository_relative_path(path: &Path) -> bool {
+    let path_string = path.to_string_lossy();
+    !path.is_absolute()
+        && !path_string.starts_with('\\')
+        && !path_string.contains('\\')
+        && !path_string
+            .as_bytes()
+            .get(1)
+            .is_some_and(|character| *character == b':')
+        && path.components().all(|component| {
+            matches!(
+                component,
+                Component::Normal(_) | Component::CurDir | Component::ParentDir
+            )
+        })
+        && !path
+            .components()
+            .any(|component| matches!(component, Component::ParentDir))
+        && !path_string
+            .replace('\\', "/")
+            .split('/')
+            .any(|component| component == "..")
 }
 
 pub fn remove_trailing_spaces_and_tabs(input: &str) -> String {
