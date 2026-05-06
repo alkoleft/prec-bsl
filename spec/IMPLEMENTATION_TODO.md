@@ -574,7 +574,7 @@ Dependencies:
 
 ## Milestone 4: Parser-Backed BSL Scenarios
 
-### T17. TODO: Integrate shared tree-sitter-bsl parser module
+### T17. DONE: Integrate shared tree-sitter-bsl parser module
 
 Add the parser foundation required by syntax-aware scenarios.
 
@@ -589,6 +589,17 @@ Acceptance criteria:
 Validation:
 
 - `cargo test bsl_parser`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/bsl_parser.rs` with shared `tree-sitter-bsl`
+  parser initialization, `tree-sitter = "0.25"` and `tree-sitter-bsl = "0.1"`
+  dependencies, UTF-8 source byte-length preservation, typed byte spans for
+  parse error nodes, and a parse API that exposes syntax errors without turning
+  them into parser failures.
+- Verification passed: `cargo fmt --check`, `cargo test bsl_parser`, and
+  `cargo test`.
+- Independent reviewer pass returned `APPROVED`.
 
 Dependencies:
 
