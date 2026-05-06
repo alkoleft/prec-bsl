@@ -1,0 +1,1 @@
+warning|ПроверкаНецензурныхСлов|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|matched dictionary word at line 2

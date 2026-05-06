@@ -107,7 +107,7 @@ Dependencies:
 
 - T2.
 
-### T4. TODO: Build golden fixture harness
+### T4. DONE: Build golden fixture harness
 
 Add a fixture test harness that can compare input, output, diagnostics, and
 idempotence for fixer and checker scenarios.
@@ -122,6 +122,14 @@ Acceptance criteria:
 Validation:
 
 - `cargo test fixtures`
+
+Completion evidence:
+
+- 2026-05-06: Added `tests/support` golden fixture helpers and
+  `tests/fixture_harness.rs` contract tests for Cyrillic fixer/checker fixtures.
+  The harness compares input, expected output, expected diagnostics, and fixer
+  idempotence while checker fixtures assert no input modification.
+- Verification passed: `cargo test fixtures` and `cargo test`.
 
 Dependencies:
 

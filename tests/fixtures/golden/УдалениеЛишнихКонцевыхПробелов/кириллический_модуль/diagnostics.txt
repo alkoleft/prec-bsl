@@ -1,0 +1,1 @@
+modified|УдалениеЛишнихКонцевыхПробелов|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|removed trailing spaces or tabs
