@@ -140,6 +140,7 @@ pub struct ScenarioResult {
     pub status: ScenarioResultStatus,
     pub message: String,
     pub modified_paths: Vec<PathBuf>,
+    pub source_span: Option<SourceSpan>,
 }
 
 impl ScenarioResult {
@@ -155,6 +156,7 @@ impl ScenarioResult {
             status,
             message: message.into(),
             modified_paths: Vec::new(),
+            source_span: None,
         }
     }
 
@@ -170,6 +172,7 @@ impl ScenarioResult {
             status: ScenarioResultStatus::Modified,
             message: message.into(),
             modified_paths: vec![path],
+            source_span: None,
         }
     }
 
@@ -208,6 +211,26 @@ impl ScenarioResult {
     pub fn with_modified_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.modified_paths.push(path.into());
         self
+    }
+
+    pub fn with_source_span(mut self, source_span: SourceSpan) -> Self {
+        self.source_span = Some(source_span);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub start_byte: usize,
+    pub end_byte: usize,
+}
+
+impl SourceSpan {
+    pub fn new(start_byte: usize, end_byte: usize) -> Self {
+        Self {
+            start_byte,
+            end_byte,
+        }
     }
 }
 

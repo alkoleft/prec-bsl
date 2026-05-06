@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+pub use crate::output::OutputFormat;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {
     PrekHook(PrekHookArgs),
@@ -37,18 +39,6 @@ pub struct RuleList(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceDirList(pub String);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
-    Text,
-    Json,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliError {

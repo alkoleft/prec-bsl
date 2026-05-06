@@ -333,7 +333,7 @@ Dependencies:
 
 - T6, T7, T8.
 
-### T10. TODO: Implement diagnostics and output formats
+### T10. DONE: Implement diagnostics and output formats
 
 Add text and JSON output for hook and CI use.
 
@@ -348,6 +348,19 @@ Acceptance criteria:
 Validation:
 
 - `cargo test output`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/output.rs` as a separate output boundary for
+  rendering `PipelineReport` in deterministic text and JSON formats. Text
+  output groups messages by rule and file, lists modified files separately
+  from hard failures, and includes the computed exit code. JSON output includes
+  rule id, path, severity, modification flag, message, modified paths, and
+  optional source byte spans.
+- Added optional `SourceSpan` support to `ScenarioResult` for future
+  parser-backed diagnostics without changing the output boundary.
+- Verification passed: `cargo fmt --check`, `cargo test output`, and
+  `cargo test`.
 
 Dependencies:
 
