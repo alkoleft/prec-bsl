@@ -16,7 +16,7 @@ Roadmap style:
 
 ## Milestone 0: Bootstrap Hook Package
 
-### T1. TODO: Define public hook manifest
+### T1. DONE: Define public hook manifest
 
 Create the root `.pre-commit-hooks.yaml` manifest.
 
@@ -32,6 +32,11 @@ Validation:
 
 - `test -f .pre-commit-hooks.yaml`
 - `rg -n "prec-bsl|language: rust|prek-hook|pass_filenames: false" .pre-commit-hooks.yaml`
+
+Completion evidence:
+
+- 2026-05-06: Added `.pre-commit-hooks.yaml` with `prec-bsl` Rust hook entry
+  `prec-bsl prek-hook`, `always_run: true`, and `pass_filenames: false`.
 
 Dependencies:
 

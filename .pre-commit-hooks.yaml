@@ -1,0 +1,7 @@
+- id: prec-bsl
+  name: prec-bsl
+  description: Run BSL source hygiene checks and fixers
+  entry: prec-bsl prek-hook
+  language: rust
+  always_run: true
+  pass_filenames: false
