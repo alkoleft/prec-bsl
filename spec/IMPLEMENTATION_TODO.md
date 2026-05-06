@@ -2,7 +2,8 @@
 
 This ledger tracks executable implementation work for the current v1 scope from
 `spec/prd-prec-bsl.md`, `spec/configuration.md`, `spec/parser-strategy.md`, and
-`spec/testing-strategy.md`.
+`spec/testing-strategy.md`. Reference scenario inventory evidence is captured in
+`spec/reference-scenario-inventory.md`.
 
 Roadmap style:
 
@@ -74,7 +75,7 @@ Dependencies:
 
 ## Milestone 1: Parity Baseline
 
-### T3. TODO: Capture reference precommit4onec scenario inventory
+### T3. DONE: Capture reference precommit4onec scenario inventory
 
 Record the reference scenario names, unsupported decisions, and execution-order
 evidence needed for parity work.
@@ -90,6 +91,17 @@ Validation:
 
 - `cargo test scenario`
 - `rg -n "Precommt4onecСценарии|РазборОбычныхФормНаИсходники" .`
+
+Completion evidence:
+
+- 2026-05-06: Added `spec/reference-scenario-inventory.md`,
+  `src/scenarios.rs`, and
+  `tests/fixtures/scenario_inventory/reference-v8config.json` to preserve the
+  reference `precommit4onec` scenario order, required v1 list, `.os`
+  normalization, explicit unsupported `РазборОбычныхФормНаИсходники`, and
+  historic `Precommt4onecСценарии` fixture key.
+- Verification passed: `cargo test scenario`, `cargo test`, and
+  `rg -n "Precommt4onecСценарии|РазборОбычныхФормНаИсходники" .`.
 
 Dependencies:
 

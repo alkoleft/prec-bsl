@@ -1,6 +1,4 @@
-mod cli;
-
-use cli::{CliCommand, HelpTopic};
+use prec_bsl::cli::{self, CliCommand, HelpTopic};
 
 fn main() {
     let exit_code = match cli::parse_env() {
