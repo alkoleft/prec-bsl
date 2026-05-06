@@ -789,7 +789,7 @@ Dependencies:
 
 ## Milestone 5: XML and EDT Scenarios
 
-### T23. TODO: Add XML/EDT parser and writer layer
+### T23. DONE: Add XML/EDT parser and writer layer
 
 Implement structured XML handling for metadata scenarios.
 
@@ -803,6 +803,20 @@ Acceptance criteria:
 Validation:
 
 - `cargo test xml_edt`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/xml_edt.rs` as a separate XML/EDT boundary backed by
+  `quick-xml` structured event parsing and writing, exported it from
+  `src/lib.rs`, and added `tests/xml_edt.rs` coverage for `.mdo`, `.form`,
+  `Configuration.mdo`, XML metadata files, unsupported file kinds, deterministic
+  clean roundtrip output, parse errors with repo paths and byte positions,
+  empty documents, multiple root elements, and trailing text outside the root.
+- Verification passed: `cargo fmt --check`, `cargo test xml_edt`, and
+  `cargo test`.
+- Independent reviewer pass found malformed document-shape gaps; they were
+  fixed with parser/writer-boundary regressions. Follow-up review found no
+  remaining T23 correctness or verification risks.
 
 Dependencies:
 
