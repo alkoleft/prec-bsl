@@ -368,7 +368,7 @@ Dependencies:
 
 ## Milestone 3: Low-Risk Text Fixers and Checks
 
-### T11. TODO: Implement trailing whitespace fixer
+### T11. DONE: Implement trailing whitespace fixer
 
 Scenario: `УдалениеЛишнихКонцевыхПробелов`.
 
@@ -382,6 +382,18 @@ Acceptance criteria:
 Validation:
 
 - `cargo test trailing_whitespace`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/text_fixers.rs` with the lexical
+  `УдалениеЛишнихКонцевыхПробелов` implementation, registered it in the
+  reference scenario registry, and added `tests/trailing_whitespace.rs` coverage
+  for the Cyrillic golden fixture, modified-file reporting, hook-mode blocking
+  after unreviewed modifications, second-run idempotence, and LF/CRLF
+  preservation.
+- Verification passed: `cargo fmt --check`, `cargo test trailing_whitespace`,
+  and `cargo test`.
+- Independent reviewer pass returned `APPROVED` with no missing verification.
 
 Dependencies:
 

@@ -5,3 +5,4 @@ pub mod output;
 pub mod scenario_pipeline;
 pub mod scenarios;
 pub mod source_files;
+pub mod text_fixers;

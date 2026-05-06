@@ -10,6 +10,7 @@ use crate::scenarios::{
     normalize_scenario_id,
 };
 use crate::source_files::{SourceFile, SourceRoot, classify_repo_path};
+use crate::text_fixers::{TRAILING_WHITESPACE_RULE, trailing_whitespace};
 
 pub type ScenarioHandler = fn(&ScenarioExecutionContext<'_>) -> ScenarioRun;
 
@@ -29,7 +30,7 @@ impl ScenarioRegistry {
                     RegisteredScenario {
                         id: scenario.id.to_owned(),
                         definition: Some(scenario),
-                        handler: skipped_until_implemented,
+                        handler: reference_handler_for(scenario.id),
                         handles_deleted_files: false,
                     },
                 )
@@ -430,6 +431,13 @@ fn skipped_until_implemented(context: &ScenarioExecutionContext<'_>) -> Scenario
     ))
 }
 
+fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
+    match scenario_id {
+        TRAILING_WHITESPACE_RULE => trailing_whitespace,
+        _ => skipped_until_implemented,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -464,8 +472,11 @@ mod tests {
         )
         .unwrap();
 
+        let registry =
+            ScenarioRegistry::reference().with_handler(TRAILING_WHITESPACE, hard_failure);
+
         let report = run_pipeline(
-            &ScenarioRegistry::reference(),
+            &registry,
             PipelineRequest {
                 repo_root: &repo,
                 source_roots: &roots,
