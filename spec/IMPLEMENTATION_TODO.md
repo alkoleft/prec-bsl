@@ -217,7 +217,7 @@ Dependencies:
 
 - T3.
 
-### T7. TODO: Implement Git index collection and restaging layer
+### T7. DONE: Implement Git index collection and restaging layer
 
 Implement Git staged-file discovery and restaging as a separate module.
 
@@ -233,6 +233,17 @@ Acceptance criteria:
 Validation:
 
 - `cargo test git_index`
+
+Completion evidence:
+
+- 2026-05-06: Added `src/git_index.rs` as a separate Git boundary module with
+  typed staged-file statuses, `git -c core.quotePath=false diff --name-status
+  --staged --no-renames` collection, Git-quoted path decoding for Cyrillic and
+  quoted paths, explicit deleted-file representation, literal-pathspec
+  `git add --` restaging for modified/generated paths, and blocking diagnostics
+  for Git failures.
+- Verification passed: `cargo fmt --check`, `cargo test git_index`, and
+  `cargo test`.
 
 Dependencies:
 
