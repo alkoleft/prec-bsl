@@ -65,6 +65,32 @@ Use text/lexical processing instead of tree-sitter when preserving exact textual
 - `ПроверкаНецензурныхСлов`
 - `ВставкаКопирайтов`
 
+### Canonical spelling fixture scope
+
+`ИсправлениеНеКаноническогоНаписания` is a lexical text-parity fixer for known
+reference keywords. It must normalize keyword spellings outside comments and
+string literals, preserve unrelated text, and prove idempotence through golden
+fixtures. The initial fixture matrix covers Russian keywords and the English
+`NULL` spelling from the reference scenario:
+
+- control flow and declarations: `Если`, `Тогда`, `Иначе`, `ИначеЕсли`,
+  `КонецЕсли`, `Для`, `Каждого`, `Цикл`, `КонецЦикла`, `Пока`, `Попытка`,
+  `Исключение`, `КонецПопытки`, `Процедура`, `КонецПроцедуры`, `Функция`,
+  `КонецФункции`, `Возврат`;
+- logical and literal spellings: `И`, `ИЛИ`/`Или`, `НЕ`/`Не`,
+  `Истина`/`ИСТИНА`, `Ложь`/`ЛОЖЬ`, `Знач`/`ЗНАЧ`,
+  `Неопределено`/`НЕОПРЕДЕЛЕНО`, `NULL`/`Null`;
+- directives and annotations: `#Если`, `#Тогда`, `#Иначе`, `#ИначеЕсли`,
+  `#КонецЕсли`, `#Область`, `#КонецОбласти`, `&НаКлиенте`, `&НаСервере`,
+  `&НаСервереБезКонтекста`, `&НаКлиентеНаСервереБезКонтекста`,
+  `&НаКлиентеНаСервере`;
+- platform contexts and other reference words: `Клиент`, `НаКлиенте`,
+  `НаСервере`, `ТолстыйКлиентОбычноеПриложение`,
+  `ТолстыйКлиентУправляемоеПриложение`, `Сервер`, `ВнешнееСоединение`,
+  `ТонкийКлиент`, `ВебКлиент`, `Выполнить`, `По`, `Прервать`,
+  `Продолжить`, `Из`, `Новый`, `Перейти`, `Перем`, `ВызватьИсключение`,
+  `ДобавитьОбработчик`, `УдалитьОбработчик`, `Знач`.
+
 Use XML/EDT/platform-specific mechanisms instead of tree-sitter for:
 
 - `КорректировкаXMLФорм`

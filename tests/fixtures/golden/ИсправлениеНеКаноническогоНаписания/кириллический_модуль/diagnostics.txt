@@ -1,0 +1,1 @@
+modified|ИсправлениеНеКаноническогоНаписания|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|fixed non-canonical keyword spelling

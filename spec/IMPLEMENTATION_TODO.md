@@ -459,7 +459,7 @@ Dependencies:
 
 - T12.
 
-### T14. TODO: Implement canonical spelling fixer
+### T14. DONE: Implement canonical spelling fixer
 
 Scenario: `ИсправлениеНеКаноническогоНаписания`.
 
@@ -473,6 +473,23 @@ Acceptance criteria:
 Validation:
 
 - `cargo test canonical_spelling`
+
+Completion evidence:
+
+- 2026-05-07: Added the lexical
+  `ИсправлениеНеКаноническогоНаписания` implementation to `src/text_fixers.rs`,
+  registered it in the reference scenario registry, and added
+  `tests/canonical_spelling.rs` plus Cyrillic golden fixtures covering Russian
+  and English keyword spellings, string/comment safety, modified-file reporting,
+  hook-mode blocking after unreviewed modifications, and second-run idempotence.
+- Added explicit reference-keyword-scope coverage for directives, annotations,
+  platform contexts, loops, declarations, logical aliases, literals and handler
+  keywords; accepted reference aliases such as `Или`, `Не`, `ИСТИНА`, `ЛОЖЬ`,
+  `ЗНАЧ`, `НЕОПРЕДЕЛЕНО`, and `Null` remain unchanged.
+- Verification passed: `cargo fmt --check`, `cargo test canonical_spelling`,
+  and `cargo test`.
+- Independent reviewer pass returned `APPROVED` after the keyword-scope
+  verification gap was fixed.
 
 Dependencies:
 

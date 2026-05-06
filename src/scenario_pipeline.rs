@@ -11,8 +11,9 @@ use crate::scenarios::{
 };
 use crate::source_files::{SourceFile, SourceRoot, classify_repo_path};
 use crate::text_fixers::{
-    EXTRA_BLANK_LINES_RULE, KEYWORD_SPACING_RULE, TRAILING_WHITESPACE_RULE, extra_blank_lines,
-    keyword_spacing, trailing_whitespace,
+    CANONICAL_SPELLING_RULE, EXTRA_BLANK_LINES_RULE, KEYWORD_SPACING_RULE,
+    TRAILING_WHITESPACE_RULE, canonical_spelling, extra_blank_lines, keyword_spacing,
+    trailing_whitespace,
 };
 
 pub type ScenarioHandler = fn(&ScenarioExecutionContext<'_>) -> ScenarioRun;
@@ -439,6 +440,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         TRAILING_WHITESPACE_RULE => trailing_whitespace,
         EXTRA_BLANK_LINES_RULE => extra_blank_lines,
         KEYWORD_SPACING_RULE => keyword_spacing,
+        CANONICAL_SPELLING_RULE => canonical_spelling,
         _ => skipped_until_implemented,
     }
 }
