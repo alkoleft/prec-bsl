@@ -428,7 +428,7 @@ Dependencies:
 
 - T11.
 
-### T13. TODO: Implement keyword spacing fixer
+### T13. DONE: Implement keyword spacing fixer
 
 Scenario: `ДобавлениеПробеловПередКлючевымиСловами`.
 
@@ -441,6 +441,19 @@ Acceptance criteria:
 Validation:
 
 - `cargo test keyword_spacing`
+
+Completion evidence:
+
+- 2026-05-07: Added the lexical
+  `ДобавлениеПробеловПередКлючевымиСловами` implementation to
+  `src/text_fixers.rs`, registered it in the reference scenario registry, and
+  added `tests/keyword_spacing.rs` plus Cyrillic golden fixtures covering
+  `Экспорт` spacing after a closing parenthesis, mixed-case keyword
+  preservation, single-line and multiline comment/string safety,
+  modified-file reporting, hook-mode blocking after unreviewed modifications,
+  and second-run idempotence.
+- Verification passed: `cargo fmt --check`, `cargo test keyword_spacing`, and
+  `cargo test`.
 
 Dependencies:
 
