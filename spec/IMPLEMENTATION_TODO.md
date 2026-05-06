@@ -711,7 +711,7 @@ Dependencies:
 
 - T17.
 
-### T21. TODO: Implement region correctness checker
+### T21. DONE: Implement region correctness checker
 
 Scenario: `ПроверкаКорректностиОбластей`.
 
@@ -726,6 +726,26 @@ Acceptance criteria:
 Validation:
 
 - `cargo test regions`
+
+Completion evidence:
+
+- 2026-05-07: Added the parser-backed
+  `ПроверкаКорректностиОбластей` implementation to `src/bsl_checkers.rs`,
+  registered it in the reference scenario registry, and documented the T21
+  parser/fallback contract in `spec/parser-strategy.md`.
+- The checker validates `#Область` / `#КонецОбласти` and English
+  `#Region` / `#EndRegion` pairs with a narrow case-insensitive lexical stack
+  fallback for precise balance diagnostics, reports hard failures with source
+  spans, skips non-BSL files, ignores comments/string literals and ordinary
+  non-region BSL parse errors, and never modifies source files.
+- Added `tests/regions.rs` coverage for valid nested regions, missing end
+  regions, unmatched end regions, missing region names, case-insensitive
+  Russian directives, English directives, comments/string literals, ordinary
+  BSL parse errors, non-BSL file skipping, and hook/exec-rules exit behavior.
+- Verification passed: `cargo fmt --check`, `cargo test regions`,
+  `cargo test`, and `git diff --check`.
+- Independent reviewer pass found missing English-directive coverage and
+  ledger evidence gaps; both were fixed before completion.
 
 Dependencies:
 

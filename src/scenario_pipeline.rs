@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::bsl_checkers::{
-    DUPLICATE_METHODS_RULE, FORBID_GOTO_RULE, PREPROCESSOR_RULE, duplicate_methods, forbid_goto,
-    preprocessor_instructions,
+    DUPLICATE_METHODS_RULE, FORBID_GOTO_RULE, PREPROCESSOR_RULE, REGIONS_RULE, duplicate_methods,
+    forbid_goto, preprocessor_instructions, regions,
 };
 use crate::config::ResolvedConfig;
 use crate::git_index::StagedStatus;
@@ -450,6 +450,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         FORBID_GOTO_RULE => forbid_goto,
         DUPLICATE_METHODS_RULE => duplicate_methods,
         PREPROCESSOR_RULE => preprocessor_instructions,
+        REGIONS_RULE => regions,
         PROFANITY_RULE => profanity,
         _ => skipped_until_implemented,
     }

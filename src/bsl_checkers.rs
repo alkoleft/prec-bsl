@@ -10,6 +10,7 @@ use crate::source_files::SourceFileKind;
 pub const FORBID_GOTO_RULE: &str = "ЗапретИспользованияПерейти";
 pub const DUPLICATE_METHODS_RULE: &str = "ПроверкаДублейПроцедурИФункций";
 pub const PREPROCESSOR_RULE: &str = "ПроверкаКорректностиИнструкцийПрепроцессора";
+pub const REGIONS_RULE: &str = "ПроверкаКорректностиОбластей";
 
 const GOTO_STATEMENT_KIND: &str = "goto_statement";
 const GOTO_KEYWORD_KIND: &str = "GOTO_KEYWORD";
@@ -18,6 +19,8 @@ const FUNCTION_DEFINITION_KIND: &str = "function_definition";
 const PREPROCESSOR_KIND: &str = "preprocessor";
 const PREPROC_KIND: &str = "preproc";
 const ANNOTATION_KIND: &str = "annotation";
+const PREPROC_REGION_KEYWORD_KIND: &str = "PREPROC_REGION_KEYWORD";
+const PREPROC_ENDREGION_KEYWORD_KIND: &str = "PREPROC_ENDREGION_KEYWORD";
 
 pub fn forbid_goto(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
     if context.file.kind != SourceFileKind::BslModule {
@@ -175,6 +178,56 @@ pub fn preprocessor_instructions(context: &ScenarioExecutionContext<'_>) -> Scen
     }
 }
 
+pub fn regions(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    if context.file.kind != SourceFileKind::BslModule {
+        return ScenarioRun::single(ScenarioResult::skipped(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "scenario handles only BSL modules",
+        ));
+    }
+
+    let path = context.repo_root.join(&context.file.repo_path);
+    let input = match fs::read_to_string(&path) {
+        Ok(input) => input,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                format!("failed to read file: {error}"),
+            ));
+        }
+    };
+
+    let errors = match find_region_correctness_errors(&input) {
+        Ok(errors) => errors,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                error.to_string(),
+            ));
+        }
+    };
+
+    let results = errors
+        .into_iter()
+        .map(|error| {
+            ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                error.message,
+            )
+            .with_source_span(SourceSpan::new(error.span.start_byte, error.span.end_byte))
+        })
+        .collect();
+
+    ScenarioRun {
+        results,
+        post_processing_paths: Vec::new(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GotoUsage {
     pub span: BslByteSpan,
@@ -188,6 +241,12 @@ pub struct MethodDefinition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreprocessorInstructionError {
+    pub span: BslByteSpan,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionCorrectnessError {
     pub span: BslByteSpan,
     pub message: String,
 }
@@ -227,6 +286,18 @@ pub fn find_preprocessor_instruction_errors(
     let mut errors = Vec::new();
     collect_preprocessor_instruction_errors(parsed.tree().root_node(), input, false, &mut errors);
     errors.extend(find_preprocessor_if_balance_errors(input));
+    Ok(errors)
+}
+
+pub fn find_region_correctness_errors(
+    input: &str,
+) -> Result<Vec<RegionCorrectnessError>, crate::bsl_parser::BslParserError> {
+    let mut parser = BslParser::new()?;
+    let parsed = parser.parse(input)?;
+    let mut errors = Vec::new();
+    collect_region_parse_errors(parsed.tree().root_node(), input, &mut errors);
+    errors.extend(find_region_balance_errors(input));
+    deduplicate_region_errors(&mut errors);
     Ok(errors)
 }
 
@@ -298,6 +369,26 @@ fn collect_preprocessor_instruction_errors(
     }
 }
 
+fn collect_region_parse_errors(
+    node: Node<'_>,
+    input: &str,
+    errors: &mut Vec<RegionCorrectnessError>,
+) {
+    if is_error_node(node) && is_region_related_error(node, input) {
+        errors.push(RegionCorrectnessError {
+            span: BslByteSpan::new(node.start_byte(), node.end_byte()),
+            message: region_error_message(node),
+        });
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.has_error() || child.is_error() || child.is_missing() {
+            collect_region_parse_errors(child, input, errors);
+        }
+    }
+}
+
 fn is_error_node(node: Node<'_>) -> bool {
     node.is_error() || node.is_missing()
 }
@@ -316,6 +407,19 @@ fn is_preprocessor_kind(kind: &str) -> bool {
         || kind.starts_with("PREPROC_")
 }
 
+fn is_region_related_error(node: Node<'_>, input: &str) -> bool {
+    is_region_keyword_kind(node.kind())
+        || node_subtree_contains_region_keyword(node)
+        || node_span_starts_with_region_marker(node, input)
+}
+
+fn is_region_keyword_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        PREPROC_REGION_KEYWORD_KIND | PREPROC_ENDREGION_KEYWORD_KIND
+    )
+}
+
 fn node_subtree_contains_preprocessor(node: Node<'_>) -> bool {
     if is_preprocessor_kind(node.kind()) {
         return true;
@@ -326,6 +430,16 @@ fn node_subtree_contains_preprocessor(node: Node<'_>) -> bool {
         .any(node_subtree_contains_preprocessor)
 }
 
+fn node_subtree_contains_region_keyword(node: Node<'_>) -> bool {
+    if is_region_keyword_kind(node.kind()) {
+        return true;
+    }
+
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .any(node_subtree_contains_region_keyword)
+}
+
 fn node_span_starts_with_preprocessor_marker(node: Node<'_>, input: &str) -> bool {
     input
         .get(node.start_byte()..node.end_byte())
@@ -333,11 +447,32 @@ fn node_span_starts_with_preprocessor_marker(node: Node<'_>, input: &str) -> boo
         .is_some_and(|text| text.starts_with('#') || text.starts_with('&'))
 }
 
+fn node_span_starts_with_region_marker(node: Node<'_>, input: &str) -> bool {
+    input
+        .get(node.start_byte()..node.end_byte())
+        .map(str::trim_start)
+        .is_some_and(|text| {
+            let normalized = text.to_lowercase();
+            normalized.starts_with("#область")
+                || normalized.starts_with("#конецобласти")
+                || normalized.starts_with("#region")
+                || normalized.starts_with("#endregion")
+        })
+}
+
 fn preprocessor_error_message(node: Node<'_>) -> String {
     if node.is_missing() {
         format!("invalid preprocessor instruction: missing {}", node.kind())
     } else {
         "invalid preprocessor instruction".to_owned()
+    }
+}
+
+fn region_error_message(node: Node<'_>) -> String {
+    if node.is_missing() {
+        format!("invalid region directive: missing {}", node.kind())
+    } else {
+        "invalid region directive".to_owned()
     }
 }
 
@@ -439,6 +574,103 @@ fn invalid_preprocessor_instruction(span: BslByteSpan) -> PreprocessorInstructio
         span,
         message: "invalid preprocessor instruction".to_owned(),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RegionDirective {
+    span: BslByteSpan,
+}
+
+fn find_region_balance_errors(input: &str) -> Vec<RegionCorrectnessError> {
+    let mut errors = Vec::new();
+    let mut stack = Vec::<RegionDirective>::new();
+
+    let mut offset = 0;
+    for line in input.split_inclusive('\n') {
+        let line_without_ending = line.trim_end_matches(['\r', '\n']);
+        if let Some(directive) = region_directive(line_without_ending, offset) {
+            match directive.kind {
+                RegionDirectiveKind::Region => {
+                    if !directive.has_name {
+                        errors.push(RegionCorrectnessError {
+                            span: directive.span,
+                            message: "invalid region directive: missing identifier".to_owned(),
+                        });
+                    }
+                    stack.push(RegionDirective {
+                        span: directive.span,
+                    });
+                }
+                RegionDirectiveKind::EndRegion => {
+                    if stack.pop().is_none() {
+                        errors.push(invalid_region_directive(directive.span));
+                    }
+                }
+            }
+        }
+        offset += line.len();
+    }
+
+    errors.extend(stack.into_iter().map(|directive| RegionCorrectnessError {
+        span: directive.span,
+        message: "invalid region directive: missing #КонецОбласти".to_owned(),
+    }));
+    errors
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegionDirectiveKind {
+    Region,
+    EndRegion,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ParsedRegionDirective {
+    kind: RegionDirectiveKind,
+    span: BslByteSpan,
+    has_name: bool,
+}
+
+fn region_directive(line: &str, line_offset: usize) -> Option<ParsedRegionDirective> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("//") {
+        return None;
+    }
+
+    let start_byte = line_offset + line.len() - trimmed.len();
+    let (token, rest) = trimmed
+        .split_once(char::is_whitespace)
+        .map_or((trimmed, ""), |(token, rest)| (token, rest));
+    let normalized = token.to_lowercase();
+    let kind = match normalized.as_str() {
+        "#область" | "#region" => RegionDirectiveKind::Region,
+        "#конецобласти" | "#endregion" => RegionDirectiveKind::EndRegion,
+        _ => return None,
+    };
+
+    Some(ParsedRegionDirective {
+        kind,
+        span: BslByteSpan::new(start_byte, start_byte + token.len()),
+        has_name: !rest.trim().is_empty(),
+    })
+}
+
+fn invalid_region_directive(span: BslByteSpan) -> RegionCorrectnessError {
+    RegionCorrectnessError {
+        span,
+        message: "invalid region directive".to_owned(),
+    }
+}
+
+fn deduplicate_region_errors(errors: &mut Vec<RegionCorrectnessError>) {
+    let mut seen = std::collections::BTreeSet::new();
+    errors.retain(|error| {
+        seen.insert((
+            error.span.start_byte,
+            error.span.end_byte,
+            error.message.clone(),
+        ))
+    });
 }
 
 fn goto_keyword_span(statement: Node<'_>) -> BslByteSpan {

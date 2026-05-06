@@ -139,6 +139,30 @@ incomplete directives, missing directive expressions, standalone unmatched
 directive branches such as `#Иначе`, comments/string literals containing
 preprocessor-looking text, and non-BSL file skipping.
 
+### Region correctness checker contract
+
+`ПроверкаКорректностиОбластей` is parser-backed and does not modify source
+text.
+
+The checker validates `#Область` / `#КонецОбласти` and English
+`#Region` / `#EndRegion` pairs. It must report blocking diagnostics for:
+
+- unmatched closing region directives;
+- opening region directives without a matching closing directive;
+- region-related tree-sitter `ERROR` or missing nodes where parser coverage
+  gives a precise span.
+
+The published `tree-sitter-bsl` 0.1.x grammar models valid regions as
+preprocessor nodes, but malformed region balance can be easier to report
+precisely with a narrow lexical stack. This fallback is limited to directive
+lines, is case-insensitive, ignores comments and string literals, and must not
+rewrite source text.
+
+Initial fixtures must cover valid nested regions, missing `#КонецОбласти`,
+unmatched `#КонецОбласти`, case-insensitive directives, comments/string
+literals containing region-looking text, ordinary non-region BSL parse errors,
+and non-BSL file skipping.
+
 ## Open Validation Tasks
 
 - Build a fixture matrix for Russian and English keyword spellings.
