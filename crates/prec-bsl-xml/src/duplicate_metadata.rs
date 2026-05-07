@@ -7,10 +7,17 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::xml_edt::parse_document;
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const DUPLICATE_METADATA_RULE: &str = "УдалениеДублейМетаданных";
+pub const DUPLICATE_METADATA_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    DUPLICATE_METADATA_RULE,
+    "УдалениеДублейМетаданных.os",
+    duplicate_metadata,
+);
 
 pub fn duplicate_metadata(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
     if duplicate_metadata_format_for_path(&context.file.source_relative_path).is_none() {

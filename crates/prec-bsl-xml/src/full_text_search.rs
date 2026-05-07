@@ -7,10 +7,17 @@ use quick_xml::reader::Reader;
 use serde_json::Value;
 
 use crate::xml_edt::{parse_document, write_validated_xml};
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const DISABLE_FULL_TEXT_SEARCH_RULE: &str = "ОтключениеПолнотекстовогоПоиска";
+pub const DISABLE_FULL_TEXT_SEARCH_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    DISABLE_FULL_TEXT_SEARCH_RULE,
+    "ОтключениеПолнотекстовогоПоиска.os",
+    disable_full_text_search,
+);
 
 const EXCLUDED_METADATA_SETTING: &str = "МетаданныеДляИсключения";
 const USE_VALUE: &str = "Use";

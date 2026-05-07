@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use crate::model::{PipelineReport, PipelineRequest, ScenarioExecutionContext, ScenarioResult};
 use crate::registry::ScenarioRegistry;
+use prec_bsl_config::normalize_scenario_id;
 use prec_bsl_git::StagedStatus;
-use prec_bsl_scenarios::normalize_scenario_id;
 use prec_bsl_source::{SourceFile, SourceRoot, classify_repo_path};
 
 pub fn run_pipeline(registry: &ScenarioRegistry, request: PipelineRequest<'_>) -> PipelineReport {

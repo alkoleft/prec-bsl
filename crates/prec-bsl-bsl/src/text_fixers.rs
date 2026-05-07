@@ -3,7 +3,9 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
 
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const COPYRIGHT_RULE: &str = "ВставкаКопирайтов";
@@ -11,6 +13,29 @@ pub const TRAILING_WHITESPACE_RULE: &str = "УдалениеЛишнихКонц
 pub const EXTRA_BLANK_LINES_RULE: &str = "УдалениеЛишнихПустыхСтрок";
 pub const KEYWORD_SPACING_RULE: &str = "ДобавлениеПробеловПередКлючевымиСловами";
 pub const CANONICAL_SPELLING_RULE: &str = "ИсправлениеНеКаноническогоНаписания";
+
+pub const COPYRIGHT_SCENARIO: ScenarioDefinition =
+    ScenarioDefinition::required_v1(COPYRIGHT_RULE, "ВставкаКопирайтов.os", copyright);
+pub const TRAILING_WHITESPACE_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    TRAILING_WHITESPACE_RULE,
+    "УдалениеЛишнихКонцевыхПробелов.os",
+    trailing_whitespace,
+);
+pub const EXTRA_BLANK_LINES_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    EXTRA_BLANK_LINES_RULE,
+    "УдалениеЛишнихПустыхСтрок.os",
+    extra_blank_lines,
+);
+pub const KEYWORD_SPACING_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    KEYWORD_SPACING_RULE,
+    "ДобавлениеПробеловПередКлючевымиСловами.os",
+    keyword_spacing,
+);
+pub const CANONICAL_SPELLING_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    CANONICAL_SPELLING_RULE,
+    "ИсправлениеНеКаноническогоНаписания.os",
+    canonical_spelling,
+);
 
 const COPYRIGHT_PATH_SETTING: &str = "ПутьКФайлуКопирайта";
 const EXCLUDED_TAGS_SETTING: &str = "ИсключаемыеТеги";

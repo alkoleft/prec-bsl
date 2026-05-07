@@ -3,12 +3,33 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::*;
-use prec_bsl_config::parse_config_str;
+use prec_bsl_config::{ConfigError, ResolvedConfig, ScenarioCatalog, ScenarioMetadata};
 use prec_bsl_git::StagedStatus;
 use prec_bsl_source::{classify_repo_path, resolve_source_roots};
 
-const TRAILING_WHITESPACE: &str = "УдалениеЛишнихКонцевыхПробелов";
-const EXTRA_BLANK_LINES: &str = "УдалениеЛишнихПустыхСтрок";
+const TRAILING_WHITESPACE_RULE: &str = "УдалениеЛишнихКонцевыхПробелов";
+const EXTRA_BLANK_LINES_RULE: &str = "УдалениеЛишнихПустыхСтрок";
+const TRAILING_WHITESPACE: ScenarioMetadata = ScenarioMetadata::required_v1(
+    TRAILING_WHITESPACE_RULE,
+    "УдалениеЛишнихКонцевыхПробелов.os",
+);
+const EXTRA_BLANK_LINES: ScenarioMetadata =
+    ScenarioMetadata::required_v1(EXTRA_BLANK_LINES_RULE, "УдалениеЛишнихПустыхСтрок.os");
+const PROFANITY: ScenarioMetadata =
+    ScenarioMetadata::required_v1("ПроверкаНецензурныхСлов", "ПроверкаНецензурныхСлов.os");
+const TEST_SCENARIOS: &[ScenarioMetadata] = &[TRAILING_WHITESPACE, EXTRA_BLANK_LINES, PROFANITY];
+
+fn test_catalog() -> ScenarioCatalog<'static> {
+    ScenarioCatalog::new(TEST_SCENARIOS)
+}
+
+fn parse_config_str(source: &str) -> Result<ResolvedConfig, ConfigError> {
+    prec_bsl_config::parse_config_str_with_catalog(source, test_catalog())
+}
+
+fn reference_registry() -> ScenarioRegistry {
+    ScenarioRegistry::reference(test_catalog())
+}
 
 #[test]
 fn scenario_pipeline_keeps_configured_order_with_normalized_ids() {
@@ -30,9 +51,10 @@ fn scenario_pipeline_keeps_configured_order_with_normalized_ids() {
     )
     .unwrap();
 
-    let registry = ScenarioRegistry::reference()
-        .with_handler(TRAILING_WHITESPACE, hard_failure)
-        .with_handler(EXTRA_BLANK_LINES, hard_failure);
+    let registry = reference_registry().with_definitions([
+        ScenarioDefinition::new(TRAILING_WHITESPACE, hard_failure),
+        ScenarioDefinition::new(EXTRA_BLANK_LINES, hard_failure),
+    ]);
 
     let report = run_pipeline(
         &registry,
@@ -51,7 +73,10 @@ fn scenario_pipeline_keeps_configured_order_with_normalized_ids() {
         .map(|result| result.rule_id.as_str())
         .collect::<Vec<_>>();
 
-    assert_eq!(executed_rules, vec![TRAILING_WHITESPACE, EXTRA_BLANK_LINES]);
+    assert_eq!(
+        executed_rules,
+        vec![TRAILING_WHITESPACE_RULE, EXTRA_BLANK_LINES_RULE]
+    );
 }
 
 #[test]
@@ -74,7 +99,8 @@ fn scenario_pipeline_uses_project_specific_scenario_order() {
     )
     .unwrap();
 
-    let registry = ScenarioRegistry::reference().with_handler(EXTRA_BLANK_LINES, hard_failure);
+    let registry = reference_registry()
+        .with_definition(ScenarioDefinition::new(EXTRA_BLANK_LINES, hard_failure));
 
     let report = run_pipeline(
         &registry,
@@ -88,7 +114,7 @@ fn scenario_pipeline_uses_project_specific_scenario_order() {
     );
 
     assert_eq!(report.results.len(), 1);
-    assert_eq!(report.results[0].rule_id, EXTRA_BLANK_LINES);
+    assert_eq!(report.results[0].rule_id, EXTRA_BLANK_LINES_RULE);
 }
 
 #[test]
@@ -106,8 +132,10 @@ fn scenario_pipeline_appends_post_processing_files_to_queue_once() {
             }"#,
     )
     .unwrap();
-    let registry =
-        ScenarioRegistry::reference().with_handler(TRAILING_WHITESPACE, append_generated_once);
+    let registry = reference_registry().with_definition(ScenarioDefinition::new(
+        TRAILING_WHITESPACE,
+        append_generated_once,
+    ));
 
     let report = run_pipeline(
         &registry,
@@ -143,7 +171,8 @@ fn scenario_pipeline_distinguishes_result_statuses_and_hook_exit() {
             }"#,
     )
     .unwrap();
-    let registry = ScenarioRegistry::reference().with_handler(TRAILING_WHITESPACE, all_statuses);
+    let registry = reference_registry()
+        .with_definition(ScenarioDefinition::new(TRAILING_WHITESPACE, all_statuses));
 
     let report = run_pipeline(
         &registry,
@@ -197,7 +226,8 @@ fn scenario_pipeline_accumulates_critical_errors_after_traversal() {
             }"#,
     )
     .unwrap();
-    let registry = ScenarioRegistry::reference().with_handler(TRAILING_WHITESPACE, hard_failure);
+    let registry = reference_registry()
+        .with_definition(ScenarioDefinition::new(TRAILING_WHITESPACE, hard_failure));
 
     let report = run_pipeline(
         &registry,
@@ -268,7 +298,8 @@ fn scenario_pipeline_skips_deleted_files_without_deleted_file_capability() {
             }"#,
     )
     .unwrap();
-    let registry = ScenarioRegistry::reference().with_handler(TRAILING_WHITESPACE, hard_failure);
+    let registry = reference_registry()
+        .with_definition(ScenarioDefinition::new(TRAILING_WHITESPACE, hard_failure));
 
     let report = run_pipeline(
         &registry,
@@ -304,8 +335,9 @@ fn scenario_pipeline_passes_deleted_files_to_explicit_deleted_file_handlers() {
             }"#,
     )
     .unwrap();
-    let registry =
-        ScenarioRegistry::reference().with_deleted_file_handler(TRAILING_WHITESPACE, hard_failure);
+    let registry = reference_registry().with_definition(
+        ScenarioDefinition::new(TRAILING_WHITESPACE, hard_failure).with_deleted_files(),
+    );
 
     let report = run_pipeline(
         &registry,

@@ -11,7 +11,13 @@ reference:
 
 The inventory baseline is captured in code-facing fixture
 `tests/fixtures/scenario_inventory/reference-v8config.json` and Rust scenario
-metadata in `src/scenarios.rs`.
+metadata in the root facade catalog in `src/lib.rs`.
+
+Implemented scenarios are defined as complete executable `*_SCENARIO` bindings
+next to their handlers in the owning rule module. The root facade catalog
+collects those definitions and adds explicit metadata-only inventory entries
+only for non-executable decisions such as
+`РазборОбычныхФормНаИсходники`.
 
 ## Evidence Sources
 

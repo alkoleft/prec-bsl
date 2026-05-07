@@ -95,7 +95,7 @@ Validation:
 Completion evidence:
 
 - 2026-05-06: Added `spec/reference-scenario-inventory.md`,
-  `src/scenarios.rs`, and
+  scenario metadata now collected by the root facade catalog in `src/lib.rs`, and
   `tests/fixtures/scenario_inventory/reference-v8config.json` to preserve the
   reference `precommit4onec` scenario order, required v1 list, `.os`
   normalization, explicit unsupported `РазборОбычныхФормНаИсходники`, and
@@ -1498,7 +1498,6 @@ Completion evidence:
 - 2026-05-07: Converted the root package into a Cargo workspace while keeping
   the public `prec-bsl` binary/library facade.
 - Added focused internal crates:
-  - `prec-bsl-scenarios` for scenario inventory and id normalization;
   - `prec-bsl-config` for `v8config.json` parsing and resolution;
   - `prec-bsl-git` for staged-file collection and restaging;
   - `prec-bsl-source` for source roots and file classification;
@@ -1510,6 +1509,9 @@ Completion evidence:
   - `prec-bsl-xml` for XML/EDT, metadata and composition scenarios;
   - `prec-bsl-platform` for the external report/processing/extension runtime
     boundary.
+- Kept scenario catalog assembly in the root facade instead of a separate
+  inventory crate, so implemented scenarios are defined in their owning rule
+  modules and config receives catalog metadata explicitly.
 - Moved reference handler wiring out of `prec-bsl-pipeline` into the facade
   `reference_registry()` function, so the pipeline crate no longer imports
   concrete BSL/XML/platform rule handlers.
@@ -1518,8 +1520,8 @@ Completion evidence:
     resolution, validation and tests;
   - `prec-bsl-pipeline` now separates execution models, registry contracts,
     runner logic and tests;
-  - Git, source, output and scenario-inventory crates keep inline library code
-    separate from their test modules.
+  - Git, source and output crates keep inline library code separate from their
+    test modules.
 - Kept existing test-facing module paths through facade re-exports such as
   `prec_bsl::config`, `prec_bsl::source_files`, `prec_bsl::text_fixers` and
   `prec_bsl::xml_edt`.
@@ -1533,3 +1535,57 @@ Completion evidence:
 Dependencies:
 
 - T37.
+
+### T39. DONE: Bind executable scenario definitions next to handlers
+
+Remove the loose string-based handler wiring left after the workspace split.
+Each implemented rule module should expose a complete executable scenario
+definition near its handler function, while config receives scenario metadata
+through an explicit catalog.
+
+Motivation:
+
+- Scenario metadata and handler functions were still connected by separate
+  string constants in `reference_registry()`.
+- A supported scenario could remain described in the inventory while its
+  handler was forgotten or accidentally bound to a different id.
+
+Acceptance criteria:
+
+- `prec-bsl-config` owns catalog-neutral `ScenarioMetadata`, `ScenarioSupport`,
+  `ScenarioCatalog` and id-normalization types.
+- Runtime `ScenarioDefinition` includes metadata, handler and deleted-file
+  capability, and provides constructors for required and compatibility
+  executable scenarios.
+- BSL, XML/EDT, metadata, composition and platform rule modules expose nearby
+  `*_SCENARIO` constants that bind their ids, source files, support level and
+  concrete handlers in one place.
+- The root facade catalog collects executable definitions plus metadata-only
+  non-executable decisions; config/default resolution receives this catalog
+  explicitly instead of depending on a separate scenario-inventory crate.
+- `reference_registry()` collects executable definitions only; it does not
+  manually pair free strings with handlers.
+- A regression test fails if any required or compatibility scenario in the
+  reference inventory is not bound to a registered handler.
+
+Completion evidence:
+
+- 2026-05-07: Added config-level `ScenarioMetadata`, `ScenarioSupport`,
+  `ScenarioCatalog` and id normalization, added runtime
+  `ScenarioDefinition { metadata, handler, handles_deleted_files }`, and moved
+  executable `*_SCENARIO` constants into the rule modules next to the handlers.
+- Replaced facade `.with_handler(<id>, <fn>)` wiring with
+  `ScenarioRegistry::with_definitions([...])`.
+- Removed the separate `prec-bsl-scenarios` crate; the root facade now exposes
+  compatibility helpers through `prec_bsl::scenarios` while config receives the
+  root catalog explicitly.
+- Added `reference_registry_binds_every_supported_reference_scenario_to_handler`
+  coverage for all required v1 and explicit compatibility scenarios.
+- Verification passed: `cargo fmt --all`, `cargo test --workspace
+  scenario_pipeline`, `cargo test --workspace
+  reference_registry_binds_every_supported_reference_scenario_to_handler`, and
+  `cargo test --workspace reference_scenario_inventory`.
+
+Dependencies:
+
+- T38.

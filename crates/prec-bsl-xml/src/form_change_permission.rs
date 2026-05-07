@@ -5,10 +5,17 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::xml_edt::{parse_document, write_validated_xml};
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const DISABLE_FORM_CHANGE_RULE: &str = "ОтключениеРазрешенияИзменятьФорму";
+pub const DISABLE_FORM_CHANGE_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    DISABLE_FORM_CHANGE_RULE,
+    "ОтключениеРазрешенияИзменятьФорму.os",
+    disable_form_change_permission,
+);
 
 const TRUE_VALUE: &str = "true";
 const FALSE_VALUE: &str = "false";

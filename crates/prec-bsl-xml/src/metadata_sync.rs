@@ -6,10 +6,18 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::xml_edt::parse_document;
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::{SourceFileKind, SourceRoot};
 
 pub const METADATA_SYNC_RULE: &str = "СинхронизацияОбъектовМетаданныхИФайлов";
+pub const METADATA_SYNC_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    METADATA_SYNC_RULE,
+    "СинхронизацияОбъектовМетаданныхИФайлов.os",
+    metadata_sync,
+)
+.with_deleted_files();
 
 const CONFIGURATION_DIR: &str = "Configuration";
 const EDT_CONFIGURATION_FILE: &str = "Configuration.mdo";

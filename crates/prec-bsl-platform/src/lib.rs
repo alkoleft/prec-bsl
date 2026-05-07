@@ -3,10 +3,17 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const EXTERNAL_ARTIFACTS_RULE: &str = "РазборОтчетовОбработокРасширений";
+pub const EXTERNAL_ARTIFACTS_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    EXTERNAL_ARTIFACTS_RULE,
+    "РазборОтчетовОбработокРасширений.os",
+    external_artifacts,
+);
 
 const PLATFORM_EXECUTABLE_CANDIDATES: &[&str] = &["1cv8", "1cv8c", "1cv8.exe", "1cv8c.exe"];
 

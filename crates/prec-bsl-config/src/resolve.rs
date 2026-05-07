@@ -8,8 +8,8 @@ use crate::model::{
 };
 use crate::path::resolve_repo_path;
 use crate::raw::parse_raw_config;
+use crate::scenario::{ScenarioCatalog, normalize_scenario_id};
 use crate::validation::{add_validation_warnings, validate_config};
-use prec_bsl_scenarios::{ScenarioSupport, normalize_scenario_id};
 
 pub(crate) const CONFIG_FILE_NAME: &str = "v8config.json";
 
@@ -30,7 +30,10 @@ impl ConfigResolveRequest {
     }
 }
 
-pub fn resolve_config(request: &ConfigResolveRequest) -> Result<ResolvedConfig, ConfigError> {
+pub fn resolve_config_with_catalog(
+    request: &ConfigResolveRequest,
+    catalog: ScenarioCatalog<'_>,
+) -> Result<ResolvedConfig, ConfigError> {
     let (source, mut config) = match &request.config_path {
         Some(config_path) => {
             let path = resolve_repo_path(&request.repo_root, config_path);
@@ -47,7 +50,10 @@ pub fn resolve_config(request: &ConfigResolveRequest) -> Result<ResolvedConfig, 
                     load_config_from_path(&path)?,
                 )
             } else {
-                (ConfigSource::BuiltInDefaults, built_in_defaults())
+                (
+                    ConfigSource::BuiltInDefaults,
+                    built_in_defaults_with_catalog(catalog),
+                )
             }
         }
     };
@@ -62,22 +68,25 @@ pub fn resolve_config(request: &ConfigResolveRequest) -> Result<ResolvedConfig, 
         }
     }
 
-    add_validation_warnings(&mut config);
-    validate_config(&config)?;
+    add_validation_warnings(&mut config, catalog);
+    validate_config(&config, catalog)?;
     config.source = source;
 
     Ok(config)
 }
 
-pub fn parse_config_str(source: &str) -> Result<ResolvedConfig, ConfigError> {
+pub fn parse_config_str_with_catalog(
+    source: &str,
+    catalog: ScenarioCatalog<'_>,
+) -> Result<ResolvedConfig, ConfigError> {
     let raw = parse_raw_config(source, None)?;
     let mut config = raw.into_resolved(ConfigSource::BuiltInDefaults);
-    add_validation_warnings(&mut config);
-    validate_config(&config)?;
+    add_validation_warnings(&mut config, catalog);
+    validate_config(&config, catalog)?;
     Ok(config)
 }
 
-pub fn built_in_defaults() -> ResolvedConfig {
+pub fn built_in_defaults_with_catalog(catalog: ScenarioCatalog<'_>) -> ResolvedConfig {
     ResolvedConfig {
         source: ConfigSource::BuiltInDefaults,
         global: GlobalConfig {
@@ -90,9 +99,8 @@ pub fn built_in_defaults() -> ResolvedConfig {
                 use_repository_scenarios: false,
                 local_scenarios_dir: None,
             },
-            global_scenarios: prec_bsl_scenarios::REFERENCE_SCENARIOS
-                .iter()
-                .filter(|scenario| scenario.support == ScenarioSupport::RequiredV1)
+            global_scenarios: catalog
+                .required_v1()
                 .map(|scenario| scenario.id.to_owned())
                 .collect(),
             disabled_scenarios: Vec::new(),

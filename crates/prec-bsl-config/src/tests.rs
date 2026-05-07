@@ -6,7 +6,39 @@ use serde_json::json;
 
 use super::*;
 use crate::resolve::CONFIG_FILE_NAME;
-use prec_bsl_scenarios::UNSUPPORTED_ORDINARY_FORMS;
+use crate::{ScenarioCatalog, ScenarioMetadata, UNSUPPORTED_ORDINARY_FORMS};
+
+const TEST_SCENARIOS: &[ScenarioMetadata] = &[
+    ScenarioMetadata::required_v1(
+        "УдалениеЛишнихКонцевыхПробелов",
+        "УдалениеЛишнихКонцевыхПробелов.os",
+    ),
+    ScenarioMetadata::required_v1("УдалениеЛишнихПустыхСтрок", "УдалениеЛишнихПустыхСтрок.os"),
+    ScenarioMetadata::required_v1("ПроверкаНецензурныхСлов", "ПроверкаНецензурныхСлов.os"),
+    ScenarioMetadata::required_v1(
+        "ПроверкаДублейПроцедурИФункций",
+        "ПроверкаДублейПроцедурИФункций.os",
+    ),
+    ScenarioMetadata::required_v1("СортировкаСостава", "СортировкаСостава.os"),
+    ScenarioMetadata::compatibility("СортировкаДереваМетаданных", "СортировкаСостава.os"),
+    ScenarioMetadata::compatibility("СортировкаСоставаПодсистем", "СортировкаСостава.os"),
+    ScenarioMetadata::unsupported(
+        UNSUPPORTED_ORDINARY_FORMS,
+        "РазборОбычныхФормНаИсходники.os",
+    ),
+];
+
+fn test_catalog() -> ScenarioCatalog<'static> {
+    ScenarioCatalog::new(TEST_SCENARIOS)
+}
+
+fn parse_config_str(source: &str) -> Result<ResolvedConfig, ConfigError> {
+    parse_config_str_with_catalog(source, test_catalog())
+}
+
+fn resolve_config(request: &ConfigResolveRequest) -> Result<ResolvedConfig, ConfigError> {
+    resolve_config_with_catalog(request, test_catalog())
+}
 
 #[test]
 fn config_explicit_path_overrides_default_discovery() {

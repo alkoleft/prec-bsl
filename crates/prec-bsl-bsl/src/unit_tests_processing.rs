@@ -4,10 +4,17 @@ use std::path::{Component, Path};
 use tree_sitter::Node;
 
 use crate::bsl_parser::{BslByteSpan, BslParser};
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::{SourceFile, SourceFileKind};
 
 pub const UNIT_TESTS_PROCESSING_RULE: &str = "ОбработкаЮнитТестов";
+pub const UNIT_TESTS_PROCESSING_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    UNIT_TESTS_PROCESSING_RULE,
+    "ОбработкаЮнитТестов.os",
+    unit_tests_processing,
+);
 
 const PROCEDURE_DEFINITION_KIND: &str = "procedure_definition";
 const FUNCTION_DEFINITION_KIND: &str = "function_definition";

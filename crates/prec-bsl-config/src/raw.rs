@@ -10,8 +10,8 @@ use crate::model::{
     ResolvedConfig, ScenarioConfig,
 };
 use crate::path::{empty_string_as_none, normalize_project_path};
+use crate::scenario::normalize_scenario_id;
 use crate::validation::credential_key_paths;
-use prec_bsl_scenarios::normalize_scenario_id;
 
 fn normalize_setting_map(settings: BTreeMap<String, Value>) -> BTreeMap<String, Value> {
     settings

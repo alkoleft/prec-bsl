@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::path::{normalize_relative_path, path_matches_project};
-use prec_bsl_scenarios::normalize_scenario_id;
+use crate::scenario::normalize_scenario_id;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigSource {

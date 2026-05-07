@@ -3,12 +3,20 @@ use serde_json::Value;
 use crate::error::ConfigError;
 use crate::model::{ConfigWarning, ResolvedConfig};
 use crate::path::is_repository_relative_path;
-use prec_bsl_scenarios::{ScenarioSupport, find_reference_scenario, normalize_scenario_id};
+use crate::scenario::{ScenarioCatalog, ScenarioSupport, normalize_scenario_id};
 
-pub(crate) fn validate_config(config: &ResolvedConfig) -> Result<(), ConfigError> {
+pub(crate) fn validate_config(
+    config: &ResolvedConfig,
+    catalog: ScenarioCatalog<'_>,
+) -> Result<(), ConfigError> {
     let mut errors = Vec::new();
 
-    validate_enabled_scenarios(&config.scenarios.global_scenarios, "global", &mut errors);
+    validate_enabled_scenarios(
+        &config.scenarios.global_scenarios,
+        "global",
+        catalog,
+        &mut errors,
+    );
     validate_repository_path(
         config
             .scenarios
@@ -31,7 +39,7 @@ pub(crate) fn validate_config(config: &ResolvedConfig) -> Result<(), ConfigError
             &mut errors,
         );
         if let Some(global_scenarios) = &project.global_scenarios {
-            validate_enabled_scenarios(global_scenarios, project_path, &mut errors);
+            validate_enabled_scenarios(global_scenarios, project_path, catalog, &mut errors);
         }
     }
 
@@ -94,15 +102,21 @@ fn is_credential_key(key: &str) -> bool {
         || key.ends_with("_user")
 }
 
-pub(crate) fn add_validation_warnings(config: &mut ResolvedConfig) {
+pub(crate) fn add_validation_warnings(config: &mut ResolvedConfig, catalog: ScenarioCatalog<'_>) {
     add_unknown_disabled_warnings(
         &config.scenarios.disabled_scenarios,
         "global",
+        catalog,
         &mut config.warnings,
     );
     for (project_path, project) in &config.scenarios.projects {
         if let Some(disabled_scenarios) = &project.disabled_scenarios {
-            add_unknown_disabled_warnings(disabled_scenarios, project_path, &mut config.warnings);
+            add_unknown_disabled_warnings(
+                disabled_scenarios,
+                project_path,
+                catalog,
+                &mut config.warnings,
+            );
         }
     }
 }
@@ -110,10 +124,11 @@ pub(crate) fn add_validation_warnings(config: &mut ResolvedConfig) {
 fn add_unknown_disabled_warnings(
     scenarios: &[String],
     scope: &str,
+    catalog: ScenarioCatalog<'_>,
     warnings: &mut Vec<ConfigWarning>,
 ) {
     for scenario in scenarios {
-        if find_reference_scenario(scenario).is_none() {
+        if catalog.find(scenario).is_none() {
             warnings.push(ConfigWarning {
                 message: format!(
                     "unknown disabled scenario id in {scope}: {}",
@@ -124,10 +139,15 @@ fn add_unknown_disabled_warnings(
     }
 }
 
-fn validate_enabled_scenarios(scenarios: &[String], scope: &str, errors: &mut Vec<String>) {
+fn validate_enabled_scenarios(
+    scenarios: &[String],
+    scope: &str,
+    catalog: ScenarioCatalog<'_>,
+    errors: &mut Vec<String>,
+) {
     for scenario in scenarios {
         let normalized = normalize_scenario_id(scenario);
-        match find_reference_scenario(scenario).map(|definition| definition.support) {
+        match catalog.find(scenario).map(|definition| definition.support) {
             Some(ScenarioSupport::RequiredV1 | ScenarioSupport::Compatibility) => {}
             Some(ScenarioSupport::Unsupported) => errors.push(format!(
                 "unsupported built-in scenario in v1 enabled in {scope}: {normalized}"

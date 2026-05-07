@@ -4,13 +4,33 @@ use std::fs;
 use tree_sitter::Node;
 
 use crate::bsl_parser::{BslByteSpan, BslParser};
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun, SourceSpan};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun, SourceSpan,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const FORBID_GOTO_RULE: &str = "ЗапретИспользованияПерейти";
 pub const DUPLICATE_METHODS_RULE: &str = "ПроверкаДублейПроцедурИФункций";
 pub const PREPROCESSOR_RULE: &str = "ПроверкаКорректностиИнструкцийПрепроцессора";
 pub const REGIONS_RULE: &str = "ПроверкаКорректностиОбластей";
+
+pub const FORBID_GOTO_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    FORBID_GOTO_RULE,
+    "ЗапретИспользованияПерейти.os",
+    forbid_goto,
+);
+pub const DUPLICATE_METHODS_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    DUPLICATE_METHODS_RULE,
+    "ПроверкаДублейПроцедурИФункций.os",
+    duplicate_methods,
+);
+pub const PREPROCESSOR_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    PREPROCESSOR_RULE,
+    "ПроверкаКорректностиИнструкцийПрепроцессора.os",
+    preprocessor_instructions,
+);
+pub const REGIONS_SCENARIO: ScenarioDefinition =
+    ScenarioDefinition::required_v1(REGIONS_RULE, "ПроверкаКорректностиОбластей.os", regions);
 
 const GOTO_STATEMENT_KIND: &str = "goto_statement";
 const GOTO_KEYWORD_KIND: &str = "GOTO_KEYWORD";

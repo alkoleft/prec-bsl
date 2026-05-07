@@ -7,12 +7,31 @@ use quick_xml::reader::Reader;
 use serde_json::Value;
 
 use crate::xml_edt::parse_document;
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const COMPOSITION_SORT_RULE: &str = "СортировкаСостава";
 pub const METADATA_TREE_SORT_RULE: &str = "СортировкаДереваМетаданных";
 pub const SUBSYSTEM_COMPOSITION_SORT_RULE: &str = "СортировкаСоставаПодсистем";
+
+pub const COMPOSITION_SORT_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    COMPOSITION_SORT_RULE,
+    "СортировкаСостава.os",
+    composition_sort,
+);
+pub const METADATA_TREE_SORT_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    METADATA_TREE_SORT_RULE,
+    "СортировкаСостава.os",
+    composition_sort,
+);
+pub const SUBSYSTEM_COMPOSITION_SORT_SCENARIO: ScenarioDefinition =
+    ScenarioDefinition::compatibility(
+        SUBSYSTEM_COMPOSITION_SORT_RULE,
+        "СортировкаСостава.os",
+        composition_sort,
+    );
 
 const DISABLED_OBJECTS_SETTING: &str = "ОтключенныеОбъекты";
 const PREFIXES_SETTING: &str = "УчитываяПрефикс";

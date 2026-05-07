@@ -71,7 +71,6 @@ dependencies = [
  "prec-bsl-output",
  "prec-bsl-pipeline",
  "prec-bsl-platform",
- "prec-bsl-scenarios",
  "prec-bsl-source",
  "prec-bsl-xml",
  "serde_json",
@@ -92,7 +91,6 @@ dependencies = [
 name = "prec-bsl-config"
 version = "0.1.0"
 dependencies = [
- "prec-bsl-scenarios",
  "serde",
  "serde_json",
 ]
@@ -116,7 +114,6 @@ version = "0.1.0"
 dependencies = [
  "prec-bsl-config",
  "prec-bsl-git",
- "prec-bsl-scenarios",
  "prec-bsl-source",
  "serde_json",
 ]
@@ -129,10 +126,6 @@ dependencies = [
  "prec-bsl-source",
  "serde_json",
 ]
-
-[[package]]
-name = "prec-bsl-scenarios"
-version = "0.1.0"
 
 [[package]]
 name = "prec-bsl-source"

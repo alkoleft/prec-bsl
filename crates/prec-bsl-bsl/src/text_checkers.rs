@@ -3,10 +3,14 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
 
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const PROFANITY_RULE: &str = "ПроверкаНецензурныхСлов";
+pub const PROFANITY_SCENARIO: ScenarioDefinition =
+    ScenarioDefinition::required_v1(PROFANITY_RULE, "ПроверкаНецензурныхСлов.os", profanity);
 
 const DICTIONARY_SETTING: &str = "ФайлСНецензурнымиСловами";
 const DEFAULT_DICTIONARY: &str = "НецензурныеСлова.txt";

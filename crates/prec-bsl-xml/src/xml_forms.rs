@@ -6,10 +6,17 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
 use crate::xml_edt::{parse_document, write_validated_xml};
-use prec_bsl_pipeline::{ScenarioExecutionContext, ScenarioResult, ScenarioRun};
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
 use prec_bsl_source::SourceFileKind;
 
 pub const XML_FORM_CORRECTION_RULE: &str = "КорректировкаXMLФорм";
+pub const XML_FORM_CORRECTION_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
+    XML_FORM_CORRECTION_RULE,
+    "КорректировкаXMLФорм.os",
+    xml_form_correction,
+);
 
 const FORM_FILE_NAME: &str = "Form.form";
 const BASE_FORM_DIR: &str = "BaseForm";
