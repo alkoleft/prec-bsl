@@ -1767,6 +1767,12 @@ Current finding:
   ported into Rust integration tests.
 - Some legacy expectations may already be covered by existing focused
   `prec-bsl` tests and should be updated there instead of duplicated.
+- 2026-05-07 progress: `spec/testing-strategy.md` now maps every executable
+  legacy `.os` test method to `covered`, `blocked` or `out-of-scope`, and
+  `tests/precommit4onec_reference.rs` verifies that mapping stays complete.
+- T45 remains open while T40-T44 are still open because the remaining blocked
+  parity groups depend on those upstream-regression and OScript/platform
+  boundary tasks.
 
 Acceptance criteria:
 

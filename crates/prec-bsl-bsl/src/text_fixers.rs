@@ -148,10 +148,11 @@ pub fn keyword_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
 }
 
 pub fn canonical_spelling(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
-    run_bsl_text_fixer(
+    run_bsl_text_fixer_with_skip(
         context,
         fix_non_canonical_spelling,
         "fixed non-canonical keyword spelling",
+        should_skip_non_canonical_spelling,
     )
 }
 
@@ -159,6 +160,15 @@ fn run_bsl_text_fixer(
     context: &ScenarioExecutionContext<'_>,
     fix: fn(&str) -> String,
     modified_message: &str,
+) -> ScenarioRun {
+    run_bsl_text_fixer_with_skip(context, fix, modified_message, |_| false)
+}
+
+fn run_bsl_text_fixer_with_skip(
+    context: &ScenarioExecutionContext<'_>,
+    fix: fn(&str) -> String,
+    modified_message: &str,
+    should_skip: fn(&str) -> bool,
 ) -> ScenarioRun {
     if context.file.kind != SourceFileKind::BslModule {
         return ScenarioRun::single(ScenarioResult::skipped(
@@ -180,6 +190,10 @@ fn run_bsl_text_fixer(
         }
     };
 
+    if should_skip(&input) {
+        return ScenarioRun::clean();
+    }
+
     let output = fix(&input);
     if output == input {
         return ScenarioRun::clean();
@@ -198,6 +212,10 @@ fn run_bsl_text_fixer(
         context.file.repo_path.clone(),
         modified_message,
     ))
+}
+
+fn should_skip_non_canonical_spelling(input: &str) -> bool {
+    input.to_lowercase().contains("&изменениеиконтроль")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

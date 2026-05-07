@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,6 +9,8 @@ use prec_bsl::scenario_pipeline::{
     PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
+
+const REFERENCE_ROOT: &str = "tests/fixtures/precommit4onec-reference";
 
 #[test]
 fn duplicate_methods_reports_all_duplicate_procedure_and_function_definitions_with_spans() {
@@ -94,6 +97,61 @@ fn duplicate_methods_accepts_unique_procedure_and_function_names() {
 
     assert!(report.results.is_empty());
     assert_eq!(report.exec_rules_exit_code(), 0);
+}
+
+#[test]
+fn duplicate_methods_matches_reference_positive_and_parameterized_fixtures() {
+    let repo = temp_repo("reference_fixtures");
+    let cases = [
+        ("ПроверкаДублейПроцедурПоложительныйТест.bsl", false),
+        ("ПроверкаДублейПроцедурСПараметрами.bsl", true),
+    ];
+    let repo_paths = cases
+        .iter()
+        .map(|(name, _)| PathBuf::from("src").join(name))
+        .collect::<Vec<_>>();
+
+    for repo_path in &repo_paths {
+        let fixture_path = Path::new(REFERENCE_ROOT)
+            .join("fixtures")
+            .join(repo_path.file_name().unwrap());
+        write_file(
+            repo.join(repo_path),
+            &fs::read_to_string(fixture_path).unwrap(),
+        );
+    }
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let files = repo_paths
+        .iter()
+        .map(|repo_path| classify_repo_path(&roots, repo_path.clone(), None).unwrap())
+        .collect::<Vec<_>>();
+
+    let report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &duplicate_methods_config(),
+            files,
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    let failed_paths = report
+        .results
+        .iter()
+        .filter(|result| result.status == ScenarioResultStatus::HardFailure)
+        .map(|result| result.path.clone())
+        .collect::<BTreeSet<_>>();
+    let expected_failed_paths = cases
+        .iter()
+        .filter(|(_, should_fail)| *should_fail)
+        .map(|(name, _)| PathBuf::from("src").join(name))
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(failed_paths, expected_failed_paths);
+    assert_eq!(report.hook_exit_code(), 1);
 }
 
 #[test]

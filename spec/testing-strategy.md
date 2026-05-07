@@ -87,6 +87,97 @@ inventory, validates ordinary JSON fixtures, and verifies that expected text
 fixture classes remain valid UTF-8 while preserving the explicit legacy
 exceptions above.
 
+### Executable Reference Mapping
+
+Every executable test case registered with `ВсеТесты.Добавить(...)` in the
+imported legacy `.os` test modules must be mapped here before it is treated as
+ported, already covered, blocked or out of scope. The
+`precommit4onec_reference` integration test extracts those method names from
+the imported modules and fails when a method is missing from this mapping.
+
+Mapping statuses:
+
+- `covered`: existing or newly added Rust tests protect the same observable
+  behavior.
+- `blocked`: the legacy case belongs to a supported area but depends on an open
+  prerequisite task before parity can be claimed.
+- `out-of-scope`: the case belongs to an explicitly unsupported v1 surface,
+  OScript-only helper behavior, local `.os` execution or config-editor
+  internals.
+
+#### `ТестВыполнениеСценариев.os`
+
+| Legacy method | Mapping |
+| --- | --- |
+| `ТестДолжен_ПодготовитьДанныеИВыполнитьСценарийВставкиКопирайта` | `covered`: copyright fixer behavior and idempotence are covered by `tests/copyright.rs`; full legacy Git/temp orchestration is represented by Rust hook/pipeline tests. |
+| `ТестДолжен_ПодготовитьДанныеИВыполнитьСценарийРазбораОбычныхФорм` | `out-of-scope`: `РазборОбычныхФормНаИсходники` is explicitly unsupported in v1. |
+| `ТестДолжен_ПодготовитьДанныеИВыполнитьСценарийРазбораОтчетовОбработокРасширений` | `blocked`: platform-dependent runtime execution is owned by the separated `РазборОтчетовОбработокРасширений` boundary and remains constrained by T44 cleanup/deleted-path decisions. |
+
+#### `ТестНастройкиРепозитория.os`
+
+| Legacy method | Mapping |
+| --- | --- |
+| `Тест_ИспользованиеГлобальныхНастроек` | `covered`: built-in defaults and missing config fallback are covered by config resolution tests. |
+| `Тест_ИспользованиеЛокальныхНастроек` | `covered`: historic key parsing, local scenario list parsing and id normalization are covered by config tests and RAT config acceptance. |
+| `Тест_ОтключенныеНастройки` | `covered`: disabled scenario filtering and unsupported-disabled compatibility are covered by config and RAT acceptance tests. |
+| `Тест_ОтключенныеНастройкиИПереопределенныеГлобальныеСценарии` | `covered`: global-scenario override plus disabled-scenario filtering are covered by config tests; broader global-disable compatibility remains tracked by T43. |
+| `Тест_НастройкиПроектов` | `covered`: project-specific override resolution by source subpath is covered by config tests. |
+| `Тест_НастройкиСценариев` | `covered`: per-project scenario settings fully override base settings in config tests. |
+
+#### `ТестПроверкаСценариевОбработки.os`
+
+| Legacy method | Mapping |
+| --- | --- |
+| `СортировкаСостава_Configuration` | `covered`: configuration composition sorting and idempotence are covered by `tests/composition_sort.rs`. |
+| `СортировкаСостава_DefinedTypes` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
+| `СортировкаСостава_ExchangePlans` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
+| `СортировкаСостава_FunctionalOptions` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
+| `СортировкаСостава_Subsystems` | `covered`: subsystem composition sorting and compatibility alias behavior are covered by `tests/composition_sort.rs` and RAT acceptance. |
+| `СортировкаСостава_CommonAttributes` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
+| `СортировкаСостава_EventSubscriptions` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
+| `ТипыФайлов_ЗащищенныеМодулиНеОпределяютсяКакФайлИсходников` | `blocked`: protected-module classification is not yet a Rust source-classification contract. |
+| `ТестДолжен_ПроверитьЧтоСинхронизацияОбъектовМетаданныхВызываетИсключение` | `covered`: metadata/filesystem consistency diagnostics are covered by `tests/metadata_sync.rs`. |
+| `ТестДолжен_ПроверитьЧтоСинхронизацияОбъектовМетаданныхДляПВХВызываетИсключение` | `covered`: missing referenced metadata diagnostics are covered by `tests/metadata_sync.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийПроверкиДублейПроцедурВызываетИсключение` | `blocked`: the parameterized duplicate fixture is covered by `tests/duplicate_methods.rs`, but `ПроверкаДублейПроцедурНегативныйТест.bsl` exposes a parser/parity gap that must be resolved through the parser strategy before claiming full legacy parity; preprocessor-branch false positives remain tracked by T40. |
+| `ТестДолжен_ПроверитьЧтоСценарийПроверкиДублейПроцедурОбработаетФайл` | `covered`: reference positive duplicate-method fixture is covered by `tests/duplicate_methods.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийПроверкиДублейПроцедурНеОбработаетНесуществующийФайл` | `covered`: missing files are reported as boundary input errors through pipeline/file reading tests rather than scenario success. |
+| `ТестДолжен_ПроверитьЧтоСценарийПроверкиДублейПроцедурНеОбработаетНеИсходник` | `covered`: non-BSL skip behavior is covered by `tests/duplicate_methods.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийРазбораОтчетовОбработокРасширенийИмеетМетодПолученияНастроек` | `covered`: Rust scenario metadata/settings are exposed through executable scenario definitions rather than OScript reflection. |
+| `ТестДолжен_ПроверитьЧтоСценарийОтключенияПолнотекстовогоПоискаВозвращаетНастройки` | `covered`: settings parsing and full-text-search behavior are covered by config tests and `tests/disable_full_text_search.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийРазбораОтчетовОбработокРасширенийВозвращаетНастройки` | `covered`: platform scenario settings are parsed and carried as structured scenario settings; runtime execution remains separated. |
+| `ТестДолжен_ПроверитьЧтоСценарийИсправлениеНеКаноническогоНаписанияИсправляетФайл` | `covered`: canonical spelling fixer is covered by golden and reference fixture tests. |
+| `ТестДолжен_ПроверитьЧтоСценарийИсправлениеНеКаноническогоНаписанияНеИндексируетНеизмененные` | `covered`: idempotence/no second modification is covered by `tests/canonical_spelling.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийИсправлениеНеКаноническогоНаписанияИсправляетТолькоНаписание` | `covered`: canonical spelling tests assert lexical replacement without changing comments, strings or identifier parts. |
+| `ТестДолжен_ПроверитьЧтоСценарийИсправлениеНеКаноническогоНаписанияИгнорируетМодулиРасширенияСКонтролемИзменений` | `covered`: reference change-control module skip is covered by `tests/canonical_spelling.rs`. |
+| `ТестДолжен_ПроверитьЗагрузкуСценариевПоИмени` | `covered`: scenario lookup accepts ids with and without `.os` suffix and deduplicates through config/catalog normalization. |
+| `ТестДолжен_ПроверитьИзменениеТегаКастомизацииФормы` | `covered`: form change permission behavior is covered by `tests/disable_form_change.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийВставкиКопирайтовНеОбновляетКопирайтВФайлахПоставки` | `covered`: copyright skip/update behavior is covered by `tests/copyright.rs`; parent-configuration fixture parity remains evidence for future widening. |
+| `ТестДолжен_ПроверитьЧтоСценарийЗапретаИспользованияПерейтиНеСрабатываетНаСтроку` | `covered`: reference `Перейти` string-literal fixtures are covered by `tests/goto.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийКорректировкаXMLФормУчитываетСвязьФормРасширенийСФормамиКонфигурации` | `covered`: base-form duplicate-id behavior is covered by `tests/xml_forms.rs`. |
+| `ТестДолжен_ПроверитьЧтоСценарийСортировкаПравРолейИзменяетПорядокОбъектов` | `out-of-scope`: role-right sorting is not in the required v1 scenario list. |
+| `ТестДолжен_ПроверитьЧтоСообщениеКоммитаСоответствуетМаске` | `out-of-scope`: commit-message validation is outside the Rust v1 hook/check surface. |
+| `ТестДолжен_ПроверитьЧтоСообщениеКоммитаОбрабатываютФайлыТолькоВУказанномКаталоге` | `out-of-scope`: commit-message validation is outside the Rust v1 hook/check surface. |
+| `ТестДолжен_ПроверитьЧтоВыполняютсяПринудительноУказанныеЛокальныеСценарии` | `out-of-scope`: dynamic repository-local `.os` execution is unsupported in v1 and must produce diagnostics instead of being executed. |
+| `ТестДолжен_ПроверитьЧтоВыполняютсяВсеЛокальныеСценарии` | `out-of-scope`: dynamic repository-local `.os` execution is unsupported in v1 and must produce diagnostics instead of being executed. |
+
+#### `ТестРедакторНастроек.os`
+
+| Legacy method | Mapping |
+| --- | --- |
+| `Тест_СброситьНастройкиРепозитория` | `out-of-scope`: interactive/config-editor mutation behavior is not part of the v1 CLI/config parsing contract. |
+| `Тест_СброситьГлобальныеНастройки` | `out-of-scope`: interactive/config-editor mutation behavior is not part of the v1 CLI/config parsing contract. |
+| `Тест_ПолучитьСтандартнуюСтруктуруНастроек` | `out-of-scope`: OScript editor structure helpers are not public Rust API. |
+| `Тест_ОбновитьНастройки` | `out-of-scope`: interactive/config-editor mutation behavior is not part of the v1 CLI/config parsing contract. |
+
+#### `ТестФайловыеОперации.os`
+
+| Legacy method | Mapping |
+| --- | --- |
+| `ТестДолжен_ПрочитатьФайл` | `out-of-scope`: OScript file helper behavior is not a public Rust contract. |
+| `ТестДолжен_ЗаписатьФайл` | `out-of-scope`: OScript file helper behavior is not a public Rust contract. |
+| `ТестДолжен_ПроверитьПоискКаталогов` | `out-of-scope`: OScript file helper behavior is not a public Rust contract. |
+| `ТестДолжен_ПроверитьНовыйФайл` | `out-of-scope`: OScript file helper behavior is not a public Rust contract. |
+
 ## Required Acceptance Checks
 
 ### Parser Coverage

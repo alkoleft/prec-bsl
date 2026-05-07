@@ -9,6 +9,8 @@ use prec_bsl::scenario_pipeline::{
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::text_fixers::{CANONICAL_SPELLING_RULE, fix_non_canonical_spelling};
 
+const REFERENCE_ROOT: &str = "tests/fixtures/precommit4onec-reference";
+
 #[test]
 fn canonical_spelling_matches_golden_fixture_and_is_idempotent() {
     let repo = temp_repo("golden");
@@ -99,6 +101,68 @@ fn canonical_spelling_skips_comments_strings_and_identifier_parts() {
             "КонецЕсли;\n",
         )
     );
+}
+
+#[test]
+fn canonical_spelling_skips_reference_extension_modules_with_change_control() {
+    let repo = temp_repo("reference_change_control");
+    let repo_path = PathBuf::from("src/МодулиРасширения/МодульСКонтролемИзменений.bsl");
+    let input = fs::read_to_string(
+        Path::new(REFERENCE_ROOT).join("fixtures/МодулиРасширения/МодульСКонтролемИзменений.bsl"),
+    )
+    .unwrap();
+    write_file(repo.join(&repo_path), &input);
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
+
+    let report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &canonical_spelling_config(),
+            files: vec![file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), input);
+    assert!(report.results.is_empty());
+    assert_eq!(report.hook_exit_code(), 0);
+}
+
+#[test]
+fn canonical_spelling_skips_change_control_marker_case_insensitively_anywhere_in_file() {
+    let repo = temp_repo("change_control_case_insensitive");
+    let repo_path = PathBuf::from("src/Module.bsl");
+    let input = concat!(
+        "Процедура ПередМаркером()\n",
+        "конецпроцедуры\n",
+        "\n",
+        "    &изменениеиконтроль(\"ПроцедураСНеканоническимНаписанием\")\n",
+        "процедура ПроцедураСНеканоническимНаписанием()\n",
+        "конецпроцедуры\n",
+    );
+    write_file(repo.join(&repo_path), input);
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
+
+    let report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &canonical_spelling_config(),
+            files: vec![file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), input);
+    assert!(report.results.is_empty());
+    assert_eq!(report.hook_exit_code(), 0);
 }
 
 fn canonical_spelling_config() -> prec_bsl::config::ResolvedConfig {

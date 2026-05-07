@@ -4,6 +4,13 @@ use std::path::{Path, PathBuf};
 
 const REFERENCE_ROOT: &str = "tests/fixtures/precommit4onec-reference";
 const EXPECTED_FILE_COUNT: usize = 531;
+const REFERENCE_TEST_MODULES: &[&str] = &[
+    "ТестВыполнениеСценариев.os",
+    "ТестНастройкиРепозитория.os",
+    "ТестПроверкаСценариевОбработки.os",
+    "ТестРедакторНастроек.os",
+    "ТестФайловыеОперации.os",
+];
 
 #[test]
 fn precommit4onec_reference_test_cases_are_imported() {
@@ -57,6 +64,24 @@ fn precommit4onec_reference_test_cases_are_imported() {
             root.join(path).is_dir(),
             "expected reference fixture directory must exist: {path}"
         );
+    }
+}
+
+#[test]
+fn precommit4onec_reference_executable_cases_are_mapped_in_testing_strategy() {
+    let testing_strategy =
+        fs::read_to_string("spec/testing-strategy.md").expect("testing strategy must be readable");
+
+    for module in REFERENCE_TEST_MODULES {
+        let module_text = fs::read_to_string(Path::new(REFERENCE_ROOT).join(module))
+            .unwrap_or_else(|error| panic!("failed to read {module}: {error}"));
+
+        for test_case in extract_reference_test_cases(&module_text) {
+            assert!(
+                has_reference_mapping_row(&testing_strategy, &test_case),
+                "reference executable test case is not mapped in spec/testing-strategy.md: {module}::{test_case}"
+            );
+        }
     }
 }
 
@@ -147,6 +172,28 @@ fn collect_files_recursive(path: &Path, files: &mut Vec<PathBuf>) {
             files.push(path);
         }
     }
+}
+
+fn extract_reference_test_cases(module_text: &str) -> Vec<String> {
+    module_text
+        .lines()
+        .filter_map(|line| {
+            let start = line.find("ВсеТесты.Добавить(\"")? + "ВсеТесты.Добавить(\"".len();
+            let rest = &line[start..];
+            let end = rest.find('"')?;
+            Some(rest[..end].to_owned())
+        })
+        .collect()
+}
+
+fn has_reference_mapping_row(testing_strategy: &str, test_case: &str) -> bool {
+    let prefix = format!("| `{test_case}` | `");
+    testing_strategy.lines().any(|line| {
+        line.starts_with(&prefix)
+            && (line.contains("`covered`:")
+                || line.contains("`blocked`:")
+                || line.contains("`out-of-scope`:"))
+    })
 }
 
 fn relative_reference_path(path: &Path) -> &Path {
