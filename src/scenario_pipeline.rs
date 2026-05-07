@@ -733,6 +733,22 @@ mod tests {
     }
 
     #[test]
+    fn reference_registry_has_handlers_for_all_required_v1_scenarios() {
+        for scenario in REFERENCE_SCENARIOS
+            .iter()
+            .filter(|scenario| scenario.support == ScenarioSupport::RequiredV1)
+        {
+            let handler = reference_handler_for(scenario.id);
+
+            assert!(
+                !std::ptr::fn_addr_eq(handler, skipped_until_implemented as ScenarioHandler),
+                "required v1 scenario must not use placeholder handler: {}",
+                scenario.id
+            );
+        }
+    }
+
+    #[test]
     fn scenario_pipeline_skips_deleted_files_without_deleted_file_capability() {
         let repo = temp_repo("deleted_file_skip");
         fs::create_dir_all(repo.join("src")).unwrap();

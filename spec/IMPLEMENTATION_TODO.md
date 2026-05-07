@@ -1323,7 +1323,7 @@ Dependencies:
 
 - T5, T23, T24, T25, T26.
 
-### T36. TODO: Prepare v1 release readiness checklist
+### T36. DONE: Prepare v1 release readiness checklist
 
 Create the final v1 acceptance checklist after all required scenarios are
 implemented.
@@ -1344,6 +1344,21 @@ Validation:
 - `cargo test`
 - `cargo run -- prek-hook --help`
 - `cargo run -- exec-rules --help`
+
+Completion evidence:
+
+- 2026-05-07: Added `spec/release-readiness-checklist.md` with the final v1
+  acceptance checklist, required scenario coverage matrix, hook/CLI readiness
+  notes, RAT acceptance baseline, and release note callouts for unsupported
+  local `.os` execution, `РазборОбычныхФормНаИсходники`, platform dependency
+  boundaries, and `v8config.json` as the domain configuration surface.
+- Added `README.md` with minimal `prek` and `pre-commit` install examples,
+  public CLI usage, and short v1 release notes.
+- Added a focused registry regression asserting every required v1 scenario has
+  a concrete reference handler rather than the placeholder implementation.
+- Verification passed: `cargo fmt --check`, focused readiness regression,
+  `cargo test`, `cargo run -- prek-hook --help`,
+  `cargo run -- exec-rules --help`, and `git diff --check`.
 
 Dependencies:
 
