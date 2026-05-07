@@ -1175,7 +1175,7 @@ Dependencies:
 
 - T6, T7, T8, T9, T10, T11.
 
-### T32. TODO: Wire `exec-rules` end-to-end
+### T32. DONE: Wire `exec-rules` end-to-end
 
 Connect explicit whole-tree rule execution for CI and local validation.
 
@@ -1191,6 +1191,24 @@ Validation:
 
 - `cargo test exec_rules`
 - Manual smoke against a temp copy of selected RAT roots.
+
+Completion evidence:
+
+- 2026-05-07: Added `tests/exec_rules.rs` end-to-end binary coverage for
+  `prec-bsl exec-rules <repo>` from outside the target repository, explicit
+  `--config` resolution, comma-separated `--source-dir` and `--rules` values,
+  source-root-relative XML/EDT scenario context across multiple roots, missing
+  source-root diagnostics, and critical failure accumulation after traversal.
+- Verification passed: `cargo fmt --check`, `cargo test exec_rules`,
+  `cargo test`, and a manual smoke against a temporary copy of
+  `/home/alko/develop/open-source/rat/fixtures/configuration` with
+  `--rules УдалениеЛишнихКонцевыхПробелов`. The real RAT checkout status was
+  unchanged before/after the smoke; it already contained unrelated local
+  changes in `AGENTS.md`, `CLAUDE.md`, and
+  `exts/rat/src/CommonModules/РатАлгоритмы/Module.bsl`.
+- Independent reviewer pass found a missing comma-separated `--rules`
+  verification gap; it was fixed with binary-level coverage and the follow-up
+  reviewer pass returned `APPROVED`.
 
 Dependencies:
 
