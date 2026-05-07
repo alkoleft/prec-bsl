@@ -3,6 +3,7 @@ pub mod bsl_checkers;
 pub mod bsl_parser;
 pub mod cli;
 pub mod config;
+pub mod form_change_permission;
 pub mod full_text_search;
 pub mod git_index;
 pub mod output;

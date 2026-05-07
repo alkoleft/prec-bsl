@@ -128,6 +128,31 @@ Invalid setting shapes are hard failures for the processed file. XML parse
 errors are hard failures. The fixer must preserve unrelated XML text, report
 modified files, and prove idempotence through focused tests.
 
+### Form customization disabling contract
+
+`ОтключениеРазрешенияИзменятьФорму` is an XML/EDT fixer for form description
+files. The initial v1 slice applies to EDT `Form.form` files and Designer XML
+`Form.xml` files.
+
+The fixer validates XML through the shared XML/EDT parser boundary before
+rewriting text. For EDT forms, it replaces plain text equal to `true`,
+case-insensitively, inside `allowFormCustomize` elements with `false`. EDT
+forms without `allowFormCustomize`, or with an existing `false` value, are
+clean.
+
+For Designer XML forms, it replaces plain text equal to `true`,
+case-insensitively, inside `Customizable` elements with `false`. If the
+`Customizable` element is absent and the file contains a `WindowOpeningMode`
+element, the fixer inserts `<Customizable>false</Customizable>` immediately
+after the `WindowOpeningMode` element, preserving that line's indentation and
+line-ending style. Designer XML files without either form property are clean.
+
+`Customizable` / `allowFormCustomize` values other than `true` or `false`,
+CDATA inside those properties, and XML parse errors are hard failures for the
+processed file. The fixer must preserve unrelated XML text, report modified
+files, skip non-form/non-XML files, and prove idempotence through focused
+tests.
+
 ### XML form correction contract
 
 `КорректировкаXMLФорм` is an XML/EDT fixer for form description files. The

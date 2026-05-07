@@ -8,6 +8,7 @@ use crate::bsl_checkers::{
     forbid_goto, preprocessor_instructions, regions,
 };
 use crate::config::ResolvedConfig;
+use crate::form_change_permission::{DISABLE_FORM_CHANGE_RULE, disable_form_change_permission};
 use crate::full_text_search::{DISABLE_FULL_TEXT_SEARCH_RULE, disable_full_text_search};
 use crate::git_index::StagedStatus;
 use crate::scenarios::{
@@ -458,6 +459,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         UNIT_TESTS_PROCESSING_RULE => unit_tests_processing,
         XML_FORM_CORRECTION_RULE => xml_form_correction,
         DISABLE_FULL_TEXT_SEARCH_RULE => disable_full_text_search,
+        DISABLE_FORM_CHANGE_RULE => disable_form_change_permission,
         _ => skipped_until_implemented,
     }
 }

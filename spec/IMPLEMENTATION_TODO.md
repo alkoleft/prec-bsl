@@ -906,7 +906,7 @@ Dependencies:
 
 - T23.
 
-### T26. TODO: Implement form-change permission disabling
+### T26. DONE: Implement form-change permission disabling
 
 Scenario: `ОтключениеРазрешенияИзменятьФорму`.
 
@@ -919,6 +919,29 @@ Acceptance criteria:
 Validation:
 
 - `cargo test disable_form_change`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/form_change_permission.rs` with the XML/EDT
+  `ОтключениеРазрешенияИзменятьФорму` implementation, registered it in the
+  reference scenario registry, and documented the scenario contract in
+  `spec/parser-strategy.md`.
+- The fixer validates XML through the shared XML/EDT parser boundary, applies
+  only to EDT `Form.form` and Designer `Form.xml`, rewrites
+  `allowFormCustomize` / `Customizable` `true` values to `false`, inserts
+  missing Designer `<Customizable>false</Customizable>` after
+  `WindowOpeningMode`, reports modified files, and is idempotent.
+- Invalid boolean values, CDATA values, mixed-content boolean properties, and
+  malformed XML are hard failures. Non-form `.xml` / `.form` files and other
+  source kinds remain clean or skipped.
+- Added `tests/disable_form_change.rs` coverage for EDT and Designer
+  modifications, idempotence, missing Designer property insertion with anchor
+  line-ending preservation, invalid values, malformed XML, mixed-content
+  properties, non-form XML/EDT clean behavior, and pipeline skip behavior.
+- Verification passed: `cargo fmt --check`, `cargo test disable_form_change`,
+  `cargo test`, and `git diff --check`.
+- Independent reviewer passes found scope and XML edge-case gaps; they were
+  fixed with focused regression coverage before completion.
 
 Dependencies:
 
