@@ -8,7 +8,7 @@ use prec_bsl::composition_sort::{
 };
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{SourceFileKind, classify_repo_path, resolve_source_roots};
 
@@ -23,7 +23,7 @@ fn composition_sort_sorts_edt_configuration_and_is_idempotent() {
     let config = composition_sort_config("");
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -47,7 +47,7 @@ fn composition_sort_sorts_edt_configuration_and_is_idempotent() {
     assert_eq!(first_report.hook_exit_code(), 1);
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -147,7 +147,7 @@ fn composition_sort_skips_disabled_configuration_and_non_configuration_files() {
     let missing_file =
         classify_repo_path(&roots, "src/CommonModules/Модуль/Модуль.mdo", None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -220,7 +220,7 @@ fn compatibility_metadata_tree_rule_sorts_only_configuration_tree() {
     let subsystem_file = classify_repo_path(&roots, subsystem_path.clone(), None).unwrap();
     let config = config_with_rules(&[METADATA_TREE_SORT_RULE]);
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -267,7 +267,7 @@ fn compatibility_subsystem_rule_sorts_edt_and_designer_subsystem_content() {
     let config = config_with_rules(&[SUBSYSTEM_COMPOSITION_SORT_RULE]);
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -291,7 +291,7 @@ fn compatibility_subsystem_rule_sorts_edt_and_designer_subsystem_content() {
     );
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -316,7 +316,7 @@ fn composition_sort_uses_source_root_relative_configuration_identity() {
     let broad_roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let broad_file = classify_repo_path(&broad_roots, nested_path.clone(), None).unwrap();
     let broad_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &broad_roots,
@@ -339,7 +339,7 @@ fn composition_sort_uses_source_root_relative_configuration_identity() {
     let nested_roots = resolve_source_roots(&repo, &[PathBuf::from("src/Nested")]).roots;
     let nested_file = classify_repo_path(&nested_roots, nested_path.clone(), None).unwrap();
     let nested_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &nested_roots,

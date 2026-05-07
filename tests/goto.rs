@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use prec_bsl::bsl_checkers::FORBID_GOTO_RULE;
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 
@@ -28,7 +28,7 @@ fn goto_checker_reports_russian_and_english_goto_with_source_spans() {
     let config = goto_config();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -74,7 +74,7 @@ fn goto_checker_ignores_comments_and_string_literals() {
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -98,7 +98,7 @@ fn goto_checker_skips_non_bsl_files() {
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

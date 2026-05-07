@@ -6,7 +6,7 @@ use prec_bsl::config::parse_config_str;
 use prec_bsl::git_index::StagedStatus;
 use prec_bsl::metadata_sync::{METADATA_SYNC_RULE, MetadataSyncCheck, check_metadata_sync_text};
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{SourceFileKind, classify_repo_path, resolve_source_roots};
 
@@ -26,7 +26,7 @@ fn metadata_sync_accepts_clean_edt_configuration() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, config_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -54,7 +54,7 @@ fn metadata_sync_reports_missing_edt_object_file() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, config_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -87,7 +87,7 @@ fn metadata_sync_reports_stale_edt_object_from_staged_object_file() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, object_path.clone(), Some(StagedStatus::Added)).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -124,7 +124,7 @@ fn metadata_sync_reports_deleted_referenced_object_from_staged_deleted_file() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, object_path, Some(StagedStatus::Deleted)).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -159,7 +159,7 @@ fn metadata_sync_reports_case_only_edt_directory_mismatch() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, config_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -188,7 +188,7 @@ fn metadata_sync_accepts_clean_designer_configuration() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, config_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -231,7 +231,7 @@ fn metadata_sync_ignores_nested_designer_child_objects_outside_configuration_com
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, config_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -266,7 +266,7 @@ fn metadata_sync_accepts_edt_extension_configuration_without_languages_section()
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, config_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -291,7 +291,7 @@ fn metadata_sync_skips_non_configuration_metadata_during_full_tree_runs() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, object_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

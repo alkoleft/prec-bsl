@@ -1446,3 +1446,90 @@ Non-goals:
 - Reclassifying unknown repository-local `.os` scenarios as silently supported.
 - Implementing a generic repository-local `.os` execution adapter.
 - Implementing `РазборОбычныхФормНаИсходники`.
+
+## Milestone 10: Workspace Modularity
+
+### T38. DONE: Split mixed responsibility modules into focused crates
+
+Convert the single-crate implementation into a workspace with internal crates
+that match the existing context boundaries from the PRD and agent rules.
+
+Motivation:
+
+- `src/scenario_pipeline.rs` currently mixes the execution model with concrete
+  BSL, XML/EDT, metadata, composition and platform-dependent scenario handler
+  registration.
+- Large modules such as `src/config.rs`, `src/text_fixers.rs`,
+  `src/bsl_checkers.rs`, `src/metadata_sync.rs`, and
+  `src/composition_sort.rs` are context-sized implementation units and should
+  not all live in the binary package root.
+- Future scenario work should be able to depend on the immediate context it
+  needs without pulling Git, CLI or unrelated XML/BSL rules.
+
+Acceptance criteria:
+
+- Root package remains the public `prec-bsl` binary/library facade so existing
+  integration tests can continue using `prec_bsl::<module>`.
+- Workspace members separate at least these contexts:
+  - scenario inventory and configuration;
+  - Git-index access;
+  - source-root and file classification;
+  - scenario execution pipeline;
+  - output rendering;
+  - BSL parser/checker/fixer scenarios;
+  - XML/EDT and metadata scenarios.
+- `ScenarioRegistry` no longer hard-codes concrete handler imports from every
+  rule module; reference handler wiring is owned by the facade or a rule crate.
+- CLI contracts, output contracts, scenario ids, config semantics, RAT safety
+  and hook exit behavior remain unchanged.
+- No new dynamic `.os` execution, parser fallback, runtime 1C execution, or
+  compatibility bridge is introduced.
+
+Validation:
+
+- `cargo fmt --check`
+- `cargo test`
+- `cargo test scenario_pipeline`
+- `cargo test config`
+- `cargo test rat`
+
+Completion evidence:
+
+- 2026-05-07: Converted the root package into a Cargo workspace while keeping
+  the public `prec-bsl` binary/library facade.
+- Added focused internal crates:
+  - `prec-bsl-scenarios` for scenario inventory and id normalization;
+  - `prec-bsl-config` for `v8config.json` parsing and resolution;
+  - `prec-bsl-git` for staged-file collection and restaging;
+  - `prec-bsl-source` for source roots and file classification;
+  - `prec-bsl-pipeline` for scenario execution, queueing, result aggregation
+    and exit-code semantics;
+  - `prec-bsl-output` for text/JSON report rendering;
+  - `prec-bsl-bsl` for BSL parser, lexical fixers and parser-backed BSL
+    scenarios;
+  - `prec-bsl-xml` for XML/EDT, metadata and composition scenarios;
+  - `prec-bsl-platform` for the external report/processing/extension runtime
+    boundary.
+- Moved reference handler wiring out of `prec-bsl-pipeline` into the facade
+  `reference_registry()` function, so the pipeline crate no longer imports
+  concrete BSL/XML/platform rule handlers.
+- Split large crate roots after the workspace move:
+  - `prec-bsl-config` now separates error, model, raw parsing, path matching,
+    resolution, validation and tests;
+  - `prec-bsl-pipeline` now separates execution models, registry contracts,
+    runner logic and tests;
+  - Git, source, output and scenario-inventory crates keep inline library code
+    separate from their test modules.
+- Kept existing test-facing module paths through facade re-exports such as
+  `prec_bsl::config`, `prec_bsl::source_files`, `prec_bsl::text_fixers` and
+  `prec_bsl::xml_edt`.
+- Moved member-crate test fixtures back under the workspace `target/` tree and
+  ignored accidental `crates/*/target/` directories to keep generated test
+  artifacts out of the workspace crates.
+- Verification passed: `cargo fmt --all --check`, `cargo test`,
+  `cargo test --workspace`, `cargo test --workspace scenario_pipeline`,
+  `cargo test --workspace config`, `cargo test rat`, and `git diff --check`.
+
+Dependencies:
+
+- T37.

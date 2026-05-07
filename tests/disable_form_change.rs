@@ -7,7 +7,7 @@ use prec_bsl::form_change_permission::{
     DISABLE_FORM_CHANGE_RULE, FormChangePermissionDisabling, disable_form_change_permission_text,
 };
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{SourceFileKind, classify_repo_path, resolve_source_roots};
 
@@ -22,7 +22,7 @@ fn disable_form_change_disables_edt_form_and_is_idempotent() {
     let config = disable_form_change_config();
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -46,7 +46,7 @@ fn disable_form_change_disables_edt_form_and_is_idempotent() {
     assert_eq!(first_report.hook_exit_code(), 1);
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -168,7 +168,7 @@ fn disable_form_change_skips_non_form_files_in_pipeline() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

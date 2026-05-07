@@ -8,7 +8,7 @@ use prec_bsl::full_text_search::{
     disable_full_text_search_text,
 };
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{SourceFileKind, classify_repo_path, resolve_source_roots};
 
@@ -23,7 +23,7 @@ fn disable_full_text_search_disables_edt_metadata_and_is_idempotent() {
     let config = full_text_search_config("");
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -50,7 +50,7 @@ fn disable_full_text_search_disables_edt_metadata_and_is_idempotent() {
     assert_eq!(first_report.hook_exit_code(), 1);
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -254,7 +254,7 @@ fn disable_full_text_search_skips_empty_path_exclusion_and_non_metadata_files() 
     );
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::text_fixers::{COPYRIGHT_RULE, CopyrightFix, insert_or_update_copyright};
@@ -26,7 +26,7 @@ fn copyright_matches_golden_fixture_and_is_idempotent() {
     let config = copyright_config(r#""ПутьКФайлуКопирайта": "COPYRIGHT""#);
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -55,7 +55,7 @@ fn copyright_matches_golden_fixture_and_is_idempotent() {
     );
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -113,7 +113,7 @@ fn copyright_skips_modules_with_default_or_configured_tags() {
         copyright_config(r#""ПутьКФайлуКопирайта": "COPYRIGHT", "ИсключаемыеТэги": ["// IMPORT"]"#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -196,7 +196,7 @@ fn copyright_skips_when_default_file_is_absent() {
     .unwrap();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -225,7 +225,7 @@ fn copyright_fails_when_configured_path_is_invalid() {
     let config = copyright_config(r#""ПутьКФайлуКопирайта": "../COPYRIGHT""#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -259,7 +259,7 @@ fn copyright_fails_when_configured_path_uses_backslash_escape_or_windows_absolut
         let config = copyright_config(setting);
 
         let report = run_pipeline(
-            &ScenarioRegistry::reference(),
+            &prec_bsl::reference_registry(),
             PipelineRequest {
                 repo_root: &repo,
                 source_roots: &roots,
@@ -290,7 +290,7 @@ fn copyright_fails_when_configured_file_is_missing() {
     let config = copyright_config(r#""ПутьКФайлуКопирайта": "missing-COPYRIGHT""#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

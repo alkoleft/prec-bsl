@@ -3,11 +3,30 @@ name = "prec-bsl"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    ".",
+    "crates/prec-bsl-bsl",
+    "crates/prec-bsl-config",
+    "crates/prec-bsl-git",
+    "crates/prec-bsl-output",
+    "crates/prec-bsl-pipeline",
+    "crates/prec-bsl-platform",
+    "crates/prec-bsl-scenarios",
+    "crates/prec-bsl-source",
+    "crates/prec-bsl-xml",
+]
+
 [dependencies]
-quick-xml = "0.39.3"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tree-sitter = "0.25"
-tree-sitter-bsl = "0.1"
+prec-bsl-bsl = { path = "crates/prec-bsl-bsl" }
+prec-bsl-config = { path = "crates/prec-bsl-config" }
+prec-bsl-git = { path = "crates/prec-bsl-git" }
+prec-bsl-output = { path = "crates/prec-bsl-output" }
+prec-bsl-pipeline = { path = "crates/prec-bsl-pipeline" }
+prec-bsl-platform = { path = "crates/prec-bsl-platform" }
+prec-bsl-scenarios = { path = "crates/prec-bsl-scenarios" }
+prec-bsl-source = { path = "crates/prec-bsl-source" }
+prec-bsl-xml = { path = "crates/prec-bsl-xml" }
 
 [dev-dependencies]
+serde_json = "1"

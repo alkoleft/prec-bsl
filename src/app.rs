@@ -5,8 +5,9 @@ use crate::cli::{ExecRulesArgs, PrekHookArgs};
 use crate::config::{ConfigResolveRequest, resolve_config};
 use crate::git_index::{collect_staged_files, restage_paths};
 use crate::output::{OutputFormat, render_report};
+use crate::reference_registry;
 use crate::scenario_pipeline::{
-    PipelineMode, PipelineReport, PipelineRequest, ScenarioRegistry, ScenarioResult, run_pipeline,
+    PipelineMode, PipelineReport, PipelineRequest, ScenarioResult, run_pipeline,
 };
 use crate::source_files::{
     classify_staged_files, collect_source_files, parse_source_dir_list, resolve_source_roots,
@@ -36,7 +37,7 @@ pub fn run_prek_hook(args: &PrekHookArgs) -> i32 {
     };
     let files = classify_staged_files(&roots, &staged_files);
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &reference_registry(),
         PipelineRequest {
             repo_root: &repo_root,
             source_roots: &roots,
@@ -80,7 +81,7 @@ pub fn run_exec_rules(args: &ExecRulesArgs) -> i32 {
         Err(error) => return print_error(error.to_string()),
     };
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &reference_registry(),
         PipelineRequest {
             repo_root: &repo_root,
             source_roots: &roots,

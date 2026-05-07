@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
-pub use crate::output::OutputFormat;
+pub use prec_bsl_output::OutputFormat;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliCommand {

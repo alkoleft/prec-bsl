@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::unit_tests_processing::UNIT_TESTS_PROCESSING_RULE;
@@ -26,7 +26,7 @@ fn unit_tests_processing_inserts_loader_region_and_is_idempotent() {
     let config = unit_tests_processing_config();
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -60,7 +60,7 @@ fn unit_tests_processing_inserts_loader_region_and_is_idempotent() {
     assert_eq!(first_report.hook_exit_code(), 1);
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -208,7 +208,7 @@ fn unit_tests_processing_skips_non_test_paths_and_non_bsl_files() {
     ];
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -238,7 +238,7 @@ fn run_for_file(repo: &Path, repo_path: PathBuf) -> prec_bsl::scenario_pipeline:
     let roots = resolve_source_roots(repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
     run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: repo,
             source_roots: &roots,

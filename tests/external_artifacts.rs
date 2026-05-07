@@ -8,7 +8,7 @@ use prec_bsl::external_artifacts::{
     discover_platform_executable_in_paths, evaluate_external_artifact_boundary,
 };
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{
     SourceFileKind, classify_path, classify_repo_path, resolve_source_roots,
@@ -28,7 +28,7 @@ fn external_artifacts_report_missing_platform_dependency_without_mutating_file()
     );
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -65,7 +65,7 @@ fn external_artifacts_skip_non_external_files() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -94,7 +94,7 @@ fn external_artifacts_invalid_settings_do_not_block_non_external_files() {
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

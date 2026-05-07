@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::text_fixers::{KEYWORD_SPACING_RULE, add_spaces_before_keywords};
@@ -26,7 +26,7 @@ fn keyword_spacing_matches_golden_fixture_and_is_idempotent() {
     let config = keyword_spacing_config();
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -55,7 +55,7 @@ fn keyword_spacing_matches_golden_fixture_and_is_idempotent() {
     );
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

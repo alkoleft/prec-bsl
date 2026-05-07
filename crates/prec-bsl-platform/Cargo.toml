@@ -1,0 +1,9 @@
+[package]
+name = "prec-bsl-platform"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+prec-bsl-pipeline = { path = "../prec-bsl-pipeline" }
+prec-bsl-source = { path = "../prec-bsl-source" }
+serde_json = "1"

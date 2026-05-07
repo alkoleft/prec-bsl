@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::text_checkers::PROFANITY_RULE;
@@ -24,7 +24,7 @@ fn profanity_reports_configured_dictionary_matches_without_modifying_file() {
     let config = profanity_config(r#""ФайлСНецензурнымиСловами": "НецензурныеСлова.txt""#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -65,7 +65,7 @@ fn profanity_uses_default_dictionary_when_setting_is_absent() {
     .unwrap();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -101,7 +101,7 @@ fn profanity_skips_when_default_dictionary_is_absent() {
     .unwrap();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -131,7 +131,7 @@ fn profanity_fails_when_configured_dictionary_is_missing() {
     let config = profanity_config(r#""ФайлСНецензурнымиСловами": "missing.txt""#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -162,7 +162,7 @@ fn profanity_fails_when_dictionary_setting_is_not_a_string() {
     let config = profanity_config(r#""ФайлСНецензурнымиСловами": 1"#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -191,7 +191,7 @@ fn profanity_fails_when_dictionary_setting_is_empty() {
     let config = profanity_config(r#""ФайлСНецензурнымиСловами": " ""#);
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

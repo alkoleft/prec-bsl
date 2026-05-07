@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::xml_forms::{
@@ -22,7 +22,7 @@ fn xml_forms_corrects_duplicate_ids_and_is_idempotent() {
     let config = xml_forms_config();
 
     let first_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -46,7 +46,7 @@ fn xml_forms_corrects_duplicate_ids_and_is_idempotent() {
     assert_eq!(first_report.hook_exit_code(), 1);
 
     let second_report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -80,7 +80,7 @@ fn xml_forms_preserves_base_form_ids_and_reassigns_non_borrowed_duplicates() {
     let config = xml_forms_config();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -180,7 +180,7 @@ fn xml_forms_reports_modified_sibling_base_form_path() {
     let config = xml_forms_config();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,
@@ -296,7 +296,7 @@ fn xml_forms_skips_direct_base_form_and_non_form_files() {
     let config = xml_forms_config();
 
     let report = run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
             source_roots: &roots,

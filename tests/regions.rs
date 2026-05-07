@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use prec_bsl::bsl_checkers::REGIONS_RULE;
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
-    PipelineMode, PipelineRequest, ScenarioRegistry, ScenarioResultStatus, run_pipeline,
+    PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 
@@ -209,7 +209,7 @@ fn run_regions(
     let file = classify_repo_path(&roots, repo_path, None).unwrap();
 
     run_pipeline(
-        &ScenarioRegistry::reference(),
+        &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: repo,
             source_roots: &roots,
