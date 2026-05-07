@@ -1284,7 +1284,7 @@ Dependencies:
 
 - T5, T11, T12, T13, T14, T16.
 
-### T35. TODO: Run XML/EDT acceptance on RAT copy
+### T35. DONE: Run XML/EDT acceptance on RAT copy
 
 Run XML/EDT scenarios on a temporary RAT copy with `.mdo` and `.form` files.
 
@@ -1299,6 +1299,25 @@ Validation:
 
 - `cargo test rat_xml_edt`
 - `git -C /home/alko/develop/open-source/rat status --short`
+
+Completion evidence:
+
+- 2026-05-07: Added RAT XML/EDT acceptance in
+  `tests/rat_acceptance.rs`. The test copies required RAT source roots into a
+  `target/rat-acceptance` temporary directory, uses the production source-root
+  and file-classification layer to prove `Configuration.mdo`, object `.mdo`,
+  and `Form.form` discovery, seeds XML/EDT fixer probes only in the temp copy,
+  and verifies `ОтключениеПолнотекстовогоПоиска` plus
+  `ОтключениеРазрешенияИзменятьФорму` first-run modifications and second-run
+  idempotence.
+- The acceptance also records the current RAT
+  `КорректировкаXMLФорм` boundary for copied `Form.form` files with `id = -1`:
+  the scenario fails closed with a deterministic hard-failure diagnostic and
+  leaves the temp-copy form unchanged.
+- Verification passed: `cargo fmt --check`, `cargo test rat_xml_edt`,
+  `cargo test`, `git diff --check`, and read-only RAT status probe with
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`.
+- Independent plan review returned `APPROVED` before implementation.
 
 Dependencies:
 

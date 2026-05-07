@@ -7,9 +7,14 @@ use std::process::{Command, Output};
 
 use prec_bsl::bsl_parser::BslParser;
 use prec_bsl::scenarios::{ScenarioSupport, find_reference_scenario, normalize_scenario_id};
+use prec_bsl::source_files::{
+    SourceFileKind, collect_source_files as collect_prec_bsl_source_files, parse_source_dir_list,
+    resolve_source_roots,
+};
 use rat_support::{
-    RAT_PARSER_ROOTS, RAT_SOURCE_ROOTS, TempRatCopy, collect_bsl_files, collect_source_files,
-    copy_required_source_roots, git_status_short, rat_repo,
+    RAT_PARSER_ROOTS, RAT_SOURCE_ROOTS, TempRatCopy, collect_bsl_files,
+    collect_source_files as collect_raw_source_files, copy_required_source_roots, git_status_short,
+    rat_repo,
 };
 use serde_json::Value;
 
@@ -24,6 +29,16 @@ const RAT_SOURCE_DIRS: &str = "fixtures/configuration,exts/rat,tests";
 const RAT_ACCEPTANCE_COPYRIGHT: &str =
     "//© prec-bsl RAT acceptance\n//\n// Temporary fixture copyright\n//©\n";
 const RAT_COPYRIGHT_PROBE_FILE: &str = "exts/rat/src/CommonModules/РатJSON/Module.bsl";
+const RAT_XML_EDT_FIXER_RULES: &str =
+    "ОтключениеПолнотекстовогоПоиска,ОтключениеРазрешенияИзменятьФорму";
+const RAT_XML_FORM_RULE: &str = "КорректировкаXMLФорм";
+const RAT_FULL_TEXT_PROBE_FILE: &str =
+    "fixtures/configuration/src/InformationRegisters/Ф_ХранилищеЗначений/Ф_ХранилищеЗначений.mdo";
+const RAT_FORM_CHANGE_PROBE_FILE: &str =
+    "tests/src/DataProcessors/Мок_Ванесса/Forms/Форма/Form.form";
+const RAT_XML_FORM_FAILURE_DIR: &str = "exts/rat/src/DataProcessors/РатШагиVA/Forms/Таймер";
+const RAT_XML_FORM_FAILURE_FILE: &str =
+    "exts/rat/src/DataProcessors/РатШагиVA/Forms/Таймер/Form.form";
 
 #[test]
 fn rat_source_roots_copy_to_tempdir_without_mutating_checkout() {
@@ -49,7 +64,7 @@ fn rat_source_roots_copy_to_tempdir_without_mutating_checkout() {
 
     let copied_files = copied_roots
         .iter()
-        .map(|root| collect_source_files(root))
+        .map(|root| collect_raw_source_files(root))
         .collect::<Result<Vec<_>, _>>()
         .expect("copied RAT source files must be discoverable")
         .into_iter()
@@ -301,6 +316,209 @@ fn rat_text_idempotence_runs_text_fixers_on_temp_copy_only() {
         after_status, before_status,
         "RAT text idempotence acceptance must not change the real checkout status"
     );
+}
+
+#[test]
+fn rat_xml_edt_acceptance_runs_on_temp_copy_only() {
+    let Some(repo) = rat_repo() else {
+        eprintln!(
+            "skipping RAT XML/EDT acceptance: /home/alko/develop/open-source/rat is not available"
+        );
+        return;
+    };
+
+    let before_status = git_status_short(repo).expect("RAT git status must be readable");
+    let tempdir = TempRatCopy::new().expect("temporary RAT copy directory must be created");
+    copy_required_source_roots(repo, tempdir.path())
+        .expect("required RAT source roots must copy into a temporary directory");
+
+    let source_dirs = parse_source_dir_list(RAT_SOURCE_DIRS);
+    let source_roots = resolve_source_roots(tempdir.path(), &source_dirs);
+    assert!(
+        source_roots.diagnostics.is_empty(),
+        "copied RAT source roots must resolve without diagnostics: {:?}",
+        source_roots.diagnostics
+    );
+    let source_files = collect_prec_bsl_source_files(&source_roots.roots)
+        .expect("copied RAT XML/EDT source files must be discoverable through production code");
+    assert!(
+        source_files.iter().any(|file| {
+            file.kind == SourceFileKind::ConfigurationMetadata
+                && file.repo_path
+                    == Path::new("fixtures/configuration/src/Configuration/Configuration.mdo")
+        }),
+        "RAT XML/EDT acceptance must discover Configuration.mdo"
+    );
+    assert!(
+        source_files.iter().any(|file| {
+            file.kind == SourceFileKind::EdtMetadata
+                && file
+                    .repo_path
+                    .to_string_lossy()
+                    .ends_with("/РатJSON/РатJSON.mdo")
+        }),
+        "RAT XML/EDT acceptance must discover object .mdo files"
+    );
+    assert!(
+        source_files.iter().any(|file| {
+            file.kind == SourceFileKind::EdtForm
+                && file.repo_path == Path::new(RAT_FORM_CHANGE_PROBE_FILE)
+        }),
+        "RAT XML/EDT acceptance must discover Form.form files"
+    );
+
+    replace_once_in_temp_file(
+        tempdir.path(),
+        RAT_FULL_TEXT_PROBE_FILE,
+        "<fullTextSearch>DontUse</fullTextSearch>",
+        "<fullTextSearch>Use</fullTextSearch>",
+    );
+    replace_once_in_temp_file(
+        tempdir.path(),
+        RAT_FORM_CHANGE_PROBE_FILE,
+        "<allowFormCustomize>false</allowFormCustomize>",
+        "<allowFormCustomize>true</allowFormCustomize>",
+    );
+
+    let xml_source_dirs = format!(
+        "{},{}",
+        Path::new(RAT_FULL_TEXT_PROBE_FILE)
+            .parent()
+            .expect("full-text probe must have parent")
+            .display(),
+        Path::new(RAT_FORM_CHANGE_PROBE_FILE)
+            .parent()
+            .expect("form-change probe must have parent")
+            .display()
+    );
+    let first_run = run_prec_bsl([
+        "exec-rules",
+        tempdir
+            .path()
+            .to_str()
+            .expect("temp RAT path must be UTF-8"),
+        "--source-dir",
+        xml_source_dirs.as_str(),
+        "--rules",
+        RAT_XML_EDT_FIXER_RULES,
+    ]);
+    assert!(
+        first_run.status.success(),
+        "first RAT XML/EDT fixer run must succeed:\n{}",
+        output_text(&first_run)
+    );
+    let first_stdout = String::from_utf8_lossy(&first_run.stdout);
+    assert!(first_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(
+        first_stdout.contains("Modified files:"),
+        "first RAT XML/EDT fixer run must report modified files:\n{}",
+        first_stdout
+    );
+    assert!(
+        first_stdout.contains(RAT_FULL_TEXT_PROBE_FILE),
+        "first RAT XML/EDT fixer run must report full-text search probe:\n{}",
+        first_stdout
+    );
+    assert!(
+        first_stdout.contains(RAT_FORM_CHANGE_PROBE_FILE),
+        "first RAT XML/EDT fixer run must report form-change probe:\n{}",
+        first_stdout
+    );
+    assert!(
+        fs::read_to_string(tempdir.path().join(RAT_FULL_TEXT_PROBE_FILE))
+            .expect("full-text probe must remain readable")
+            .contains("<fullTextSearch>DontUse</fullTextSearch>"),
+        "full-text search fixer must disable the seeded RAT metadata property"
+    );
+    assert!(
+        fs::read_to_string(tempdir.path().join(RAT_FORM_CHANGE_PROBE_FILE))
+            .expect("form-change probe must remain readable")
+            .contains("<allowFormCustomize>false</allowFormCustomize>"),
+        "form-change fixer must disable the seeded RAT form property"
+    );
+
+    let second_run = run_prec_bsl([
+        "exec-rules",
+        tempdir
+            .path()
+            .to_str()
+            .expect("temp RAT path must be UTF-8"),
+        "--source-dir",
+        xml_source_dirs.as_str(),
+        "--rules",
+        RAT_XML_EDT_FIXER_RULES,
+    ]);
+    assert!(
+        second_run.status.success(),
+        "second RAT XML/EDT fixer run must succeed:\n{}",
+        output_text(&second_run)
+    );
+    let second_stdout = String::from_utf8_lossy(&second_run.stdout);
+    assert!(second_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(
+        !second_stdout.contains("Modified files:"),
+        "second RAT XML/EDT fixer run must be clean for the same scenario set:\n{}",
+        second_stdout
+    );
+
+    let form_before_failure = fs::read_to_string(tempdir.path().join(RAT_XML_FORM_FAILURE_FILE))
+        .expect("XML form failure probe must be readable before the diagnostic run");
+    let form_correction_run = run_prec_bsl([
+        "exec-rules",
+        tempdir
+            .path()
+            .to_str()
+            .expect("temp RAT path must be UTF-8"),
+        "--source-dir",
+        RAT_XML_FORM_FAILURE_DIR,
+        "--rules",
+        RAT_XML_FORM_RULE,
+    ]);
+    assert!(
+        !form_correction_run.status.success(),
+        "RAT XML form correction diagnostic run must fail closed:\n{}",
+        output_text(&form_correction_run)
+    );
+    let form_correction_stdout = String::from_utf8_lossy(&form_correction_run.stdout);
+    assert!(
+        form_correction_stdout.contains("prec-bsl exec-rules: processed 2 file(s)"),
+        "RAT XML form correction diagnostic run must process the copied form directory:\n{}",
+        form_correction_stdout
+    );
+    assert!(
+        form_correction_stdout.contains(RAT_XML_FORM_RULE)
+            && form_correction_stdout.contains(RAT_XML_FORM_FAILURE_FILE)
+            && form_correction_stdout.contains("form element id must be a positive integer: -1"),
+        "RAT XML form correction diagnostic must include rule, file, and failure reason:\n{}",
+        form_correction_stdout
+    );
+    let form_after_failure = fs::read_to_string(tempdir.path().join(RAT_XML_FORM_FAILURE_FILE))
+        .expect("XML form failure probe must be readable after the diagnostic run");
+    assert_eq!(
+        form_after_failure, form_before_failure,
+        "failed XML form correction run must not partially rewrite the RAT temp copy"
+    );
+
+    let after_status = git_status_short(repo).expect("RAT git status must be readable after run");
+    assert_eq!(
+        after_status, before_status,
+        "RAT XML/EDT acceptance must not change the real checkout status"
+    );
+}
+
+fn replace_once_in_temp_file(repo: &Path, repo_path: &str, from: &str, to: &str) {
+    let path = repo.join(repo_path);
+    let input = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let count = input.matches(from).count();
+    assert!(
+        count > 0,
+        "RAT temp-copy probe {} must contain at least one replacement target",
+        repo_path
+    );
+    let output = input.replacen(from, to, 1);
+    fs::write(&path, output)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
 }
 
 fn scenario_strings<'a>(config: &'a Value, key: &str) -> Vec<&'a str> {
