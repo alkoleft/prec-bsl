@@ -59,6 +59,34 @@ Dynamic execution of repository-local `.os` scenarios is out of v1 scope. Theref
 
 For green-path acceptance, generate a test-specific `v8config.json` from the required v1 scenario list and run it against a temporary copy of the `rat` source roots.
 
+## precommit4onec Reference Test Cases
+
+The legacy `precommit4onec` test cases from
+`/home/alko/develop/open-source/v8-utils/precommit4onec/tests` are imported as
+a local reference corpus under:
+
+```text
+tests/fixtures/precommit4onec-reference
+```
+
+This corpus is used as parity evidence and fixture material for incremental
+Rust scenario tests. It is not executed through OScript in the built-in Rust v1
+hook path.
+
+The import intentionally preserves legacy fixture bytes. Two legacy cases are
+known non-text or non-strict-JSON inputs and must remain explicit in tests:
+
+- `fixtures/ПроверкаСообщенияКоммита/v8config.json` contains an unescaped
+  regex `\d` in the original JSON fixture.
+- `fixtures/ЗащищенныеФайлы/Module.bsl` and
+  `fixtures/СинхронизацияОбъектовМетаданныхИФайлов/EDT/src/CommonForms/ФормаКонстант/Form.oform`
+  are binary or non-UTF-8 fixture payloads.
+
+The `precommit4onec_reference` integration test guards the imported corpus
+inventory, validates ordinary JSON fixtures, and verifies that expected text
+fixture classes remain valid UTF-8 while preserving the explicit legacy
+exceptions above.
+
 ## Required Acceptance Checks
 
 ### Parser Coverage
