@@ -1758,7 +1758,7 @@ Completion evidence:
 - Verification passed: all focused T42 test targets, `cargo fmt --all --check`,
   `cargo test --workspace`, and `git diff --check`.
 
-### T43. TODO: Clarify global-scenario disabling compatibility
+### T43. DONE: Clarify global-scenario disabling compatibility
 
 Upstream issue: `precommit4onec` #24.
 
@@ -1784,6 +1784,20 @@ Validation:
 - `cargo test config`
 - `cargo test scenario_pipeline`
 - `cargo test --workspace`
+
+Completion evidence:
+
+- 2026-05-08: Inspected local `precommit4onec` reference sources and imported
+  fixtures for `ИспользоватьГлобальныеСценарии`; no such compatibility flag is
+  present. Reference behavior uses `ГлобальныеСценарии` as the enabled list and
+  removes entries through `ОтключенныеСценарии`.
+- Documented the explicit v1 non-goal in `spec/configuration.md`: there is no
+  separate `ИспользоватьГлобальныеСценарии` flag, and disabling the whole list
+  is represented through `ОтключенныеСценарии` or an empty project-specific
+  `ГлобальныеСценарии` override.
+- Added focused config and scenario-pipeline regressions proving that disabling
+  every enabled scenario produces an empty enabled set and an empty pipeline
+  result without an exception.
 
 Dependencies:
 

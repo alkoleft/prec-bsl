@@ -118,6 +118,51 @@ fn scenario_pipeline_uses_project_specific_scenario_order() {
 }
 
 #[test]
+fn scenario_pipeline_accepts_empty_enabled_scenario_set() {
+    let repo = temp_repo("empty_scenario_set");
+    write_file(repo.join("src/Модуль.bsl"), "");
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, "src/Модуль.bsl", None).unwrap();
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": [
+                        "УдалениеЛишнихКонцевыхПробелов.os",
+                        "УдалениеЛишнихПустыхСтрок.os"
+                    ],
+                    "ОтключенныеСценарии": [
+                        "УдалениеЛишнихКонцевыхПробелов",
+                        "УдалениеЛишнихПустыхСтрок.os"
+                    ]
+                }
+            }"#,
+    )
+    .unwrap();
+    let registry = reference_registry()
+        .with_definition(ScenarioDefinition::new(TRAILING_WHITESPACE, hard_failure))
+        .with_definition(ScenarioDefinition::new(EXTRA_BLANK_LINES, hard_failure));
+
+    let report = run_pipeline(
+        &registry,
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(
+        report.processed_files,
+        vec![PathBuf::from("src/Модуль.bsl")]
+    );
+    assert!(report.results.is_empty());
+    assert_eq!(report.hook_exit_code(), 0);
+    assert_eq!(report.exec_rules_exit_code(), 0);
+}
+
+#[test]
 fn scenario_pipeline_appends_post_processing_files_to_queue_once() {
     let repo = temp_repo("post_processing_queue");
     write_file(repo.join("src/input.bsl"), "");

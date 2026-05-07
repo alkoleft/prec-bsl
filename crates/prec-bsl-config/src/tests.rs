@@ -582,6 +582,42 @@ fn config_disabled_unknown_scenarios_parse_compatibly() {
 }
 
 #[test]
+fn config_disabled_scenarios_can_disable_entire_global_list() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": [
+                        "УдалениеЛишнихКонцевыхПробелов.os",
+                        "УдалениеЛишнихПустыхСтрок.os"
+                    ],
+                    "ОтключенныеСценарии": [
+                        "УдалениеЛишнихКонцевыхПробелов",
+                        "УдалениеЛишнихПустыхСтрок.os"
+                    ],
+                    "Проекты": {
+                        "configuration": {
+                            "ГлобальныеСценарии": ["ПроверкаНецензурныхСлов.os"],
+                            "ОтключенныеСценарии": ["ПроверкаНецензурныхСлов"]
+                        }
+                    }
+                }
+            }"#,
+    )
+    .unwrap();
+
+    assert_eq!(config.scenarios.enabled_scenarios(), Vec::<&str>::new());
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("src/Модуль.bsl")),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        Vec::<String>::new()
+    );
+    assert!(config.warnings.is_empty());
+}
+
+#[test]
 fn config_unknown_top_level_keys_are_warnings_in_zero_x() {
     let config = parse_config_str(
         r#"{

@@ -267,6 +267,14 @@ Within domain config:
 2. `disabled` has priority over `enabled`.
 3. Scenario names are normalized by trimming optional `.os`.
 
+There is no separate v1 compatibility flag named
+`ИспользоватьГлобальныеСценарии`. Local `precommit4onec` reference code and
+fixtures use `ГлобальныеСценарии` as the enabled scenario list and
+`ОтключенныеСценарии` as the exclusion list. To disable all global scenarios,
+list the enabled scenarios under `ОтключенныеСценарии` or provide an empty
+project-specific `ГлобальныеСценарии` override. Adding another boolean switch
+for this behavior is outside the supported v1 surface.
+
 ## Validation Rules
 
 - Unknown top-level JSON keys are warnings in `0.x`, errors in `1.0`.
