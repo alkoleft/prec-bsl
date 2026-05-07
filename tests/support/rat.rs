@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const RAT_REPO: &str = "/home/alko/develop/open-source/rat";
 pub const RAT_SOURCE_ROOTS: &[&str] = &["fixtures/configuration", "exts/rat", "tests"];
+pub const RAT_PARSER_ROOTS: &[&str] = &["fixtures/configuration/src", "exts/rat/src", "tests/src"];
 
 pub fn rat_repo() -> Option<&'static Path> {
     let path = Path::new(RAT_REPO);
@@ -82,6 +83,13 @@ pub fn collect_source_files(root: &Path) -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+pub fn collect_bsl_files(root: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    collect_bsl_files_into(root, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
 fn copy_dir_all(source: &Path, target: &Path) -> io::Result<()> {
     fs::create_dir_all(target)?;
     for entry in fs::read_dir(source)? {
@@ -111,9 +119,29 @@ fn collect_source_files_into(root: &Path, files: &mut Vec<PathBuf>) -> io::Resul
     Ok(())
 }
 
+fn collect_bsl_files_into(root: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let path = entry.path();
+        if file_type.is_dir() {
+            collect_bsl_files_into(&path, files)?;
+        } else if file_type.is_file() && has_extension(path.as_path(), "bsl") {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
 fn is_source_file(path: &Path) -> bool {
     matches!(
         path.extension().and_then(OsStr::to_str),
         Some("bsl" | "mdo" | "form")
     ) || path.file_name() == Some(OsStr::new("Configuration.mdo"))
+}
+
+fn has_extension(path: &Path, extension: &str) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|value| value == extension)
 }

@@ -1214,7 +1214,7 @@ Dependencies:
 
 - T6, T8, T9, T10.
 
-### T33. TODO: Run RAT parser coverage acceptance
+### T33. DONE: Run RAT parser coverage acceptance
 
 Run the parser coverage baseline over RAT `.bsl` files.
 
@@ -1228,6 +1228,23 @@ Acceptance criteria:
 Validation:
 
 - `cargo test rat_parser_coverage`
+
+Completion evidence:
+
+- 2026-05-07: Added read-only RAT parser coverage acceptance in
+  `tests/rat_acceptance.rs` for the documented parser roots
+  `fixtures/configuration/src`, `exts/rat/src`, and `tests/src`.
+- The acceptance initializes the shared `tree-sitter-bsl` parser, parses all
+  discovered RAT `.bsl` files, counts parser error nodes, and writes a
+  deterministic report to `target/rat-acceptance/rat-parser-coverage.txt`.
+- Published crate baseline on the current RAT checkout: 242 `.bsl` files
+  covered, 53 files with parse errors, and 169 parser error nodes. These gaps
+  were recorded as coverage data only; no local grammar checkout comparison was
+  required because T33 did not identify a parser gap blocking a required
+  scenario.
+- Verification passed: `cargo fmt --check`, `cargo test rat_parser_coverage`,
+  `cargo test`, `git diff --check`, and read-only RAT status probe with
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`.
 
 Dependencies:
 
