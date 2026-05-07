@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::cli::{ExecRulesArgs, PrekHookArgs};
 use crate::config::{ConfigResolveRequest, resolve_config};
@@ -136,9 +137,37 @@ fn resolve_config_and_roots(
 }
 
 fn current_repo_root() -> Result<PathBuf, String> {
-    std::env::current_dir()
-        .map_err(|error| format!("failed to get current directory: {error}"))
-        .and_then(|path| canonical_repo_root(&path))
+    let current_dir = std::env::current_dir()
+        .map_err(|error| format!("failed to get current directory: {error}"))?;
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(&current_dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|error| {
+            format!(
+                "failed to discover Git repository root from {}: {error}",
+                current_dir.display()
+            )
+        })?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "failed to discover Git repository root from {}: {}",
+            current_dir.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let stdout = String::from_utf8(output.stdout).map_err(|error| {
+        format!("git rev-parse --show-toplevel returned non-UTF-8 output: {error}")
+    })?;
+    let path = stdout.trim();
+    if path.is_empty() {
+        return Err("git rev-parse --show-toplevel returned an empty path".to_owned());
+    }
+
+    canonical_repo_root(Path::new(path))
 }
 
 fn canonical_repo_root(path: &Path) -> Result<PathBuf, String> {

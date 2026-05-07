@@ -105,7 +105,12 @@ fn parse_prek_hook(args: &[OsString]) -> Result<CliCommand, CliError> {
 
     let mut index = 0;
     while index < args.len() {
-        match flag(args[index].as_os_str())? {
+        let Some(argument) = args[index].to_str() else {
+            index += 1;
+            continue;
+        };
+
+        match argument {
             "-h" | "--help" => return Ok(CliCommand::Help(HelpTopic::PrekHook)),
             "--config" => {
                 parsed.config = Some(PathBuf::from(required_value(args, &mut index, "--config")?));
@@ -123,15 +128,15 @@ fn parse_prek_hook(args: &[OsString]) -> Result<CliCommand, CliError> {
             "--format" => {
                 parsed.format = parse_format(&required_utf8_value(args, &mut index, "--format")?)?;
             }
-            other if other.starts_with('-') => {
+            other if other.starts_with("--") => {
                 return Err(CliError::new(format!(
                     "unknown option for prek-hook: {other}"
                 )));
             }
-            other => {
-                return Err(CliError::new(format!(
-                    "unexpected positional argument for prek-hook: {other}"
-                )));
+            _other => {
+                // pre-commit-compatible runners may still pass filenames when
+                // hook config drifts. Commit mode deliberately ignores them
+                // and uses the Git index as the source of truth.
             }
         }
         index += 1;
@@ -261,6 +266,65 @@ mod tests {
                 source_dir: Some(PathBuf::from("src/cf")),
                 rules: Some(RuleList("Rule1,Rule2".to_owned())),
                 format: OutputFormat::Json,
+            })
+        );
+    }
+
+    #[test]
+    fn prek_hook_ignores_positional_filenames_from_runner() {
+        let command = parse_args([
+            "prek-hook",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+            "src/ПереданныйФайл.bsl",
+            "src/ДругойФайл.bsl",
+        ])
+        .unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::PrekHook(PrekHookArgs {
+                config: None,
+                source_dir: None,
+                rules: Some(RuleList("УдалениеЛишнихКонцевыхПробелов".to_owned())),
+                format: OutputFormat::Text,
+            })
+        );
+    }
+
+    #[test]
+    fn prek_hook_ignores_dash_prefixed_positional_filenames_from_runner() {
+        let command = parse_args(["prek-hook", "-ПереданныйФайл.bsl"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::PrekHook(PrekHookArgs {
+                config: None,
+                source_dir: None,
+                rules: None,
+                format: OutputFormat::Text,
+            })
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prek_hook_ignores_non_utf8_positional_filenames_from_runner() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let command = parse_args(vec![
+            OsString::from("prek-hook"),
+            OsString::from_vec(b"src/\xff.bsl".to_vec()),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::PrekHook(PrekHookArgs {
+                config: None,
+                source_dir: None,
+                rules: None,
+                format: OutputFormat::Text,
             })
         );
     }

@@ -1130,7 +1130,7 @@ Non-goals:
 
 ## Milestone 8: End-to-End Hook and CI Readiness
 
-### T31. TODO: Wire `prek-hook` end-to-end
+### T31. DONE: Wire `prek-hook` end-to-end
 
 Connect config resolution, Git index discovery, source classification, scenario
 pipeline, restaging, diagnostics, and exit codes for hook mode.
@@ -1148,6 +1148,28 @@ Validation:
 
 - `cargo test prek_hook`
 - Manual smoke in a temporary Git repo.
+
+Completion evidence:
+
+- 2026-05-07: Wired the public `prek-hook` path through Git top-level
+  discovery, config/source-root resolution, staged Git-index discovery, source
+  classification, scenario pipeline execution, modified-path restaging, and
+  deterministic text/JSON report rendering.
+- `prek-hook` now ignores runner-passed positional filenames, including
+  non-UTF-8 and single-dash path edge cases, while unknown long options remain
+  CLI errors. Commit-mode processing continues to use the Git index as the
+  source of truth.
+- Added `tests/prek_hook.rs` end-to-end coverage with real temporary Git
+  repositories for staged fixer processing, modified-path reporting, restaging,
+  hook exit code `1` after unreviewed modifications, ignored passed filenames,
+  repository-subdirectory invocation, and deleted-file skip behavior for
+  scenarios without deleted-file capability.
+- Verification passed: `cargo fmt --check`, `cargo test prek_hook`,
+  `cargo test`, `git diff --check`, and a manual temporary-Git-repo smoke for
+  `prec-bsl prek-hook --rules УдалениеЛишнихКонцевыхПробелов`.
+- Independent reviewer passes found non-UTF-8 and single-dash runner filename
+  edge cases; both were fixed with focused regressions. Final focused reviewer
+  pass returned `APPROVED`.
 
 Dependencies:
 
