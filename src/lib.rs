@@ -3,6 +3,7 @@ pub mod bsl_checkers;
 pub mod bsl_parser;
 pub mod cli;
 pub mod config;
+pub mod full_text_search;
 pub mod git_index;
 pub mod output;
 pub mod scenario_pipeline;

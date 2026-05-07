@@ -866,7 +866,7 @@ Dependencies:
 
 - T23.
 
-### T25. TODO: Implement full-text search disabling
+### T25. DONE: Implement full-text search disabling
 
 Scenario: `ОтключениеПолнотекстовогоПоиска`.
 
@@ -879,6 +879,28 @@ Acceptance criteria:
 Validation:
 
 - `cargo test disable_full_text_search`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/full_text_search.rs` with the XML/EDT
+  `ОтключениеПолнотекстовогоПоиска` implementation, registered it in the
+  reference scenario registry, and documented the scenario contract in
+  `spec/parser-strategy.md` and `spec/configuration.md`.
+- The fixer validates metadata XML through the shared XML/EDT parser boundary,
+  rewrites `Use` to `DontUse` only inside `fullTextSearch` /
+  `xr:FullTextSearch` elements, skips EDT form and non-metadata files, honors
+  `МетаданныеДляИсключения` path and attribute exclusions, reports invalid
+  setting shapes and XML parse errors as hard failures, reports modified files,
+  and is idempotent.
+- Added `tests/disable_full_text_search.rs` coverage for EDT metadata,
+  Designer/XR metadata tag names, attribute and tabular-section exclusions,
+  empty path exclusions, non-metadata skipping, invalid settings, malformed XML,
+  hook exit behavior, and second-run idempotence.
+- Verification passed: `cargo fmt --check`, `cargo test disable_full_text_search`,
+  and `cargo test`.
+- Independent reviewer pass found exclusion-matching gaps around ancestor object
+  and table names; both were fixed with regression coverage. Final focused
+  reviewer pass returned `APPROVED`.
 
 Dependencies:
 

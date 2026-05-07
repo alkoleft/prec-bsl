@@ -101,6 +101,33 @@ Use XML/EDT/platform-specific mechanisms instead of tree-sitter for:
 - `СортировкаСостава`
 - `УдалениеДублейМетаданных`
 
+### Full-text search disabling contract
+
+`ОтключениеПолнотекстовогоПоиска` is an XML/EDT fixer for metadata description
+files. The initial v1 slice applies to `Configuration.mdo`, EDT object `.mdo`
+files, and Designer XML metadata files. It skips BSL modules, EDT form files,
+and unsupported files.
+
+The fixer validates XML through the shared XML/EDT parser boundary before
+rewriting text. It replaces text content equal to `Use`, case-insensitively,
+inside `fullTextSearch` and `xr:FullTextSearch` elements with `DontUse`.
+Other similarly named metadata properties, such as
+`fullTextSearchOnInputByString`, are not part of this scenario.
+
+The optional scenario setting
+`НастройкиСценариев.ОтключениеПолнотекстовогоПоиска.МетаданныеДляИсключения`
+is a map from repository-relative metadata file path to an array of metadata
+attribute names. A matching empty array skips the whole file. A non-empty array
+keeps `Use` for matching attributes and disables it for the rest of the file.
+For tabular-section attributes, both `Реквизит` and `Таблица.Реквизит` names
+may be matched. Repository-relative paths are matched with normalized
+separators and may include or omit a leading slash for compatibility with the
+reference scenario.
+
+Invalid setting shapes are hard failures for the processed file. XML parse
+errors are hard failures. The fixer must preserve unrelated XML text, report
+modified files, and prove idempotence through focused tests.
+
 ### XML form correction contract
 
 `КорректировкаXMLФорм` is an XML/EDT fixer for form description files. The

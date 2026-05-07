@@ -283,6 +283,26 @@ Behavior:
 - The checker reports matched dictionary words with rule id and file path.
 - The checker never modifies source files.
 
+### ОтключениеПолнотекстовогоПоиска
+
+Exclusion setting:
+
+- `НастройкиСценариев.ОтключениеПолнотекстовогоПоиска.МетаданныеДляИсключения`
+
+Behavior:
+
+- If the setting is absent or empty, the scenario disables every supported
+  `fullTextSearch` / `xr:FullTextSearch` property in the processed metadata
+  file.
+- If the setting contains the processed repository-relative metadata path with
+  an empty array, the scenario skips that file.
+- If the setting contains the processed repository-relative metadata path with
+  a non-empty array, the scenario keeps matching metadata attributes enabled
+  and disables the rest.
+- Path keys are repository-relative, use normalized separators, and may include
+  or omit a leading slash for compatibility with the reference scenario.
+- Invalid setting shapes are hard failures for the processed file.
+
 ### ВставкаКопирайтов
 
 Copyright settings:

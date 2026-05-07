@@ -8,6 +8,7 @@ use crate::bsl_checkers::{
     forbid_goto, preprocessor_instructions, regions,
 };
 use crate::config::ResolvedConfig;
+use crate::full_text_search::{DISABLE_FULL_TEXT_SEARCH_RULE, disable_full_text_search};
 use crate::git_index::StagedStatus;
 use crate::scenarios::{
     REFERENCE_SCENARIOS, ScenarioDefinition, ScenarioSupport, find_reference_scenario,
@@ -456,6 +457,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         PROFANITY_RULE => profanity,
         UNIT_TESTS_PROCESSING_RULE => unit_tests_processing,
         XML_FORM_CORRECTION_RULE => xml_form_correction,
+        DISABLE_FULL_TEXT_SEARCH_RULE => disable_full_text_search,
         _ => skipped_until_implemented,
     }
 }
