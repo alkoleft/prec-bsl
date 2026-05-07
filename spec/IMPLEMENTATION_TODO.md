@@ -994,7 +994,7 @@ Dependencies:
 
 - T9, T23.
 
-### T28. TODO: Implement composition sorting
+### T28. DONE: Implement composition sorting
 
 Scenario: `СортировкаСостава`.
 
@@ -1007,6 +1007,32 @@ Acceptance criteria:
 Validation:
 
 - `cargo test composition_sort`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/composition_sort.rs` with the XML/EDT
+  `СортировкаСостава` initial slice and registered it in the reference
+  scenario registry.
+- Documented and implemented the v1 configuration-description contract:
+  `Configuration/Configuration.mdo` and `Configuration.xml` are sorted through
+  source-root-relative identity, XML is validated through the shared XML/EDT
+  parser boundary before rewriting, direct EDT composition references and
+  Designer `ChildObjects` entries are sorted deterministically by metadata type
+  slots, `languages`/`Language` and `subsystems`/`Subsystem` remain unsorted,
+  UID-like references containing `-` remain in place, prefix buckets from
+  `УчитываяПрефикс` are honored, and `ОтключенныеОбъекты = Конфигурация`
+  skips the configuration slice.
+- Added `tests/composition_sort.rs` coverage for EDT and Designer sorting,
+  hook-mode modified-path reporting, second-run idempotence, prefix buckets,
+  disabled configuration settings, non-configuration skip behavior, invalid
+  settings, malformed XML, and source-root-relative configuration identity.
+- Verification passed: `cargo fmt --check`, `cargo test composition_sort`,
+  `cargo test`, and `git diff --check`.
+- Independent reviewer pass found a source-root-relative identity gap for
+  nested `Configuration/Configuration.mdo`; it was fixed with regression
+  coverage. Follow-up reviewer pass found no remaining T28 correctness,
+  T29/local `.os`, or platform-runtime scope issues after ledger evidence was
+  added.
 
 Dependencies:
 

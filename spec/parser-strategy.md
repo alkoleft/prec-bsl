@@ -226,6 +226,49 @@ blocks through hard-failure diagnostics and must leave `modified_paths` empty.
 Composition sorting and duplicate metadata removal remain owned by
 `СортировкаСостава` and `УдалениеДублейМетаданных`.
 
+### Metadata composition sorting contract
+
+`СортировкаСостава` is an XML/EDT fixer for metadata composition lists. The
+initial v1 Rust slice applies to configuration description files:
+
+- EDT `Configuration/Configuration.mdo`;
+- Designer `Configuration.xml`.
+
+The fixer validates XML through the shared XML/EDT parser boundary before
+rewriting text. For EDT configuration files, it sorts direct root-level
+composition reference elements whose text has the `Type.Name` shape, such as
+`<commonModules>CommonModule.Модуль</commonModules>`. For Designer
+configuration files, it sorts direct elements inside
+`MetaDataObject/Configuration/ChildObjects`, such as
+`<CommonModule>Модуль</CommonModule>`.
+
+Sorting is deterministic and preserves the existing XML element text:
+
+- metadata type groups keep their existing slots and are not reordered against
+  other metadata types or unrelated configuration properties;
+- sortable object references within each metadata type are ordered by their
+  full reference text;
+- references whose object name starts with one of
+  `НастройкиСценариев.СортировкаСостава.УчитываяПрефикс` are sorted in prefix
+  buckets after non-prefixed references, preserving the configured prefix
+  order;
+- `languages`/`Language` and `subsystems`/`Subsystem` composition references
+  are intentionally not sorted, matching the reference scenario exclusions;
+- references containing `-` are treated as broken UID-like references and are
+  left in their original slots.
+
+`НастройкиСценариев.СортировкаСостава.ОтключенныеОбъекты` accepts either a
+string array or a comma-separated string. If it contains `Конфигурация`
+case-insensitively, configuration description files are skipped. Invalid
+setting shapes are hard failures for the processed file.
+
+The scenario skips non-configuration metadata files in this slice. Sorting
+subsystem, functional option, defined type, exchange plan, and other object
+description compositions belongs to a later explicit task. The fixer must
+preserve unrelated XML text, report modified files, and prove idempotence
+through focused tests. XML parse errors are hard failures for the processed
+file.
+
 ## Implementation Contract
 
 - Create a shared BSL parser module instead of each scenario initializing its own parser ad hoc.

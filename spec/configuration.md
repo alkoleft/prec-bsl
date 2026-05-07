@@ -344,6 +344,26 @@ Behavior:
   skipping belongs to a later metadata-aware boundary.
 - The fixer reports modified files and is idempotent.
 
+### СортировкаСостава
+
+Composition sorting settings:
+
+- `НастройкиСценариев.СортировкаСостава.ОтключенныеОбъекты`
+- `НастройкиСценариев.СортировкаСостава.УчитываяПрефикс`
+
+Behavior:
+
+- `ОтключенныеОбъекты` accepts either a string array or a comma-separated
+  string. Empty values are ignored.
+- If `ОтключенныеОбъекты` contains `Конфигурация` case-insensitively, the
+  scenario skips `Configuration.mdo` / `Configuration.xml`.
+- `УчитываяПрефикс` accepts either a string array or a comma-separated string.
+  Empty values are ignored.
+- Object references whose object name starts with a configured prefix are
+  sorted in that prefix bucket after non-prefixed references; prefix bucket
+  order follows the configured setting order.
+- Invalid setting shapes are hard failures for the processed file.
+
 ## Decision Table
 
 | Setting kind | `.pre-commit-hooks.yaml` | `prek.toml` / `.pre-commit-config.yaml` | `v8config.json` |

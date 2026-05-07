@@ -7,6 +7,7 @@ use crate::bsl_checkers::{
     DUPLICATE_METHODS_RULE, FORBID_GOTO_RULE, PREPROCESSOR_RULE, REGIONS_RULE, duplicate_methods,
     forbid_goto, preprocessor_instructions, regions,
 };
+use crate::composition_sort::{COMPOSITION_SORT_RULE, composition_sort};
 use crate::config::ResolvedConfig;
 use crate::form_change_permission::{DISABLE_FORM_CHANGE_RULE, disable_form_change_permission};
 use crate::full_text_search::{DISABLE_FULL_TEXT_SEARCH_RULE, disable_full_text_search};
@@ -463,6 +464,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         DISABLE_FULL_TEXT_SEARCH_RULE => disable_full_text_search,
         DISABLE_FORM_CHANGE_RULE => disable_form_change_permission,
         METADATA_SYNC_RULE => metadata_sync,
+        COMPOSITION_SORT_RULE => composition_sort,
         _ => skipped_until_implemented,
     }
 }
