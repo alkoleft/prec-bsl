@@ -63,7 +63,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "prec-bsl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-bsl",
  "prec-bsl-config",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "prec-bsl-bsl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-pipeline",
  "prec-bsl-source",
@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "prec-bsl-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -97,11 +97,11 @@ dependencies = [
 
 [[package]]
 name = "prec-bsl-git"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "prec-bsl-output"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-pipeline",
  "serde",
@@ -110,7 +110,7 @@ dependencies = [
 
 [[package]]
 name = "prec-bsl-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-config",
  "prec-bsl-git",
@@ -120,7 +120,7 @@ dependencies = [
 
 [[package]]
 name = "prec-bsl-platform"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-pipeline",
  "prec-bsl-source",
@@ -129,14 +129,14 @@ dependencies = [
 
 [[package]]
 name = "prec-bsl-source"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-git",
 ]
 
 [[package]]
 name = "prec-bsl-xml"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prec-bsl-pipeline",
  "prec-bsl-source",

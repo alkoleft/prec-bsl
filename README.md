@@ -53,7 +53,7 @@ restaging в отдельный Git-слой.
 ```toml
 [[repos]]
 repo = "https://github.com/alkoleft/prec-bsl"
-rev = "v0.1.0"
+rev = "v0.1.1"
 
 [[repos.hooks]]
 id = "prec-bsl"
@@ -79,7 +79,7 @@ staged Git index, включая удаления и Git-статусы, а не
 ```yaml
 repos:
   - repo: https://github.com/alkoleft/prec-bsl
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: prec-bsl
         args:

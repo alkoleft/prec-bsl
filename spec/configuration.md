@@ -82,7 +82,7 @@ YAML example:
 ```yaml
 repos:
   - repo: https://github.com/<org>/prec-bsl
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: prec-bsl
         args:
@@ -95,7 +95,7 @@ TOML example:
 ```toml
 [[repos]]
 repo = "https://github.com/<org>/prec-bsl"
-rev = "v0.1.0"
+rev = "v0.1.1"
 
 [[repos.hooks]]
 id = "prec-bsl"
