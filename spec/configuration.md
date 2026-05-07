@@ -420,3 +420,8 @@ The PRD open question about domain configuration is resolved for v1:
 - Canonical domain config: `v8config.json`.
 - `prek.toml` / `.pre-commit-config.yaml`: hook selection and small CLI args only.
 - `.pre-commit-hooks.yaml`: hook repository manifest only.
+
+This v1 compatibility decision does not settle the future native `prec-bsl`
+configuration format. The follow-up research task in
+`spec/IMPLEMENTATION_TODO.md` must evaluate configuration ergonomics for new
+projects while preserving `v8config.json` as a backward-compatibility input.
