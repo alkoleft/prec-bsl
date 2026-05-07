@@ -9,6 +9,7 @@ use crate::bsl_checkers::{
 };
 use crate::composition_sort::{COMPOSITION_SORT_RULE, composition_sort};
 use crate::config::ResolvedConfig;
+use crate::duplicate_metadata::{DUPLICATE_METADATA_RULE, duplicate_metadata};
 use crate::form_change_permission::{DISABLE_FORM_CHANGE_RULE, disable_form_change_permission};
 use crate::full_text_search::{DISABLE_FULL_TEXT_SEARCH_RULE, disable_full_text_search};
 use crate::git_index::StagedStatus;
@@ -465,6 +466,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         DISABLE_FORM_CHANGE_RULE => disable_form_change_permission,
         METADATA_SYNC_RULE => metadata_sync,
         COMPOSITION_SORT_RULE => composition_sort,
+        DUPLICATE_METADATA_RULE => duplicate_metadata,
         _ => skipped_until_implemented,
     }
 }

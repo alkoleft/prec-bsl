@@ -226,6 +226,36 @@ blocks through hard-failure diagnostics and must leave `modified_paths` empty.
 Composition sorting and duplicate metadata removal remain owned by
 `СортировкаСостава` and `УдалениеДублейМетаданных`.
 
+### Duplicate metadata removal contract
+
+`УдалениеДублейМетаданных` is an XML/EDT fixer for configuration composition
+lists. The initial v1 Rust slice applies to configuration description files:
+
+- EDT `Configuration/Configuration.mdo`;
+- Designer `Configuration.xml`.
+
+The fixer validates XML through the shared XML/EDT parser boundary before
+rewriting text. For EDT configuration files, it inspects direct root-level
+composition reference elements after the first direct `languages` element,
+whose text has the `Type.Name` shape, such as
+`<commonModules>CommonModule.Модуль</commonModules>`. For Designer
+configuration files, it inspects direct elements inside
+`MetaDataObject/Configuration/ChildObjects`, such as
+`<CommonModule>Модуль</CommonModule>`.
+
+For v1 parity, duplicate identity is the XML element name, normalized text
+content, and exact direct element source shape after surrounding XML structure
+is validated. When duplicates are present, the last occurrence is preserved
+and earlier occurrences with the same source shape are removed, matching the
+reference scenario's repeated first-match removal loop. The scenario does not
+sort entries, does not remove UID-like broken references containing `-`, and
+does not inspect nested `ChildObjects` blocks, EDT entries before `languages`,
+or non-configuration metadata files in this slice.
+
+The fixer must preserve unrelated XML text, report modified files, and prove
+idempotence through focused tests. XML parse errors are hard failures for the
+processed file.
+
 ### Metadata composition sorting contract
 
 `СортировкаСостава` is an XML/EDT fixer for metadata composition lists. The

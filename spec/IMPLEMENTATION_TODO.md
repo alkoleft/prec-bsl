@@ -1038,7 +1038,7 @@ Dependencies:
 
 - T23.
 
-### T29. TODO: Implement duplicate metadata removal
+### T29. DONE: Implement duplicate metadata removal
 
 Scenario: `УдалениеДублейМетаданных`.
 
@@ -1051,6 +1051,28 @@ Acceptance criteria:
 Validation:
 
 - `cargo test duplicate_metadata`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/duplicate_metadata.rs` with the XML/EDT
+  `УдалениеДублейМетаданных` implementation and registered it in the reference
+  scenario registry.
+- Documented and implemented the v1 configuration-description contract:
+  `Configuration/Configuration.mdo` and `Configuration.xml` are validated
+  through the shared XML/EDT parser boundary, direct composition entries are
+  de-duplicated with the last matching source-shape occurrence preserved,
+  UID-like references containing `-` and non-configuration files are skipped,
+  modified files are reported, and the fixer is idempotent.
+- Added `tests/duplicate_metadata.rs` coverage for EDT and Designer
+  de-duplication, hook-mode modified-path reporting, second-run idempotence,
+  source-root-relative configuration identity, UID-like reference preservation,
+  different source-shape preservation, non-configuration skip behavior, and
+  malformed XML hard failures.
+- Verification passed: `cargo fmt --check`, `cargo test duplicate_metadata`,
+  `cargo test`, and `git diff --check`.
+- Independent explorer pass confirmed the legacy scenario's narrow
+  source-shape de-duplication behavior; the implementation and spec were kept
+  within that T29 scope.
 
 Dependencies:
 
