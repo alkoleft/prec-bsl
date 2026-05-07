@@ -3,6 +3,7 @@ mod rat_support;
 
 use std::fs;
 use std::path::Path;
+use std::process::{Command, Output};
 
 use prec_bsl::bsl_parser::BslParser;
 use prec_bsl::scenarios::{ScenarioSupport, find_reference_scenario, normalize_scenario_id};
@@ -11,6 +12,18 @@ use rat_support::{
     copy_required_source_roots, git_status_short, rat_repo,
 };
 use serde_json::Value;
+
+const RAT_TEXT_FIXER_RULES: &str = concat!(
+    "УдалениеЛишнихКонцевыхПробелов,",
+    "УдалениеЛишнихПустыхСтрок,",
+    "ДобавлениеПробеловПередКлючевымиСловами,",
+    "ИсправлениеНеКаноническогоНаписания,",
+    "ВставкаКопирайтов"
+);
+const RAT_SOURCE_DIRS: &str = "fixtures/configuration,exts/rat,tests";
+const RAT_ACCEPTANCE_COPYRIGHT: &str =
+    "//© prec-bsl RAT acceptance\n//\n// Temporary fixture copyright\n//©\n";
+const RAT_COPYRIGHT_PROBE_FILE: &str = "exts/rat/src/CommonModules/РатJSON/Module.bsl";
 
 #[test]
 fn rat_source_roots_copy_to_tempdir_without_mutating_checkout() {
@@ -208,6 +221,88 @@ fn rat_parser_coverage_counts_and_reports_bsl_parse_errors() {
     });
 }
 
+#[test]
+fn rat_text_idempotence_runs_text_fixers_on_temp_copy_only() {
+    let Some(repo) = rat_repo() else {
+        eprintln!(
+            "skipping RAT text idempotence acceptance: /home/alko/develop/open-source/rat is not available"
+        );
+        return;
+    };
+
+    let before_status = git_status_short(repo).expect("RAT git status must be readable");
+    let tempdir = TempRatCopy::new().expect("temporary RAT copy directory must be created");
+    copy_required_source_roots(repo, tempdir.path())
+        .expect("required RAT source roots must copy into a temporary directory");
+    fs::write(tempdir.path().join("COPYRIGHT"), RAT_ACCEPTANCE_COPYRIGHT)
+        .expect("temporary RAT copy must include deterministic copyright text");
+
+    let first_run = run_prec_bsl([
+        "exec-rules",
+        tempdir
+            .path()
+            .to_str()
+            .expect("temp RAT path must be UTF-8"),
+        "--source-dir",
+        RAT_SOURCE_DIRS,
+        "--rules",
+        RAT_TEXT_FIXER_RULES,
+    ]);
+    assert!(
+        first_run.status.success(),
+        "first RAT text fixer run must succeed:\n{}",
+        output_text(&first_run)
+    );
+    let first_stdout = String::from_utf8_lossy(&first_run.stdout);
+    assert!(first_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(
+        first_stdout.contains("Modified files:"),
+        "first RAT text fixer run must report modified files:\n{}",
+        first_stdout
+    );
+    assert!(
+        first_stdout.contains("ВставкаКопирайтов"),
+        "first RAT text fixer run must include the copyright fixer:\n{}",
+        first_stdout
+    );
+    let copyright_probe = fs::read_to_string(tempdir.path().join(RAT_COPYRIGHT_PROBE_FILE))
+        .expect("RAT copyright probe file must remain readable in the temp copy");
+    assert!(
+        copyright_probe.starts_with(RAT_ACCEPTANCE_COPYRIGHT),
+        "RAT text fixer run must apply deterministic copyright text to a BSL file"
+    );
+
+    let second_run = run_prec_bsl([
+        "exec-rules",
+        tempdir
+            .path()
+            .to_str()
+            .expect("temp RAT path must be UTF-8"),
+        "--source-dir",
+        RAT_SOURCE_DIRS,
+        "--rules",
+        RAT_TEXT_FIXER_RULES,
+    ]);
+    assert!(
+        second_run.status.success(),
+        "second RAT text fixer run must succeed:\n{}",
+        output_text(&second_run)
+    );
+    let second_stdout = String::from_utf8_lossy(&second_run.stdout);
+    assert!(second_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(
+        !second_stdout.contains("Modified files:"),
+        "second RAT text fixer run must be clean for the same scenario set:\n{}",
+        second_stdout
+    );
+
+    let after_status = git_status_short(repo).expect("RAT git status must be readable after run");
+    assert_eq!(
+        after_status, before_status,
+        "RAT text idempotence acceptance must not change the real checkout status"
+    );
+}
+
 fn scenario_strings<'a>(config: &'a Value, key: &str) -> Vec<&'a str> {
     config
         .get(key)
@@ -267,4 +362,19 @@ fn render_rat_parser_coverage_report(
     }
 
     report
+}
+
+fn run_prec_bsl<const N: usize>(args: [&str; N]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_prec-bsl"))
+        .args(args)
+        .output()
+        .expect("prec-bsl binary must run")
+}
+
+fn output_text(output: &Output) -> String {
+    format!(
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }

@@ -1250,7 +1250,7 @@ Dependencies:
 
 - T5, T17.
 
-### T34. TODO: Run text fixer idempotence acceptance on RAT copy
+### T34. DONE: Run text fixer idempotence acceptance on RAT copy
 
 Run low-risk text fixer scenarios on a temporary RAT copy.
 
@@ -1264,6 +1264,21 @@ Validation:
 
 - `cargo test rat_text_idempotence`
 - `git -C /home/alko/develop/open-source/rat status --short`
+
+Completion evidence:
+
+- 2026-05-07: Added RAT text fixer idempotence acceptance in
+  `tests/rat_acceptance.rs`. The test copies the required RAT source roots to a
+  `target/rat-acceptance` temporary directory, writes deterministic copyright
+  text into the copy, runs the text fixer scenario set through
+  `prec-bsl exec-rules`, asserts the first run reports modified files, reruns
+  the same scenario set on the same copy, and asserts the second run is clean.
+- The real RAT checkout status is captured before and after the mutating
+  acceptance run with `GIT_OPTIONAL_LOCKS=0` and must remain unchanged.
+- Verification passed: `cargo fmt --check`, `cargo test rat_text_idempotence`,
+  `cargo test`, `git diff --check`, and read-only RAT status probe with
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`.
+- Independent plan review returned `APPROVED` before implementation.
 
 Dependencies:
 
