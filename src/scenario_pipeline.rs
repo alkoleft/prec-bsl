@@ -11,6 +11,7 @@ use crate::config::ResolvedConfig;
 use crate::form_change_permission::{DISABLE_FORM_CHANGE_RULE, disable_form_change_permission};
 use crate::full_text_search::{DISABLE_FULL_TEXT_SEARCH_RULE, disable_full_text_search};
 use crate::git_index::StagedStatus;
+use crate::metadata_sync::{METADATA_SYNC_RULE, metadata_sync};
 use crate::scenarios::{
     REFERENCE_SCENARIOS, ScenarioDefinition, ScenarioSupport, find_reference_scenario,
     normalize_scenario_id,
@@ -38,13 +39,14 @@ impl ScenarioRegistry {
             .iter()
             .filter(|scenario| scenario.support == ScenarioSupport::RequiredV1)
             .map(|scenario| {
+                let handles_deleted_files = scenario.id == METADATA_SYNC_RULE;
                 (
                     scenario.id.to_owned(),
                     RegisteredScenario {
                         id: scenario.id.to_owned(),
                         definition: Some(scenario),
                         handler: reference_handler_for(scenario.id),
-                        handles_deleted_files: false,
+                        handles_deleted_files,
                     },
                 )
             })
@@ -460,6 +462,7 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         XML_FORM_CORRECTION_RULE => xml_form_correction,
         DISABLE_FULL_TEXT_SEARCH_RULE => disable_full_text_search,
         DISABLE_FORM_CHANGE_RULE => disable_form_change_permission,
+        METADATA_SYNC_RULE => metadata_sync,
         _ => skipped_until_implemented,
     }
 }

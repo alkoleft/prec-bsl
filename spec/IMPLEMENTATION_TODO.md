@@ -949,20 +949,46 @@ Dependencies:
 
 ## Milestone 6: Metadata and Composition Scenarios
 
-### T27. TODO: Implement metadata-object/file synchronization
+### T27. DONE: Implement metadata-object/file synchronization
 
 Scenario: `СинхронизацияОбъектовМетаданныхИФайлов`.
 
 Acceptance criteria:
 
 - Detects metadata objects and corresponding files.
-- Appends generated or repaired files to the processing queue when needed.
-- Restages generated or modified files in hook mode.
+- Validates the owning configuration description when either the configuration
+  file or a staged metadata object description file is processed.
+- Reports missing object files/directories, stale files/directories, and
+  case-only path/name mismatches as deterministic hard failures.
+- Does not modify, generate, delete, or restage files in the v1 checker slice;
+  generated/repaired file behavior requires a later explicit spec contract.
 - Produces deterministic diagnostics.
 
 Validation:
 
 - `cargo test metadata_sync`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/metadata_sync.rs` with the XML/EDT
+  `СинхронизацияОбъектовМетаданныхИФайлов` checker and registered it in the
+  reference scenario registry.
+- Documented and implemented the v1 validation-only contract: configuration
+  descriptions and staged metadata object files trigger owning configuration
+  sync checks; missing object files/directories, stale files/directories, and
+  case-only path/name mismatches are deterministic hard failures; no files are
+  modified, generated, deleted, or restaged in this slice.
+- Added focused `tests/metadata_sync.rs` coverage for clean EDT and Designer
+  configurations, EDT extension configuration without `languages`, nested
+  Designer `ChildObjects` that must be ignored, missing/deleted/stale object
+  files, Cyrillic case-only mismatches, malformed XML, full-tree skip behavior,
+  and empty `modified_paths`.
+- Verification passed: `cargo fmt --check`, `cargo test metadata_sync`,
+  `cargo test`, `git diff --check`, and a read-only RAT smoke against
+  `exts/rat/src` with `--rules СинхронизацияОбъектовМетаданныхИФайлов`.
+- Independent reviewer passes found Designer nesting, EDT extension,
+  filesystem IO, and nested `ChildObjects` gaps; all were fixed before
+  completion.
 
 Dependencies:
 

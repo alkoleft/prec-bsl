@@ -6,6 +6,7 @@ pub mod config;
 pub mod form_change_permission;
 pub mod full_text_search;
 pub mod git_index;
+pub mod metadata_sync;
 pub mod output;
 pub mod scenario_pipeline;
 pub mod scenarios;

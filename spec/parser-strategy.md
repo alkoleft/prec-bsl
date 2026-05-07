@@ -182,6 +182,50 @@ files, and prove idempotence through focused tests. XML parse errors, invalid
 numeric ids, and ambiguous base-form matches are hard failures for the
 processed file.
 
+### Metadata object/file synchronization contract
+
+`СинхронизацияОбъектовМетаданныхИФайлов` is an XML/EDT checker for
+configuration description files and their immediate metadata object files.
+
+The v1 Rust slice applies to:
+
+- EDT `Configuration/Configuration.mdo`;
+- Designer `Configuration.xml`;
+- staged EDT object description files such as
+  `CommonModules/Имя/Имя.mdo`;
+- staged Designer object description files such as `CommonModules/Имя.xml`.
+
+For non-configuration metadata files, the scenario locates the owning
+configuration description under the same source root and checks that
+description. During full-tree `exec-rules`, non-configuration metadata files
+are skipped so diagnostics are not duplicated for every object file; the
+configuration description file is the full-tree check entrypoint.
+
+The checker validates the configuration description XML through the shared
+XML/EDT parser boundary before inspecting it. It extracts metadata object
+references from EDT root-level composition elements whose values have the
+`Type.Name` shape, and from Designer `ChildObjects` elements at their normal
+configuration nesting depth, where the element name is the metadata type and
+text is the metadata object name.
+
+For each supported metadata type, the checker compares configuration
+references with filesystem entries:
+
+- EDT objects must have `<TypeDirectory>/<ObjectName>/<ObjectName>.mdo`;
+- Designer objects must have `<TypeDirectory>/<ObjectName>.xml`;
+- referenced object directories/files that are absent are hard failures;
+- unreferenced object files or directories are hard failures;
+- object directory or file names that differ only by case are hard failures;
+- `Sequence` references are accepted without requiring object files, matching
+  the reference scenario exception.
+
+The scenario does not modify, generate, delete, or restage files in v1.
+Repair/generation behavior is intentionally not part of this checker unless a
+later spec task defines an exact file-writing contract. Hook mode therefore
+blocks through hard-failure diagnostics and must leave `modified_paths` empty.
+Composition sorting and duplicate metadata removal remain owned by
+`СортировкаСостава` and `УдалениеДублейМетаданных`.
+
 ## Implementation Contract
 
 - Create a shared BSL parser module instead of each scenario initializing its own parser ad hoc.
