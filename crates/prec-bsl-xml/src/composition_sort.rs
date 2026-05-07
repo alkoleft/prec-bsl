@@ -422,7 +422,83 @@ fn sort_key(value: &str, prefixes: &[String]) -> (usize, String) {
         .position(|prefix| object_name.starts_with(prefix))
         .map(|index| index + 1)
         .unwrap_or(0);
-    (bucket, value.to_owned())
+    (bucket, reference_sort_key(value))
+}
+
+fn reference_sort_key(value: &str) -> String {
+    value
+        .chars()
+        .map(reference_sort_char_key)
+        .collect::<Vec<_>>()
+        .join("\u{0}")
+}
+
+fn reference_sort_char_key(ch: char) -> String {
+    let (class, primary, case) = if ch == '_' {
+        (0, 0, 0)
+    } else if let Some(digit) = ch.to_digit(10) {
+        (1, digit, 0)
+    } else if ch.is_ascii_alphabetic() {
+        (
+            2,
+            ch.to_ascii_lowercase() as u32 - 'a' as u32,
+            if ch.is_lowercase() { 0 } else { 1 },
+        )
+    } else if let Some((primary, case)) = cyrillic_sort_weight(ch) {
+        (3, primary, case)
+    } else if ch.is_alphabetic() {
+        let lower = ch
+            .to_lowercase()
+            .next()
+            .map(|lower| lower as u32)
+            .unwrap_or(ch as u32);
+        (4, lower, if ch.is_lowercase() { 0 } else { 1 })
+    } else {
+        (5, ch as u32, 0)
+    };
+
+    format!("{class:02}:{primary:08}:{case:02}")
+}
+
+fn cyrillic_sort_weight(ch: char) -> Option<(u32, u32)> {
+    let lower = ch.to_lowercase().next()?;
+    let primary = match lower {
+        'а' => 0,
+        'б' => 1,
+        'в' => 2,
+        'г' => 3,
+        'д' => 4,
+        'е' => 5,
+        'ё' => 6,
+        'ж' => 7,
+        'з' => 8,
+        'и' => 9,
+        'й' => 10,
+        'к' => 11,
+        'л' => 12,
+        'м' => 13,
+        'н' => 14,
+        'о' => 15,
+        'п' => 16,
+        'р' => 17,
+        'с' => 18,
+        'т' => 19,
+        'у' => 20,
+        'ф' => 21,
+        'х' => 22,
+        'ц' => 23,
+        'ч' => 24,
+        'ш' => 25,
+        'щ' => 26,
+        'ъ' => 27,
+        'ы' => 28,
+        'ь' => 29,
+        'э' => 30,
+        'ю' => 31,
+        'я' => 32,
+        _ => return None,
+    };
+    Some((primary, if ch.is_lowercase() { 0 } else { 1 }))
 }
 
 fn string_list_setting(settings: Option<&Value>, name: &str) -> Result<Vec<String>, String> {

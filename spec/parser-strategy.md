@@ -338,7 +338,12 @@ Sorting is deterministic and preserves the existing XML element text:
 - metadata type groups keep their existing slots and are not reordered against
   other metadata types or unrelated configuration properties;
 - sortable object references within each metadata type are ordered by their
-  full reference text;
+  full reference text using the reference `precommit4onec`
+  `ТаблицаЗначений.Сортировать("СтрокаСортировки")` string ordering, not
+  Rust Unicode scalar ordering or natural numeric ordering;
+- this reference-compatible order treats `_`, digits, Cyrillic/Latin letters
+  and case according to the 1C string sort used by the legacy scenario, so
+  names such as `ФорматПФР70_2010XML` are covered by explicit regression tests;
 - references whose object name starts with one of
   `НастройкиСценариев.СортировкаСостава.УчитываяПрефикс` are sorted in prefix
   buckets after non-prefixed references, preserving the configured prefix

@@ -104,6 +104,52 @@ fn composition_sort_sorts_designer_child_objects() {
 }
 
 #[test]
+fn composition_sort_matches_reference_literal_order_for_designer_child_objects() {
+    let input = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonModule>ФорматПФР70_2010XML</CommonModule>\n",
+        "      <CommonModule>ФорматПФР70XML</CommonModule>\n",
+        "      <CommonModule>ФорматПФР7_2010XML</CommonModule>\n",
+        "      <CommonModule>FormatPFR70_2010XML</CommonModule>\n",
+        "      <CommonModule>A_B</CommonModule>\n",
+        "      <CommonModule>AB</CommonModule>\n",
+        "      <CommonModule>A_1B</CommonModule>\n",
+        "      <Catalog>Номенклатура</Catalog>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+    let expected = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonModule>A_1B</CommonModule>\n",
+        "      <CommonModule>A_B</CommonModule>\n",
+        "      <CommonModule>AB</CommonModule>\n",
+        "      <CommonModule>FormatPFR70_2010XML</CommonModule>\n",
+        "      <CommonModule>ФорматПФР7_2010XML</CommonModule>\n",
+        "      <CommonModule>ФорматПФР70_2010XML</CommonModule>\n",
+        "      <CommonModule>ФорматПФР70XML</CommonModule>\n",
+        "      <Catalog>Номенклатура</Catalog>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration.xml"),
+        SourceFileKind::XmlMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::All,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
 fn composition_sort_honors_prefix_buckets_after_non_prefixed_references() {
     let input = concat!(
         "<mdclass:Configuration>\n",
@@ -134,6 +180,126 @@ fn composition_sort_honors_prefix_buckets_after_non_prefixed_references() {
         input,
         &settings,
         CompositionSortScope::All,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn composition_sort_matches_reference_literal_order_for_digit_underscore_names() {
+    let input = concat!(
+        "<mdclass:Configuration>\n",
+        "  <commonModules>CommonModule.ФорматПФР70_2010XML</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70XML</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70_2010JSON</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР7_2010XML</commonModules>\n",
+        "  <commonModules>CommonModule.FormatPFR70_2010XML</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70_2010xml</commonModules>\n",
+        "  <commonModules>CommonModule.A_B</commonModules>\n",
+        "  <commonModules>CommonModule.AB</commonModules>\n",
+        "  <commonModules>CommonModule.A_1B</commonModules>\n",
+        "  <documents>Document.ФорматПФР70_2010XML</documents>\n",
+        "</mdclass:Configuration>\n",
+    );
+    let expected = concat!(
+        "<mdclass:Configuration>\n",
+        "  <commonModules>CommonModule.A_1B</commonModules>\n",
+        "  <commonModules>CommonModule.A_B</commonModules>\n",
+        "  <commonModules>CommonModule.AB</commonModules>\n",
+        "  <commonModules>CommonModule.FormatPFR70_2010XML</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР7_2010XML</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70_2010JSON</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70_2010xml</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70_2010XML</commonModules>\n",
+        "  <commonModules>CommonModule.ФорматПФР70XML</commonModules>\n",
+        "  <documents>Document.ФорматПФР70_2010XML</documents>\n",
+        "</mdclass:Configuration>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration/Configuration.mdo"),
+        SourceFileKind::ConfigurationMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::All,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn composition_sort_matches_reference_literal_order_for_subsystem_content() {
+    let input = concat!(
+        "<mdclass:Subsystem>\n",
+        "  <name>Демо</name>\n",
+        "  <content>CommonModule.ФорматПФР70_2010XML</content>\n",
+        "  <content>CommonModule.ФорматПФР70XML</content>\n",
+        "  <content>CommonModule.ФорматПФР7_2010XML</content>\n",
+        "  <content>Catalog.Номенклатура</content>\n",
+        "  <content>CommonModule.FormatPFR70_2010XML</content>\n",
+        "</mdclass:Subsystem>\n",
+    );
+    let expected = concat!(
+        "<mdclass:Subsystem>\n",
+        "  <name>Демо</name>\n",
+        "  <content>Catalog.Номенклатура</content>\n",
+        "  <content>CommonModule.FormatPFR70_2010XML</content>\n",
+        "  <content>CommonModule.ФорматПФР7_2010XML</content>\n",
+        "  <content>CommonModule.ФорматПФР70_2010XML</content>\n",
+        "  <content>CommonModule.ФорматПФР70XML</content>\n",
+        "</mdclass:Subsystem>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Subsystems/Демо/Демо.mdo"),
+        SourceFileKind::EdtMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::SubsystemComposition,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn composition_sort_matches_reference_literal_order_for_designer_subsystem_items() {
+    let input = concat!(
+        "<MetaDataObject>\n",
+        "  <Subsystem>\n",
+        "    <Properties>\n",
+        "      <Content>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.ФорматПФР70_2010XML</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.ФорматПФР70XML</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.ФорматПФР7_2010XML</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Номенклатура</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.FormatPFR70_2010XML</xr:Item>\n",
+        "      </Content>\n",
+        "    </Properties>\n",
+        "  </Subsystem>\n",
+        "</MetaDataObject>\n",
+    );
+    let expected = concat!(
+        "<MetaDataObject>\n",
+        "  <Subsystem>\n",
+        "    <Properties>\n",
+        "      <Content>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Номенклатура</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.FormatPFR70_2010XML</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.ФорматПФР7_2010XML</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.ФорматПФР70_2010XML</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.ФорматПФР70XML</xr:Item>\n",
+        "      </Content>\n",
+        "    </Properties>\n",
+        "  </Subsystem>\n",
+        "</MetaDataObject>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Subsystems/Демо.xml"),
+        SourceFileKind::XmlMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::SubsystemComposition,
     );
 
     assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));

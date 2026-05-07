@@ -1646,7 +1646,7 @@ Dependencies:
 
 - T19, T20.
 
-### T41. TODO: Verify EDT composition sort order against precommit4onec edge cases
+### T41. DONE: Verify EDT composition sort order against precommit4onec edge cases
 
 Upstream issue: `precommit4onec` #39.
 
@@ -1671,6 +1671,24 @@ Validation:
 
 - `cargo test composition_sort`
 - `cargo test --workspace`
+
+Completion evidence:
+
+- 2026-05-07: Verified reference `precommit4onec`
+  `СортировкаСостава.os` behavior: prefix buckets are selected from object
+  names, while each bucket is sorted by the full reference text through
+  `ТаблицаЗначений.Сортировать("СтрокаСортировки")`.
+- Replaced Rust Unicode scalar ordering in the XML/EDT composition boundary
+  with a reference-compatible string sort key for the covered configuration
+  and subsystem composition scopes.
+- Added focused `tests/composition_sort.rs` regressions for EDT
+  `Configuration.mdo`, EDT subsystem `content`, and Designer subsystem
+  `Properties/Content/xr:Item` names containing digits, underscores, Cyrillic
+  and Latin suffixes such as `ФорматПФР70_2010XML`.
+- Updated `spec/parser-strategy.md` and `spec/testing-strategy.md` with the
+  durable comparator contract and legacy mapping conclusion.
+- Verification passed: `cargo fmt --all --check`, `cargo test
+  composition_sort`, and `cargo test --workspace`.
 
 Dependencies:
 

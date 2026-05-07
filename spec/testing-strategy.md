@@ -128,13 +128,13 @@ Mapping statuses:
 
 | Legacy method | Mapping |
 | --- | --- |
-| `СортировкаСостава_Configuration` | `covered`: configuration composition sorting and idempotence are covered by `tests/composition_sort.rs`. |
-| `СортировкаСостава_DefinedTypes` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
-| `СортировкаСостава_ExchangePlans` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
-| `СортировкаСостава_FunctionalOptions` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
-| `СортировкаСостава_Subsystems` | `covered`: subsystem composition sorting and compatibility alias behavior are covered by `tests/composition_sort.rs` and RAT acceptance. |
-| `СортировкаСостава_CommonAttributes` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
-| `СортировкаСостава_EventSubscriptions` | `blocked`: additional composition branches are tracked by T41 before parity can be claimed. |
+| `СортировкаСостава_Configuration` | `covered`: configuration composition sorting, idempotence, and T41 digit/underscore/Cyrillic/Latin order regressions are covered by `tests/composition_sort.rs`. |
+| `СортировкаСостава_DefinedTypes` | `blocked`: additional composition branches remain outside the implemented v1 configuration/subsystem slice and require a later explicit task before parity can be claimed. |
+| `СортировкаСостава_ExchangePlans` | `blocked`: additional composition branches remain outside the implemented v1 configuration/subsystem slice and require a later explicit task before parity can be claimed. |
+| `СортировкаСостава_FunctionalOptions` | `blocked`: additional composition branches remain outside the implemented v1 configuration/subsystem slice and require a later explicit task before parity can be claimed. |
+| `СортировкаСостава_Subsystems` | `covered`: subsystem composition sorting, compatibility alias behavior, RAT acceptance, and T41 digit/underscore/Cyrillic/Latin order regressions are covered by `tests/composition_sort.rs`. |
+| `СортировкаСостава_CommonAttributes` | `blocked`: additional composition branches remain outside the implemented v1 configuration/subsystem slice and require a later explicit task before parity can be claimed. |
+| `СортировкаСостава_EventSubscriptions` | `blocked`: additional composition branches remain outside the implemented v1 configuration/subsystem slice and require a later explicit task before parity can be claimed. |
 | `ТипыФайлов_ЗащищенныеМодулиНеОпределяютсяКакФайлИсходников` | `blocked`: protected-module classification is not yet a Rust source-classification contract. |
 | `ТестДолжен_ПроверитьЧтоСинхронизацияОбъектовМетаданныхВызываетИсключение` | `covered`: metadata/filesystem consistency diagnostics are covered by `tests/metadata_sync.rs`. |
 | `ТестДолжен_ПроверитьЧтоСинхронизацияОбъектовМетаданныхДляПВХВызываетИсключение` | `covered`: missing referenced metadata diagnostics are covered by `tests/metadata_sync.rs`. |
