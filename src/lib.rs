@@ -5,6 +5,7 @@ pub mod cli;
 pub mod composition_sort;
 pub mod config;
 pub mod duplicate_metadata;
+pub mod external_artifacts;
 pub mod form_change_permission;
 pub mod full_text_search;
 pub mod git_index;

@@ -1080,7 +1080,7 @@ Dependencies:
 
 ## Milestone 7: Platform-Dependent Scenario
 
-### T30. TODO: Implement external reports/processings/extensions scenario boundary
+### T30. DONE: Implement external reports/processings/extensions scenario boundary
 
 Scenario: `РазборОтчетовОбработокРасширений`.
 
@@ -1096,6 +1096,29 @@ Acceptance criteria:
 Validation:
 
 - `cargo test external_artifacts`
+
+Completion evidence:
+
+- 2026-05-07: Added `src/external_artifacts.rs` with the initial
+  platform-dependent `РазборОтчетовОбработокРасширений` boundary and
+  registered it in the reference scenario registry.
+- Documented and implemented the T30 boundary contract: `.epf`, `.erf`, and
+  `.cfe` files are classified as external artifacts, non-external files are
+  skipped, scenario settings validate `ИспользоватьНастройкиПоУмолчанию` and
+  `ВерсияПлатформы` for processed artifacts, 1C platform discovery is explicit
+  through executable candidates on `PATH`, missing runtime is reported as a
+  hard dependency failure, and discovered runtime still does not execute 1C in
+  this slice.
+- The boundary does not modify artifacts, create generated directories, enqueue
+  post-processing files, or restage paths. Real unpacking and mutation safety
+  require a later explicit spec task.
+- Added `tests/external_artifacts.rs` coverage for missing platform
+  dependency diagnostics, non-external skip behavior, invalid settings policy,
+  version-constrained platform discovery, discovered-runtime non-execution, and
+  empty modified paths.
+- Verification passed: `cargo fmt --check`, `cargo test external_artifacts`,
+  `cargo test`, and `git diff --check`.
+- Independent reviewer pass returned `APPROVED`.
 
 Dependencies:
 

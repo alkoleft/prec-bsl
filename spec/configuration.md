@@ -364,6 +364,25 @@ Behavior:
   order follows the configured setting order.
 - Invalid setting shapes are hard failures for the processed file.
 
+### РазборОтчетовОбработокРасширений
+
+Platform settings:
+
+- `НастройкиСценариев.РазборОтчетовОбработокРасширений.ИспользоватьНастройкиПоУмолчанию`
+- `НастройкиСценариев.РазборОтчетовОбработокРасширений.ВерсияПлатформы`
+
+Behavior:
+
+- If `ИспользоватьНастройкиПоУмолчанию` is absent or `true`, the initial
+  platform dependency check does not require a specific platform version.
+- If `ИспользоватьНастройкиПоУмолчанию = false` and `ВерсияПлатформы` is a
+  non-empty string, platform executable discovery is restricted to candidate
+  paths containing that version string.
+- Empty `ВерсияПлатформы` means no version restriction.
+- Invalid setting shapes are hard failures for the processed external artifact.
+- The T30 boundary does not store platform credentials or execute 1C. Runtime
+  execution settings belong to a later explicit spec task.
+
 ## Decision Table
 
 | Setting kind | `.pre-commit-hooks.yaml` | `prek.toml` / `.pre-commit-config.yaml` | `v8config.json` |

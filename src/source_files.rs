@@ -27,6 +27,7 @@ pub enum SourceFileKind {
     EdtMetadata,
     EdtForm,
     XmlMetadata,
+    ExternalArtifact,
     Unsupported,
 }
 
@@ -143,6 +144,13 @@ pub fn classify_path(path: &Path) -> SourceFileKind {
         Some(extension) if extension.eq_ignore_ascii_case("mdo") => SourceFileKind::EdtMetadata,
         Some(extension) if extension.eq_ignore_ascii_case("form") => SourceFileKind::EdtForm,
         Some(extension) if extension.eq_ignore_ascii_case("xml") => SourceFileKind::XmlMetadata,
+        Some(extension)
+            if extension.eq_ignore_ascii_case("epf")
+                || extension.eq_ignore_ascii_case("erf")
+                || extension.eq_ignore_ascii_case("cfe") =>
+        {
+            SourceFileKind::ExternalArtifact
+        }
         _ => SourceFileKind::Unsupported,
     }
 }
@@ -448,6 +456,18 @@ mod tests {
         assert_eq!(
             classify_path(Path::new("Designer/ConfigDumpInfo.xml")),
             SourceFileKind::XmlMetadata
+        );
+        assert_eq!(
+            classify_path(Path::new("External/Отчет.epf")),
+            SourceFileKind::ExternalArtifact
+        );
+        assert_eq!(
+            classify_path(Path::new("External/Обработка.erf")),
+            SourceFileKind::ExternalArtifact
+        );
+        assert_eq!(
+            classify_path(Path::new("External/Расширение.cfe")),
+            SourceFileKind::ExternalArtifact
         );
         assert_eq!(
             classify_path(Path::new("README.md")),

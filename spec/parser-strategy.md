@@ -101,6 +101,39 @@ Use XML/EDT/platform-specific mechanisms instead of tree-sitter for:
 - `СортировкаСостава`
 - `УдалениеДублейМетаданных`
 
+### External artifact parsing boundary
+
+`РазборОтчетовОбработокРасширений` is a platform-dependent scenario for
+external report, processing, and extension artifacts. The initial T30 Rust
+slice establishes the explicit runtime boundary and does not execute 1C or
+mutate source files yet.
+
+The scenario applies only to files with `.epf`, `.erf`, or `.cfe` extensions.
+Other source files are skipped by this scenario. Supported external artifacts
+require a 1C platform executable before any unpacking can be attempted:
+
+- `.epf` / `.erf` artifacts require a future
+  `/DumpExternalDataProcessorOrReportToFiles` execution contract;
+- `.cfe` artifacts require a future extension load/dump execution contract;
+- missing platform executable discovery is reported as a hard dependency
+  failure for the processed artifact, not as a parser or configuration error;
+- if an executable is discovered, the T30 boundary still reports that unpacking
+  execution is not implemented in this slice and does not run the platform;
+- no files, generated directories, or Git restaging paths are modified by this
+  initial boundary.
+
+The scenario setting
+`НастройкиСценариев.РазборОтчетовОбработокРасширений.ВерсияПлатформы` is
+parsed as an optional version selector when
+`ИспользоватьНастройкиПоУмолчанию = false`. Empty or default settings mean
+that any supported platform executable discovered on `PATH` may satisfy the
+dependency check. A non-empty version selector restricts discovery to candidate
+paths that contain that version string.
+
+Real unpacking, output-directory cleanup, generated-file queueing, and fixture
+baselines for platform execution require a later spec task that defines the
+exact command line, temporary infobase policy, and mutation safety contract.
+
 ### Full-text search disabling contract
 
 `ОтключениеПолнотекстовогоПоиска` is an XML/EDT fixer for metadata description
