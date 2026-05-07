@@ -32,7 +32,7 @@ Observed project traits:
 
 The current `rat/v8config.json` is a valuable compatibility fixture, but not a direct green-path v1 config fixture.
 
-It includes:
+Historical and project-local variants of this config may include:
 
 - `ИспользоватьСценарииРепозитория = true`
 - `КаталогЛокальныхСценариев = "tools/pre-commit"`
@@ -41,11 +41,21 @@ It includes:
   - `СортировкаСоставаПодсистем.os`
   - `ДобавлениеТестовВРасширение`
 
+The live RAT config must be re-read in each run because it can drift. As of the
+T37 implementation baseline, the live `ГлобальныеСценарии` list no longer
+contains `СортировкаДереваМетаданных.os` or
+`СортировкаСоставаПодсистем.os`; compatibility coverage for those ids is
+therefore a synthetic RAT-config fixture built from the live file in memory,
+without writing to `/home/alko/develop/open-source/rat`.
+
 Dynamic execution of repository-local `.os` scenarios is out of v1 scope. Therefore:
 
 - Use the live `rat/v8config.json` as a config parsing and diagnostics fixture.
 - A full green `prec-bsl prek-hook --config /home/alko/develop/open-source/rat/v8config.json` is not required until local scenario handling is designed.
 - Unknown or repository-local scenario diagnostics must clearly name the unsupported scenario and explain that dynamic local `.os` execution is not supported in v1.
+- `СортировкаДереваМетаданных` and `СортировкаСоставаПодсистем` are exceptions
+  to the generic local-scenario diagnostic: they are explicit Rust-native
+  compatibility scenarios backed by focused XML/EDT fixture tests.
 
 For green-path acceptance, generate a test-specific `v8config.json` from the required v1 scenario list and run it against a temporary copy of the `rat` source roots.
 
@@ -93,7 +103,9 @@ Acceptance:
 
 - `GLOBAL` and `Precommt4onecСценарии` parse successfully.
 - Disabled base scenarios such as `РазборОбычныхФормНаИсходники` do not fail merely because they are listed under `ОтключенныеСценарии`.
-- Enabled repository-local scenarios are reported as unsupported in v1 unless a local-scenario compatibility mode is later accepted.
+- Enabled repository-local scenarios are reported as unsupported in v1 unless
+  the scenario id is one of the explicitly supported compatibility entries
+  (`СортировкаДереваМетаданных`, `СортировкаСоставаПодсистем`).
 
 ### Platform-Dependent Scenario
 

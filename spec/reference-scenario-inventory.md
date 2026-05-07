@@ -45,6 +45,19 @@ order for parity tests. Scenario lookup must accept both `ИмяСценария
 - `УдалениеЛишнихКонцевыхПробелов`
 - `УдалениеЛишнихПустыхСтрок`
 
+## Supported Compatibility Scenarios
+
+- `СортировкаДереваМетаданных`
+- `СортировкаСоставаПодсистем`
+
+These scenario ids are not separate files in the local `precommit4onec`
+built-in scenario directory. They are migration compatibility ids whose
+behavior is specified from the reference `СортировкаСостава.os` implementation:
+metadata-tree sorting is the configuration composition branch, and subsystem
+composition sorting is the subsystem branch. Lookup accepts both plain ids and
+`.os` suffixes, but the ids remain explicit supported entries rather than
+generic repository-local `.os` execution.
+
 ## Explicit Unsupported Scenario
 
 - `РазборОбычныхФормНаИсходники`

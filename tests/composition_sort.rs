@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use prec_bsl::composition_sort::{
-    COMPOSITION_SORT_RULE, CompositionSortSettings, CompositionSorting, sort_composition_text,
+    COMPOSITION_SORT_RULE, CompositionSortScope, CompositionSortSettings, CompositionSorting,
+    METADATA_TREE_SORT_RULE, SUBSYSTEM_COMPOSITION_SORT_RULE, sort_composition_text,
 };
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
@@ -96,6 +97,7 @@ fn composition_sort_sorts_designer_child_objects() {
         SourceFileKind::XmlMetadata,
         input,
         &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::All,
     );
 
     assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
@@ -131,6 +133,7 @@ fn composition_sort_honors_prefix_buckets_after_non_prefixed_references() {
         SourceFileKind::ConfigurationMetadata,
         input,
         &settings,
+        CompositionSortScope::All,
     );
 
     assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
@@ -168,6 +171,7 @@ fn composition_sort_skips_disabled_configuration_and_non_configuration_files() {
             SourceFileKind::ConfigurationMetadata,
             unsorted_edt_configuration(),
             &disabled,
+            CompositionSortScope::All,
         ),
         CompositionSorting::Skipped(
             "configuration composition sorting is disabled by scenario settings".to_owned()
@@ -179,11 +183,125 @@ fn composition_sort_skips_disabled_configuration_and_non_configuration_files() {
             SourceFileKind::EdtMetadata,
             "<mdclass:CommonModule/>",
             &disabled,
+            CompositionSortScope::All,
         ),
         CompositionSorting::Skipped(
-            "scenario handles only Configuration.mdo and Configuration.xml".to_owned()
+            "scenario handles only configuration and subsystem metadata description files"
+                .to_owned()
         )
     );
+    assert_eq!(
+        sort_composition_text(
+            Path::new("Subsystems/Демо/Демо.mdo"),
+            SourceFileKind::EdtMetadata,
+            unsorted_edt_subsystem(),
+            &disabled,
+            CompositionSortScope::SubsystemComposition,
+        ),
+        CompositionSorting::Skipped(
+            "subsystem composition sorting is disabled by scenario settings".to_owned()
+        )
+    );
+}
+
+#[test]
+fn compatibility_metadata_tree_rule_sorts_only_configuration_tree() {
+    let repo = temp_repo("metadata_tree_alias");
+    let configuration_path = PathBuf::from("src/Configuration/Configuration.mdo");
+    let subsystem_path = PathBuf::from("src/Subsystems/Демо/Демо.mdo");
+    write_file(
+        repo.join(&configuration_path),
+        unsorted_minimal_edt_configuration(),
+    );
+    write_file(repo.join(&subsystem_path), unsorted_edt_subsystem());
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let configuration_file = classify_repo_path(&roots, configuration_path.clone(), None).unwrap();
+    let subsystem_file = classify_repo_path(&roots, subsystem_path.clone(), None).unwrap();
+    let config = config_with_rules(&[METADATA_TREE_SORT_RULE]);
+    let report = run_pipeline(
+        &ScenarioRegistry::reference(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![configuration_file, subsystem_file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(
+        fs::read_to_string(repo.join(&configuration_path)).unwrap(),
+        sorted_minimal_edt_configuration()
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(&subsystem_path)).unwrap(),
+        unsorted_edt_subsystem()
+    );
+    assert_eq!(
+        report
+            .results
+            .iter()
+            .filter(|result| result.status == ScenarioResultStatus::Modified)
+            .map(|result| result.rule_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![METADATA_TREE_SORT_RULE]
+    );
+}
+
+#[test]
+fn compatibility_subsystem_rule_sorts_edt_and_designer_subsystem_content() {
+    let repo = temp_repo("subsystem_alias");
+    let edt_path = PathBuf::from("src/Subsystems/Демо/Демо.mdo");
+    let designer_path = PathBuf::from("src-designer/Subsystems/Демо.xml");
+    write_file(repo.join(&edt_path), unsorted_edt_subsystem());
+    write_file(repo.join(&designer_path), unsorted_designer_subsystem());
+
+    let roots = resolve_source_roots(
+        &repo,
+        &[PathBuf::from("src"), PathBuf::from("src-designer")],
+    )
+    .roots;
+    let edt_file = classify_repo_path(&roots, edt_path.clone(), None).unwrap();
+    let designer_file = classify_repo_path(&roots, designer_path.clone(), None).unwrap();
+    let config = config_with_rules(&[SUBSYSTEM_COMPOSITION_SORT_RULE]);
+
+    let first_report = run_pipeline(
+        &ScenarioRegistry::reference(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![edt_file.clone(), designer_file.clone()],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(
+        fs::read_to_string(repo.join(&edt_path)).unwrap(),
+        sorted_edt_subsystem()
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(&designer_path)).unwrap(),
+        sorted_designer_subsystem()
+    );
+    assert_eq!(
+        first_report.modified_paths(),
+        vec![edt_path.clone(), designer_path.clone()]
+    );
+
+    let second_report = run_pipeline(
+        &ScenarioRegistry::reference(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![edt_file, designer_file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert!(second_report.results.is_empty());
 }
 
 #[test]
@@ -255,6 +373,7 @@ fn composition_sort_reports_invalid_settings_and_malformed_xml() {
         SourceFileKind::ConfigurationMetadata,
         "<mdclass:Configuration><commonModules></mdclass:Configuration>",
         &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::All,
     );
 
     assert!(
@@ -275,6 +394,22 @@ fn composition_sort_config(settings: &str) -> prec_bsl::config::ResolvedConfig {
                 "НастройкиСценариев": {{
                     "СортировкаСостава": {settings}
                 }}
+            }}
+        }}"#
+    ))
+    .unwrap()
+}
+
+fn config_with_rules(rules: &[&str]) -> prec_bsl::config::ResolvedConfig {
+    let rules = rules
+        .iter()
+        .map(|rule| format!(r#""{rule}.os""#))
+        .collect::<Vec<_>>()
+        .join(", ");
+    parse_config_str(&format!(
+        r#"{{
+            "Precommt4onecСценарии": {{
+                "ГлобальныеСценарии": [{rules}]
             }}
         }}"#
     ))
@@ -330,6 +465,66 @@ fn sorted_minimal_edt_configuration() -> &'static str {
         "  <commonModules>CommonModule.А</commonModules>\n",
         "  <commonModules>CommonModule.Я</commonModules>\n",
         "</mdclass:Configuration>\n",
+    )
+}
+
+fn unsorted_edt_subsystem() -> &'static str {
+    concat!(
+        "<mdclass:Subsystem>\n",
+        "  <name>Демо</name>\n",
+        "  <content>Document.Заказ</content>\n",
+        "  <content>Catalog.Номенклатура</content>\n",
+        "  <content>CommonModule.Сервис</content>\n",
+        "  <content>CommonModule.Адаптер</content>\n",
+        "</mdclass:Subsystem>\n",
+    )
+}
+
+fn sorted_edt_subsystem() -> &'static str {
+    concat!(
+        "<mdclass:Subsystem>\n",
+        "  <name>Демо</name>\n",
+        "  <content>Catalog.Номенклатура</content>\n",
+        "  <content>CommonModule.Адаптер</content>\n",
+        "  <content>CommonModule.Сервис</content>\n",
+        "  <content>Document.Заказ</content>\n",
+        "</mdclass:Subsystem>\n",
+    )
+}
+
+fn unsorted_designer_subsystem() -> &'static str {
+    concat!(
+        "<MetaDataObject>\n",
+        "  <Subsystem>\n",
+        "    <Properties>\n",
+        "      <Name>Демо</Name>\n",
+        "      <Content>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">Document.Заказ</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Номенклатура</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.Сервис</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.Адаптер</xr:Item>\n",
+        "      </Content>\n",
+        "    </Properties>\n",
+        "  </Subsystem>\n",
+        "</MetaDataObject>\n",
+    )
+}
+
+fn sorted_designer_subsystem() -> &'static str {
+    concat!(
+        "<MetaDataObject>\n",
+        "  <Subsystem>\n",
+        "    <Properties>\n",
+        "      <Name>Демо</Name>\n",
+        "      <Content>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">Catalog.Номенклатура</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.Адаптер</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">CommonModule.Сервис</xr:Item>\n",
+        "        <xr:Item xsi:type=\"xr:MDObjectRef\">Document.Заказ</xr:Item>\n",
+        "      </Content>\n",
+        "    </Properties>\n",
+        "  </Subsystem>\n",
+        "</MetaDataObject>\n",
     )
 }
 

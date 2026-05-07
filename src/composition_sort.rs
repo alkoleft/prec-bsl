@@ -11,6 +11,8 @@ use crate::source_files::SourceFileKind;
 use crate::xml_edt::parse_document;
 
 pub const COMPOSITION_SORT_RULE: &str = "СортировкаСостава";
+pub const METADATA_TREE_SORT_RULE: &str = "СортировкаДереваМетаданных";
+pub const SUBSYSTEM_COMPOSITION_SORT_RULE: &str = "СортировкаСоставаПодсистем";
 
 const DISABLED_OBJECTS_SETTING: &str = "ОтключенныеОбъекты";
 const PREFIXES_SETTING: &str = "УчитываяПрефикс";
@@ -27,19 +29,14 @@ pub fn composition_sort(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
         }
     };
 
-    if composition_format_for_path(&context.file.source_relative_path).is_none() {
+    let scope = CompositionSortScope::for_rule_id(context.rule_id);
+    if composition_target_for_path(&context.file.source_relative_path, context.file.kind, scope)
+        .is_none()
+    {
         return ScenarioRun::single(ScenarioResult::skipped(
             context.rule_id,
             context.file.repo_path.clone(),
-            "scenario handles only Configuration.mdo and Configuration.xml",
-        ));
-    }
-
-    if settings.configuration_disabled {
-        return ScenarioRun::single(ScenarioResult::skipped(
-            context.rule_id,
-            context.file.repo_path.clone(),
-            "configuration composition sorting is disabled by scenario settings",
+            scope.unsupported_file_message(),
         ));
     }
 
@@ -60,6 +57,7 @@ pub fn composition_sort(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
         context.file.kind,
         &input,
         &settings,
+        scope,
     ) {
         CompositionSorting::Clean => ScenarioRun::clean(),
         CompositionSorting::Skipped(message) => ScenarioRun::single(ScenarioResult::skipped(
@@ -97,7 +95,7 @@ pub enum CompositionSorting {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompositionSortSettings {
-    configuration_disabled: bool,
+    disabled_objects: Vec<String>,
     prefixes: Vec<String>,
 }
 
@@ -106,11 +104,21 @@ impl CompositionSortSettings {
         let disabled_objects = string_list_setting(settings, DISABLED_OBJECTS_SETTING)?;
         let prefixes = string_list_setting(settings, PREFIXES_SETTING)?;
         Ok(Self {
-            configuration_disabled: disabled_objects
-                .iter()
-                .any(|object| normalize_name(object) == "конфигурация"),
+            disabled_objects,
             prefixes,
         })
+    }
+
+    fn is_disabled_for_target(&self, target: CompositionTarget) -> bool {
+        let expected = match target {
+            CompositionTarget::EdtConfiguration | CompositionTarget::DesignerConfiguration => {
+                "конфигурация"
+            }
+            CompositionTarget::EdtSubsystem | CompositionTarget::DesignerSubsystem => "подсистема",
+        };
+        self.disabled_objects
+            .iter()
+            .any(|object| normalize_name(object) == expected)
     }
 }
 
@@ -119,16 +127,23 @@ pub fn sort_composition_text(
     kind: SourceFileKind,
     input: &str,
     settings: &CompositionSortSettings,
+    scope: CompositionSortScope,
 ) -> CompositionSorting {
-    let Some(format) = composition_format_for_path(path) else {
-        return CompositionSorting::Skipped(
-            "scenario handles only Configuration.mdo and Configuration.xml".to_owned(),
-        );
+    let Some(target) = composition_target_for_path(path, kind, scope) else {
+        return CompositionSorting::Skipped(scope.unsupported_file_message().to_owned());
     };
 
-    if settings.configuration_disabled {
+    if settings.is_disabled_for_target(target) {
         return CompositionSorting::Skipped(
-            "configuration composition sorting is disabled by scenario settings".to_owned(),
+            match target {
+                CompositionTarget::EdtConfiguration | CompositionTarget::DesignerConfiguration => {
+                    "configuration composition sorting is disabled by scenario settings"
+                }
+                CompositionTarget::EdtSubsystem | CompositionTarget::DesignerSubsystem => {
+                    "subsystem composition sorting is disabled by scenario settings"
+                }
+            }
+            .to_owned(),
         );
     }
 
@@ -136,7 +151,7 @@ pub fn sort_composition_text(
         return CompositionSorting::Failed(error.to_string());
     }
 
-    let blocks = collect_composition_blocks(input, format);
+    let blocks = collect_composition_blocks(input, target);
     let replacements = sorted_replacements(&blocks, settings);
     if replacements.is_empty() {
         return CompositionSorting::Clean;
@@ -155,9 +170,41 @@ pub fn sort_composition_text(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CompositionFormat {
-    Edt,
-    Designer,
+pub enum CompositionSortScope {
+    All,
+    MetadataTree,
+    SubsystemComposition,
+}
+
+impl CompositionSortScope {
+    fn for_rule_id(rule_id: &str) -> Self {
+        match rule_id {
+            METADATA_TREE_SORT_RULE => Self::MetadataTree,
+            SUBSYSTEM_COMPOSITION_SORT_RULE => Self::SubsystemComposition,
+            COMPOSITION_SORT_RULE => Self::All,
+            _ => Self::All,
+        }
+    }
+
+    fn unsupported_file_message(self) -> &'static str {
+        match self {
+            Self::All => {
+                "scenario handles only configuration and subsystem metadata description files"
+            }
+            Self::MetadataTree => "scenario handles only Configuration.mdo and Configuration.xml",
+            Self::SubsystemComposition => {
+                "scenario handles only subsystem metadata description files"
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompositionTarget {
+    EdtConfiguration,
+    DesignerConfiguration,
+    EdtSubsystem,
+    DesignerSubsystem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,7 +233,7 @@ struct ActiveBlock {
     has_nested_elements: bool,
 }
 
-fn collect_composition_blocks(input: &str, format: CompositionFormat) -> Vec<CompositionBlock> {
+fn collect_composition_blocks(input: &str, target: CompositionTarget) -> Vec<CompositionBlock> {
     let mut reader = Reader::from_str(input);
     reader.config_mut().trim_text(false);
     let mut stack = Vec::<String>::new();
@@ -198,7 +245,7 @@ fn collect_composition_blocks(input: &str, format: CompositionFormat) -> Vec<Com
         match reader.read_event() {
             Ok(Event::Start(event)) => {
                 let tag = local_name(event.name().as_ref());
-                if target_parent(&stack, format) && active.is_none() {
+                if target_parent(&stack, target) && active.is_none() {
                     active = Some(ActiveBlock {
                         tag: tag.clone(),
                         start,
@@ -246,7 +293,7 @@ fn collect_composition_blocks(input: &str, format: CompositionFormat) -> Vec<Com
                     let block = active.take().expect("active block was checked");
                     let value = block.text.trim().to_owned();
                     let sortable =
-                        is_sortable_block(format, &block.tag, &value) && !block.has_nested_elements;
+                        is_sortable_block(target, &block.tag, &value) && !block.has_nested_elements;
                     blocks.push(CompositionBlock {
                         tag: block.tag,
                         source: input[block.start..end].to_owned(),
@@ -267,26 +314,35 @@ fn collect_composition_blocks(input: &str, format: CompositionFormat) -> Vec<Com
     blocks
 }
 
-fn target_parent(stack: &[String], format: CompositionFormat) -> bool {
-    match format {
-        CompositionFormat::Edt => stack.len() == 1 && stack[0] == "Configuration",
-        CompositionFormat::Designer => matches!(
+fn target_parent(stack: &[String], target: CompositionTarget) -> bool {
+    match target {
+        CompositionTarget::EdtConfiguration => stack.len() == 1 && stack[0] == "Configuration",
+        CompositionTarget::DesignerConfiguration => matches!(
             stack,
             [root, configuration, child_objects]
                 if root == "MetaDataObject"
                     && configuration == "Configuration"
                     && child_objects == "ChildObjects"
         ),
+        CompositionTarget::EdtSubsystem => stack.len() == 1 && stack[0] == "Subsystem",
+        CompositionTarget::DesignerSubsystem => matches!(
+            stack,
+            [root, subsystem, properties, content]
+                if root == "MetaDataObject"
+                    && subsystem == "Subsystem"
+                    && properties == "Properties"
+                    && content == "Content"
+        ),
     }
 }
 
-fn is_sortable_block(format: CompositionFormat, tag: &str, value: &str) -> bool {
+fn is_sortable_block(target: CompositionTarget, tag: &str, value: &str) -> bool {
     if value.is_empty() || value.contains('-') {
         return false;
     }
 
-    match format {
-        CompositionFormat::Edt => {
+    match target {
+        CompositionTarget::EdtConfiguration => {
             if tag.eq_ignore_ascii_case("languages") || tag.eq_ignore_ascii_case("subsystems") {
                 return false;
             }
@@ -295,11 +351,13 @@ fn is_sortable_block(format: CompositionFormat, tag: &str, value: &str) -> bool 
             };
             !object_name.is_empty() && type_name.chars().all(|ch| ch.is_ascii_alphabetic())
         }
-        CompositionFormat::Designer => {
+        CompositionTarget::DesignerConfiguration => {
             !tag.eq_ignore_ascii_case("Language")
                 && !tag.eq_ignore_ascii_case("Subsystem")
                 && !value.is_empty()
         }
+        CompositionTarget::EdtSubsystem => tag.eq_ignore_ascii_case("content"),
+        CompositionTarget::DesignerSubsystem => tag.eq_ignore_ascii_case("Item"),
     }
 }
 
@@ -402,14 +460,87 @@ fn is_designer_configuration_path(path: &Path) -> bool {
     components.len() == 1 && components[0].as_os_str() == "Configuration.xml"
 }
 
-fn composition_format_for_path(path: &Path) -> Option<CompositionFormat> {
-    if is_edt_configuration_path(path) {
-        Some(CompositionFormat::Edt)
+fn composition_target_for_path(
+    path: &Path,
+    kind: SourceFileKind,
+    scope: CompositionSortScope,
+) -> Option<CompositionTarget> {
+    let target = if is_edt_configuration_path(path) {
+        Some(CompositionTarget::EdtConfiguration)
     } else if is_designer_configuration_path(path) {
-        Some(CompositionFormat::Designer)
+        Some(CompositionTarget::DesignerConfiguration)
+    } else if is_edt_subsystem_path(path, kind) {
+        Some(CompositionTarget::EdtSubsystem)
+    } else if is_designer_subsystem_path(path, kind) {
+        Some(CompositionTarget::DesignerSubsystem)
     } else {
         None
+    }?;
+
+    match (scope, target) {
+        (
+            CompositionSortScope::All,
+            CompositionTarget::EdtConfiguration
+            | CompositionTarget::DesignerConfiguration
+            | CompositionTarget::EdtSubsystem
+            | CompositionTarget::DesignerSubsystem,
+        ) => Some(target),
+        (
+            CompositionSortScope::MetadataTree,
+            CompositionTarget::EdtConfiguration | CompositionTarget::DesignerConfiguration,
+        ) => Some(target),
+        (
+            CompositionSortScope::SubsystemComposition,
+            CompositionTarget::EdtSubsystem | CompositionTarget::DesignerSubsystem,
+        ) => Some(target),
+        _ => None,
     }
+}
+
+fn is_edt_subsystem_path(path: &Path, kind: SourceFileKind) -> bool {
+    if kind != SourceFileKind::EdtMetadata {
+        return false;
+    }
+
+    let components = path_components(path);
+    let Some(file_name) = components.last() else {
+        return false;
+    };
+    let Some(parent_name) = components.get(components.len().saturating_sub(2)) else {
+        return false;
+    };
+    if !file_name.eq_ignore_ascii_case(&format!("{parent_name}.mdo")) {
+        return false;
+    }
+
+    components
+        .iter()
+        .any(|component| component.eq_ignore_ascii_case("Subsystems"))
+}
+
+fn is_designer_subsystem_path(path: &Path, kind: SourceFileKind) -> bool {
+    if kind != SourceFileKind::XmlMetadata {
+        return false;
+    }
+
+    let components = path_components(path);
+    let Some(file_name) = components.last() else {
+        return false;
+    };
+    if !file_name.to_ascii_lowercase().ends_with(".xml") {
+        return false;
+    }
+
+    components
+        .get(components.len().saturating_sub(2))
+        .is_some_and(|parent| parent.eq_ignore_ascii_case("Subsystems"))
+}
+
+fn path_components(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn local_name(name: &[u8]) -> String {

@@ -1363,3 +1363,86 @@ Completion evidence:
 Dependencies:
 
 - T31, T32, T33, T34, T35.
+
+## Milestone 9: Compatibility Follow-ups
+
+### T37. DONE: Support metadata-tree and subsystem-composition sorting scenarios
+
+Add explicit support for the additional `precommit4onec` scenarios that appear
+in existing project configs but are not part of the current built-in v1 required
+set:
+
+- `СортировкаДереваМетаданных.os`
+- `СортировкаСоставаПодсистем.os`
+
+Motivation:
+
+- Existing `precommit4onec` projects, including historical RAT config snapshots
+  and similar compatibility corpora, may keep these scenario ids in
+  `ГлобальныеСценарии`.
+- v1 previously reported them as unsupported because they were outside the
+  built-in required scenario set.
+- A migration-friendly release should support these concrete scenarios directly
+  instead of requiring users to remove them from existing `v8config.json`
+  immediately.
+
+Acceptance criteria:
+
+- The behavior of `СортировкаДереваМетаданных` is specified from reference
+  evidence before implementation.
+- The behavior of `СортировкаСоставаПодсистем` is specified from reference
+  evidence before implementation.
+- Both scenario ids are recognized with and without the `.os` suffix.
+- Both scenarios are registered as supported compatibility scenarios rather than
+  generic repository-local dynamic `.os` execution.
+- Implementation uses Rust-native XML/EDT processing where practical and keeps
+  broad repository-local `.os` execution unsupported.
+- RAT `v8config.json` is covered as a compatibility fixture without requiring
+  users to remove these two scenarios and without mutating
+  `/home/alko/develop/open-source/rat`.
+- README and `spec/configuration.md` document the migration path for existing
+  `precommit4onec` configs that include these scenarios.
+
+Validation:
+
+- `cargo test config`
+- `cargo test rat`
+- New focused tests for both scenarios in global and project-specific settings.
+- Focused XML/EDT fixture tests for the accepted behavior of each scenario.
+- Read-only RAT status probe:
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`
+
+Completion evidence:
+
+- 2026-05-07: Registered `СортировкаДереваМетаданных` and
+  `СортировкаСоставаПодсистем` as explicit supported compatibility scenarios
+  outside the built-in v1 default list, with lookup accepting ids with and
+  without `.os`.
+- Specified the behavior from reference `precommit4onec`
+  `СортировкаСостава.os`: metadata-tree sorting uses the configuration
+  composition branch; subsystem composition sorting uses EDT `content` and
+  Designer `Properties/Content` `xr:Item` branches.
+- Implemented Rust-native XML/EDT handling for EDT and Designer subsystem
+  composition sorting while keeping unknown repository-local `.os` scenarios
+  unsupported.
+- Updated RAT compatibility coverage to account for the current live
+  `rat/v8config.json`: it no longer contains these two ids in
+  `ГлобальныеСценарии`, so tests build a synthetic in-memory RAT config
+  fixture and keep the checkout read-only.
+- Updated README, `spec/configuration.md`, `spec/parser-strategy.md`,
+  `spec/testing-strategy.md`, and `spec/reference-scenario-inventory.md`.
+- Verification passed: `cargo test config`, `cargo test scenarios`,
+  `cargo test scenario_pipeline`, `cargo test composition_sort`,
+  `cargo test compatibility`, `cargo test rat`,
+  `GIT_OPTIONAL_LOCKS=0 git -C /home/alko/develop/open-source/rat status --short`,
+  `cargo fmt --check`, and `git diff --check`.
+
+Dependencies:
+
+- T36.
+
+Non-goals:
+
+- Reclassifying unknown repository-local `.os` scenarios as silently supported.
+- Implementing a generic repository-local `.os` execution adapter.
+- Implementing `РазборОбычныхФормНаИсходники`.

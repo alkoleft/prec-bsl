@@ -205,6 +205,22 @@ Required in v1:
 - `УдалениеЛишнихКонцевыхПробелов`
 - `УдалениеЛишнихПустыхСтрок`
 
+Supported compatibility scenarios:
+
+- `СортировкаДереваМетаданных`
+- `СортировкаСоставаПодсистем`
+
+These ids are accepted for migration from existing `precommit4onec` configs,
+including names with the optional `.os` suffix. They are explicit Rust-native
+compatibility entries, not dynamic repository-local `.os` execution. They are
+not added to the built-in v1 default scenario list.
+
+`СортировкаДереваМетаданных` applies the configuration composition behavior
+from the reference `СортировкаСостава.os` scenario to `Configuration.mdo` /
+`Configuration.xml`. `СортировкаСоставаПодсистем` applies the subsystem
+composition behavior from the same reference scenario to EDT subsystem `.mdo`
+files and Designer subsystem `.xml` files.
+
 Unsupported by product decision:
 
 - `РазборОбычныхФормНаИсходники`

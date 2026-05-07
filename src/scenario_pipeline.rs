@@ -7,7 +7,10 @@ use crate::bsl_checkers::{
     DUPLICATE_METHODS_RULE, FORBID_GOTO_RULE, PREPROCESSOR_RULE, REGIONS_RULE, duplicate_methods,
     forbid_goto, preprocessor_instructions, regions,
 };
-use crate::composition_sort::{COMPOSITION_SORT_RULE, composition_sort};
+use crate::composition_sort::{
+    COMPOSITION_SORT_RULE, METADATA_TREE_SORT_RULE, SUBSYSTEM_COMPOSITION_SORT_RULE,
+    composition_sort,
+};
 use crate::config::ResolvedConfig;
 use crate::duplicate_metadata::{DUPLICATE_METADATA_RULE, duplicate_metadata};
 use crate::external_artifacts::{EXTERNAL_ARTIFACTS_RULE, external_artifacts};
@@ -40,7 +43,12 @@ impl ScenarioRegistry {
     pub fn reference() -> Self {
         let scenarios = REFERENCE_SCENARIOS
             .iter()
-            .filter(|scenario| scenario.support == ScenarioSupport::RequiredV1)
+            .filter(|scenario| {
+                matches!(
+                    scenario.support,
+                    ScenarioSupport::RequiredV1 | ScenarioSupport::Compatibility
+                )
+            })
             .map(|scenario| {
                 let handles_deleted_files = scenario.id == METADATA_SYNC_RULE;
                 (
@@ -466,7 +474,9 @@ fn reference_handler_for(scenario_id: &str) -> ScenarioHandler {
         DISABLE_FULL_TEXT_SEARCH_RULE => disable_full_text_search,
         DISABLE_FORM_CHANGE_RULE => disable_form_change_permission,
         METADATA_SYNC_RULE => metadata_sync,
-        COMPOSITION_SORT_RULE => composition_sort,
+        COMPOSITION_SORT_RULE | METADATA_TREE_SORT_RULE | SUBSYSTEM_COMPOSITION_SORT_RULE => {
+            composition_sort
+        }
         DUPLICATE_METADATA_RULE => duplicate_metadata,
         EXTERNAL_ARTIFACTS_RULE => external_artifacts,
         _ => skipped_until_implemented,
@@ -734,10 +744,12 @@ mod tests {
 
     #[test]
     fn reference_registry_has_handlers_for_all_required_v1_scenarios() {
-        for scenario in REFERENCE_SCENARIOS
-            .iter()
-            .filter(|scenario| scenario.support == ScenarioSupport::RequiredV1)
-        {
+        for scenario in REFERENCE_SCENARIOS.iter().filter(|scenario| {
+            matches!(
+                scenario.support,
+                ScenarioSupport::RequiredV1 | ScenarioSupport::Compatibility
+            )
+        }) {
             let handler = reference_handler_for(scenario.id);
 
             assert!(

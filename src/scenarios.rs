@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScenarioSupport {
     RequiredV1,
+    Compatibility,
     Unsupported,
 }
 
@@ -95,6 +96,16 @@ pub const REFERENCE_SCENARIOS: &[ScenarioDefinition] = &[
         support: ScenarioSupport::RequiredV1,
     },
     ScenarioDefinition {
+        id: "СортировкаДереваМетаданных",
+        source_file: "СортировкаСостава.os",
+        support: ScenarioSupport::Compatibility,
+    },
+    ScenarioDefinition {
+        id: "СортировкаСоставаПодсистем",
+        source_file: "СортировкаСостава.os",
+        support: ScenarioSupport::Compatibility,
+    },
+    ScenarioDefinition {
         id: "УдалениеДублейМетаданных",
         source_file: "УдалениеДублейМетаданных.os",
         support: ScenarioSupport::RequiredV1,
@@ -147,6 +158,9 @@ mod tests {
         "УдалениеЛишнихПустыхСтрок",
     ];
 
+    const EXPECTED_COMPATIBILITY: &[&str] =
+        &["СортировкаДереваМетаданных", "СортировкаСоставаПодсистем"];
+
     #[test]
     fn scenario_inventory_matches_required_v1_list() {
         let required = REFERENCE_SCENARIOS
@@ -167,6 +181,20 @@ mod tests {
     }
 
     #[test]
+    fn scenario_inventory_keeps_explicit_compatibility_scenarios_out_of_required_v1() {
+        let compatibility = REFERENCE_SCENARIOS
+            .iter()
+            .filter(|scenario| scenario.support == ScenarioSupport::Compatibility)
+            .map(|scenario| scenario.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(compatibility, EXPECTED_COMPATIBILITY);
+        for scenario in compatibility {
+            assert!(!EXPECTED_REQUIRED_V1.contains(&scenario));
+        }
+    }
+
+    #[test]
     fn scenario_lookup_accepts_ids_with_and_without_os_suffix() {
         let plain = find_reference_scenario("УдалениеЛишнихКонцевыхПробелов").unwrap();
         let suffixed = find_reference_scenario("УдалениеЛишнихКонцевыхПробелов.os").unwrap();
@@ -182,7 +210,10 @@ mod tests {
         assert!(fixture.contains("РазборОбычныхФормНаИсходники.os"));
 
         let mut previous_position = 0;
-        for scenario in REFERENCE_SCENARIOS {
+        for scenario in REFERENCE_SCENARIOS
+            .iter()
+            .filter(|scenario| scenario.support != ScenarioSupport::Compatibility)
+        {
             let position = fixture[previous_position..]
                 .find(scenario.source_file)
                 .unwrap_or_else(|| {

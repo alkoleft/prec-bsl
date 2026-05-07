@@ -452,7 +452,7 @@ fn validate_enabled_scenarios(scenarios: &[String], scope: &str, errors: &mut Ve
     for scenario in scenarios {
         let normalized = normalize_scenario_id(scenario);
         match find_reference_scenario(scenario).map(|definition| definition.support) {
-            Some(ScenarioSupport::RequiredV1) => {}
+            Some(ScenarioSupport::RequiredV1 | ScenarioSupport::Compatibility) => {}
             Some(ScenarioSupport::Unsupported) => errors.push(format!(
                 "unsupported built-in scenario in v1 enabled in {scope}: {normalized}"
             )),
@@ -1025,11 +1025,44 @@ mod tests {
     }
 
     #[test]
+    fn config_enabled_compatibility_sorting_scenarios_are_supported() {
+        let config = parse_config_str(
+            r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": [
+                        "СортировкаДереваМетаданных.os",
+                        "СортировкаСоставаПодсистем"
+                    ],
+                    "Проекты": {
+                        "configuration": {
+                            "ГлобальныеСценарии": [
+                                "СортировкаСоставаПодсистем.os"
+                            ]
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.scenarios.enabled_scenarios(),
+            vec!["СортировкаДереваМетаданных", "СортировкаСоставаПодсистем"]
+        );
+        assert_eq!(
+            config.enabled_scenarios_for_path(Path::new(
+                "configuration/src/Subsystems/Демо/Демо.mdo"
+            )),
+            vec!["СортировкаСоставаПодсистем"]
+        );
+    }
+
+    #[test]
     fn config_enabled_repository_local_scenario_fails_validation() {
         let error = parse_config_str(
             r#"{
                 "Precommt4onecСценарии": {
-                    "ГлобальныеСценарии": ["СортировкаДереваМетаданных.os"]
+                    "ГлобальныеСценарии": ["ДобавлениеТестовВРасширение.os"]
                 }
             }"#,
         )
@@ -1038,7 +1071,7 @@ mod tests {
         assert_eq!(
             error.validation_messages(),
             &[
-                "unsupported repository-local scenario in v1 enabled in global: СортировкаДереваМетаданных; dynamic local .os execution is not supported in v1"
+                "unsupported repository-local scenario in v1 enabled in global: ДобавлениеТестовВРасширение; dynamic local .os execution is not supported in v1"
             ]
         );
     }

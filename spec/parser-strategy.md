@@ -259,6 +259,32 @@ blocks through hard-failure diagnostics and must leave `modified_paths` empty.
 Composition sorting and duplicate metadata removal remain owned by
 `СортировкаСостава` and `УдалениеДублейМетаданных`.
 
+### Metadata tree and subsystem composition sorting compatibility
+
+`СортировкаДереваМетаданных` and `СортировкаСоставаПодсистем` are supported
+compatibility scenario ids for existing `precommit4onec` configs that split
+sorting intent more narrowly than the built-in `СортировкаСостава` rule.
+
+Reference evidence comes from the local `precommit4onec`
+`СортировкаСостава.os` implementation:
+
+- configuration files are detected as EDT `Configuration/Configuration.mdo` or
+  Designer `Configuration.xml`;
+- subsystem files are detected under `Subsystems` as EDT subsystem `.mdo`
+  metadata files or Designer subsystem `.xml` metadata files;
+- EDT subsystem composition is sorted inside repeated `content` elements;
+- Designer subsystem composition is sorted inside `Properties/Content`
+  `xr:Item` elements;
+- sorting keeps the same prefix-bucket setting as `СортировкаСостава`
+  (`УчитываяПрефикс`) and the same disabled-object setting
+  (`ОтключенныеОбъекты`) where it applies.
+
+`СортировкаДереваМетаданных` is scoped only to configuration composition.
+`СортировкаСоставаПодсистем` is scoped only to subsystem composition. The
+broader built-in `СортировкаСостава` rule may continue to cover both
+configuration and subsystem composition through the same Rust-native XML/EDT
+implementation.
+
 ### Duplicate metadata removal contract
 
 `УдалениеДублейМетаданных` is an XML/EDT fixer for configuration composition

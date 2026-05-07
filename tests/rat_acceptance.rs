@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 use prec_bsl::bsl_parser::BslParser;
+use prec_bsl::config::parse_config_str;
 use prec_bsl::scenarios::{ScenarioSupport, find_reference_scenario, normalize_scenario_id};
 use prec_bsl::source_files::{
     SourceFileKind, collect_source_files as collect_prec_bsl_source_files, parse_source_dir_list,
@@ -109,7 +110,7 @@ fn rat_source_roots_copy_to_tempdir_without_mutating_checkout() {
 }
 
 #[test]
-fn rat_live_v8config_parses_and_reports_repository_local_scenarios() {
+fn rat_live_v8config_parses_without_enabled_repository_local_scenario_diagnostics() {
     let Some(repo) = rat_repo() else {
         eprintln!("skipping RAT acceptance: /home/alko/develop/open-source/rat is not available");
         return;
@@ -155,18 +156,61 @@ fn rat_live_v8config_parses_and_reports_repository_local_scenarios() {
         .filter_map(|scenario| unsupported_enabled_scenario_diagnostic(scenario))
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        diagnostics,
-        vec![
-            "unsupported repository-local scenario in v1: СортировкаДереваМетаданных; dynamic local .os execution is not supported in v1".to_owned(),
-            "unsupported repository-local scenario in v1: СортировкаСоставаПодсистем; dynamic local .os execution is not supported in v1".to_owned(),
-        ]
+    assert!(
+        diagnostics.is_empty(),
+        "RAT live enabled scenarios must be supported after compatibility aliases are registered: {diagnostics:?}"
     );
     assert!(
         diagnostics
             .iter()
             .all(|diagnostic| !diagnostic.contains("РазборОбычныхФормНаИсходники")),
         "disabled unsupported scenarios must not be reported as enabled failures"
+    );
+}
+
+#[test]
+fn rat_compatibility_config_with_sorting_aliases_parses_without_mutating_checkout() {
+    let Some(repo) = rat_repo() else {
+        eprintln!(
+            "skipping RAT compatibility config: /home/alko/develop/open-source/rat is not available"
+        );
+        return;
+    };
+
+    let before_status = git_status_short(repo).expect("RAT git status must be readable");
+    let config_path = repo.join("v8config.json");
+    let config = fs::read_to_string(&config_path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", config_path.display()));
+    let mut config: Value = serde_json::from_str(&config)
+        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", config_path.display()));
+    let global_scenarios = config
+        .get_mut("Precommt4onecСценарии")
+        .and_then(|scenarios| scenarios.get_mut("ГлобальныеСценарии"))
+        .and_then(Value::as_array_mut)
+        .expect("RAT compatibility config must have global scenarios");
+    global_scenarios.push(Value::String("СортировкаДереваМетаданных.os".to_owned()));
+    global_scenarios.push(Value::String("СортировкаСоставаПодсистем.os".to_owned()));
+
+    let config = parse_config_str(&config.to_string())
+        .expect("RAT config plus explicit sorting compatibility aliases must parse");
+
+    assert!(
+        config
+            .scenarios
+            .global_scenarios
+            .contains(&"СортировкаДереваМетаданных".to_owned())
+    );
+    assert!(
+        config
+            .scenarios
+            .global_scenarios
+            .contains(&"СортировкаСоставаПодсистем".to_owned())
+    );
+
+    let after_status = git_status_short(repo).expect("RAT git status must be readable after parse");
+    assert_eq!(
+        after_status, before_status,
+        "RAT compatibility config fixture must not mutate the real checkout"
     );
 }
 
@@ -538,7 +582,7 @@ fn scenario_strings<'a>(config: &'a Value, key: &str) -> Vec<&'a str> {
 fn unsupported_enabled_scenario_diagnostic(scenario: &str) -> Option<String> {
     let normalized = normalize_scenario_id(scenario);
     match find_reference_scenario(scenario).map(|definition| definition.support) {
-        Some(ScenarioSupport::RequiredV1) => None,
+        Some(ScenarioSupport::RequiredV1 | ScenarioSupport::Compatibility) => None,
         Some(ScenarioSupport::Unsupported) => {
             Some(format!("unsupported built-in scenario in v1: {normalized}"))
         }
