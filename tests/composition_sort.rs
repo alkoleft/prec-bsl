@@ -186,6 +186,123 @@ fn composition_sort_honors_prefix_buckets_after_non_prefixed_references() {
 }
 
 #[test]
+fn composition_sort_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<mdclass:Configuration>{line_ending}  <commonModules>CommonModule.Я</commonModules>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}</mdclass:Configuration>{line_ending}"
+        );
+        let expected = format!(
+            "<mdclass:Configuration>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}  <commonModules>CommonModule.Я</commonModules>{line_ending}</mdclass:Configuration>{line_ending}"
+        );
+        let settings = CompositionSortSettings::from_settings(None).unwrap();
+
+        let first = sort_composition_text(
+            Path::new("Configuration/Configuration.mdo"),
+            SourceFileKind::ConfigurationMetadata,
+            &input,
+            &settings,
+            CompositionSortScope::All,
+        );
+        assert_eq!(
+            first,
+            CompositionSorting::Modified(expected.clone()),
+            "{name} rewrite must preserve line endings"
+        );
+
+        let second = sort_composition_text(
+            Path::new("Configuration/Configuration.mdo"),
+            SourceFileKind::ConfigurationMetadata,
+            &expected,
+            &settings,
+            CompositionSortScope::All,
+        );
+        assert_eq!(
+            second,
+            CompositionSorting::Clean,
+            "{name} second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
+fn metadata_tree_sort_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<mdclass:Configuration>{line_ending}  <commonModules>CommonModule.Я</commonModules>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}</mdclass:Configuration>{line_ending}"
+        );
+        let expected = format!(
+            "<mdclass:Configuration>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}  <commonModules>CommonModule.Я</commonModules>{line_ending}</mdclass:Configuration>{line_ending}"
+        );
+        let settings = CompositionSortSettings::from_settings(None).unwrap();
+
+        let first = sort_composition_text(
+            Path::new("Configuration/Configuration.mdo"),
+            SourceFileKind::ConfigurationMetadata,
+            &input,
+            &settings,
+            CompositionSortScope::MetadataTree,
+        );
+        assert_eq!(
+            first,
+            CompositionSorting::Modified(expected.clone()),
+            "{name} metadata-tree rewrite must preserve line endings"
+        );
+
+        let second = sort_composition_text(
+            Path::new("Configuration/Configuration.mdo"),
+            SourceFileKind::ConfigurationMetadata,
+            &expected,
+            &settings,
+            CompositionSortScope::MetadataTree,
+        );
+        assert_eq!(
+            second,
+            CompositionSorting::Clean,
+            "{name} metadata-tree second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
+fn subsystem_composition_sort_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<mdclass:Subsystem>{line_ending}  <name>Демо</name>{line_ending}  <content>Document.Заказ</content>{line_ending}  <content>Catalog.Номенклатура</content>{line_ending}</mdclass:Subsystem>{line_ending}"
+        );
+        let expected = format!(
+            "<mdclass:Subsystem>{line_ending}  <name>Демо</name>{line_ending}  <content>Catalog.Номенклатура</content>{line_ending}  <content>Document.Заказ</content>{line_ending}</mdclass:Subsystem>{line_ending}"
+        );
+        let settings = CompositionSortSettings::from_settings(None).unwrap();
+
+        let first = sort_composition_text(
+            Path::new("Subsystems/Демо/Демо.mdo"),
+            SourceFileKind::EdtMetadata,
+            &input,
+            &settings,
+            CompositionSortScope::SubsystemComposition,
+        );
+        assert_eq!(
+            first,
+            CompositionSorting::Modified(expected.clone()),
+            "{name} subsystem rewrite must preserve line endings"
+        );
+
+        let second = sort_composition_text(
+            Path::new("Subsystems/Демо/Демо.mdo"),
+            SourceFileKind::EdtMetadata,
+            &expected,
+            &settings,
+            CompositionSortScope::SubsystemComposition,
+        );
+        assert_eq!(
+            second,
+            CompositionSorting::Clean,
+            "{name} subsystem second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
 fn composition_sort_matches_reference_literal_order_for_digit_underscore_names() {
     let input = concat!(
         "<mdclass:Configuration>\n",

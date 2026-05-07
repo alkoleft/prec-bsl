@@ -100,6 +100,30 @@ fn copyright_replaces_existing_stale_header() {
 }
 
 #[test]
+fn copyright_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!("Процедура Выполнить(){line_ending}КонецПроцедуры{line_ending}");
+        let expected = format!(
+            "//© ООО \"Пример\", 2024-2026{line_ending}//{line_ending}// Текст лицензии{line_ending}//©{line_ending}{line_ending}Процедура Выполнить(){line_ending}КонецПроцедуры{line_ending}"
+        );
+
+        let first = insert_or_update_copyright(&input, copyright_text(), &[]);
+        assert_eq!(
+            first,
+            CopyrightFix::Modified(expected.clone()),
+            "{name} rewrite must preserve line endings"
+        );
+
+        let second = insert_or_update_copyright(&expected, copyright_text(), &[]);
+        assert_eq!(
+            second,
+            CopyrightFix::Clean,
+            "{name} second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
 fn copyright_skips_modules_with_default_or_configured_tags() {
     let repo = temp_repo("excluded_tag");
     let repo_path = PathBuf::from("src/Модуль.bsl");

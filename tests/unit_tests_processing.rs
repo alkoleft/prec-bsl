@@ -7,7 +7,7 @@ use prec_bsl::scenario_pipeline::{
     PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
-use prec_bsl::unit_tests_processing::UNIT_TESTS_PROCESSING_RULE;
+use prec_bsl::unit_tests_processing::{UNIT_TESTS_PROCESSING_RULE, update_unit_test_loader};
 
 #[test]
 fn unit_tests_processing_inserts_loader_region_and_is_idempotent() {
@@ -105,6 +105,26 @@ fn unit_tests_processing_replaces_existing_loader_region() {
     assert!(output.contains("ИсполняемыеСценарии.Добавить(\"НовыйТест\");"));
     assert!(second_report.results.is_empty());
     assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), output);
+}
+
+#[test]
+fn unit_tests_processing_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "// @unit-test: smoke{line_ending}Процедура ПервыйТест() Экспорт{line_ending}КонецПроцедуры{line_ending}"
+        );
+        let expected = format!(
+            "#Область ТестыAPI{line_ending}{line_ending}// ИсполняемыеСценарии{line_ending}// \tСервисный метод для получения списка тестовых методов{line_ending}// Параметры:{line_ending}// \tДополнительныеПараметры - Структура - Дополнительные параметры, используемые при формировании списка тестов{line_ending}// Возвращаемое значение:{line_ending}// \tМассив - Имена методов тестов{line_ending}Функция ИсполняемыеСценарии(ДополнительныеПараметры = Неопределено) Экспорт{line_ending}{line_ending}\tИсполняемыеСценарии = Новый Массив;{line_ending}\tИсполняемыеСценарии.Добавить(\"ПервыйТест\");{line_ending}{line_ending}\tВозврат ИсполняемыеСценарии;{line_ending}{line_ending}КонецФункции{line_ending}{line_ending}#КонецОбласти{line_ending}{line_ending}// @unit-test: smoke{line_ending}Процедура ПервыйТест() Экспорт{line_ending}КонецПроцедуры{line_ending}"
+        );
+
+        let first = update_unit_test_loader(&input)
+            .expect("valid test module must be processed")
+            .expect("test loader must be inserted");
+        let second = update_unit_test_loader(&first).expect("generated loader must parse");
+
+        assert_eq!(first, expected, "{name} rewrite must preserve line endings");
+        assert_eq!(second, None, "{name} second rewrite must be clean");
+    }
 }
 
 #[test]

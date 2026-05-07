@@ -88,6 +88,40 @@ fn disable_form_change_updates_designer_customizable_flag() {
 }
 
 #[test]
+fn disable_form_change_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<form:Form>{line_ending}  <items/>{line_ending}  <allowFormCustomize>true</allowFormCustomize>{line_ending}</form:Form>{line_ending}"
+        );
+        let expected = format!(
+            "<form:Form>{line_ending}  <items/>{line_ending}  <allowFormCustomize>false</allowFormCustomize>{line_ending}</form:Form>{line_ending}"
+        );
+
+        let first = disable_form_change_permission_text(
+            Path::new("src/Forms/Форма/Form.form"),
+            SourceFileKind::EdtForm,
+            &input,
+        );
+        assert_eq!(
+            first,
+            FormChangePermissionDisabling::Modified(expected.clone()),
+            "{name} rewrite must preserve line endings"
+        );
+
+        let second = disable_form_change_permission_text(
+            Path::new("src/Forms/Форма/Form.form"),
+            SourceFileKind::EdtForm,
+            &expected,
+        );
+        assert_eq!(
+            second,
+            FormChangePermissionDisabling::Clean,
+            "{name} second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
 fn disable_form_change_inserts_missing_designer_customizable_after_window_opening_mode() {
     let input = concat!(
         "<Form>\n",

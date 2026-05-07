@@ -93,6 +93,24 @@ fn keyword_spacing_only_changes_export_after_closing_paren_in_code() {
     );
 }
 
+#[test]
+fn keyword_spacing_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "Процедура A()Экспорт{line_ending}// Процедура B()Экспорт{line_ending}Строка = \"B()Экспорт\";{line_ending}"
+        );
+        let expected = format!(
+            "Процедура A() Экспорт{line_ending}// Процедура B()Экспорт{line_ending}Строка = \"B()Экспорт\";{line_ending}"
+        );
+
+        let first = add_spaces_before_keywords(&input);
+        let second = add_spaces_before_keywords(&first);
+
+        assert_eq!(first, expected, "{name} rewrite must preserve line endings");
+        assert_eq!(second, expected, "{name} second rewrite must be clean");
+    }
+}
+
 fn keyword_spacing_config() -> prec_bsl::config::ResolvedConfig {
     parse_config_str(
         r#"{

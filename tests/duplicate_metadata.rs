@@ -100,6 +100,40 @@ fn duplicate_metadata_removes_designer_child_object_duplicates() {
 }
 
 #[test]
+fn duplicate_metadata_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<mdclass:Configuration>{line_ending}  <languages>Language.Русский</languages>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}</mdclass:Configuration>{line_ending}"
+        );
+        let expected = format!(
+            "<mdclass:Configuration>{line_ending}  <languages>Language.Русский</languages>{line_ending}  <commonModules>CommonModule.А</commonModules>{line_ending}</mdclass:Configuration>{line_ending}"
+        );
+
+        let first = remove_duplicate_metadata_text(
+            Path::new("Configuration/Configuration.mdo"),
+            SourceFileKind::ConfigurationMetadata,
+            &input,
+        );
+        assert_eq!(
+            first,
+            DuplicateMetadataRemoval::Modified(expected.clone()),
+            "{name} rewrite must preserve line endings"
+        );
+
+        let second = remove_duplicate_metadata_text(
+            Path::new("Configuration/Configuration.mdo"),
+            SourceFileKind::ConfigurationMetadata,
+            &expected,
+        );
+        assert_eq!(
+            second,
+            DuplicateMetadataRemoval::Clean,
+            "{name} second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
 fn duplicate_metadata_preserves_last_duplicate_occurrence() {
     let input = concat!(
         "<MetaDataObject>\n",

@@ -360,16 +360,17 @@ pub fn insert_or_update_copyright(
     }
 
     let line_ending = dominant_line_ending(input);
+    let copyright = trim_text_with_line_ending(copyright, line_ending);
     match copyright_block_end(input) {
         Ok(Some(end)) => {
             let current_header = trim_text(&input[..end]).replace("\r\n", "\n");
-            let expected_header = trim_text(copyright).replace("\r\n", "\n");
+            let expected_header = copyright.replace("\r\n", "\n");
             if current_header == expected_header {
                 CopyrightFix::Clean
             } else {
                 CopyrightFix::Modified(format!(
                     "{}{}{}{}{}",
-                    trim_text(copyright),
+                    copyright,
                     line_ending,
                     line_ending,
                     trim_text(&input[end..]),
@@ -379,7 +380,7 @@ pub fn insert_or_update_copyright(
         }
         Ok(None) => CopyrightFix::Modified(format!(
             "{}{}{}{}{}",
-            trim_text(copyright),
+            copyright,
             line_ending,
             line_ending,
             trim_text(input),
@@ -460,6 +461,12 @@ fn final_line_ending(input: &str, line_ending: &str) -> &'static str {
 
 fn trim_text(input: &str) -> &str {
     input.trim_matches([' ', '\t', '\r', '\n'])
+}
+
+fn trim_text_with_line_ending(input: &str, line_ending: &str) -> String {
+    trim_text(input)
+        .replace("\r\n", "\n")
+        .replace('\n', line_ending)
 }
 
 fn is_repository_relative_path(path: &Path) -> bool {

@@ -78,6 +78,24 @@ fn trailing_whitespace_preserves_line_endings() {
     assert_eq!(output, "Процедура A()\n\tСообщить();\r\nКонецПроцедуры");
 }
 
+#[test]
+fn trailing_whitespace_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "Процедура A()   {line_ending}\tСообщить();\t{line_ending}КонецПроцедуры{line_ending}"
+        );
+        let expected = format!(
+            "Процедура A(){line_ending}\tСообщить();{line_ending}КонецПроцедуры{line_ending}"
+        );
+
+        let first = remove_trailing_spaces_and_tabs(&input);
+        let second = remove_trailing_spaces_and_tabs(&first);
+
+        assert_eq!(first, expected, "{name} rewrite must preserve line endings");
+        assert_eq!(second, expected, "{name} second rewrite must be clean");
+    }
+}
+
 fn trailing_whitespace_config() -> prec_bsl::config::ResolvedConfig {
     parse_config_str(
         r#"{

@@ -168,6 +168,32 @@ fn xml_forms_corrects_compact_valid_xml_layout() {
 }
 
 #[test]
+fn xml_forms_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<form:Form>{line_ending}  <items>{line_ending}    <name>Первый</name>{line_ending}    <id>1</id>{line_ending}  </items>{line_ending}  <items>{line_ending}    <name>Второй</name>{line_ending}    <id>1</id>{line_ending}  </items>{line_ending}</form:Form>{line_ending}"
+        );
+        let expected = format!(
+            "<form:Form>{line_ending}  <items>{line_ending}    <name>Первый</name>{line_ending}    <id>2</id>{line_ending}  </items>{line_ending}  <items>{line_ending}    <name>Второй</name>{line_ending}    <id>1</id>{line_ending}  </items>{line_ending}</form:Form>{line_ending}"
+        );
+
+        let first = correct_edt_form_text(Path::new("Form.form"), &input, None);
+        assert_eq!(
+            first,
+            XmlFormCorrection::Modified(expected.clone()),
+            "{name} rewrite must preserve line endings"
+        );
+
+        let second = correct_edt_form_text(Path::new("Form.form"), &expected, None);
+        assert_eq!(
+            second,
+            XmlFormCorrection::Clean,
+            "{name} second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
 fn xml_forms_reports_modified_sibling_base_form_path() {
     let repo = temp_repo("modified_base_form");
     let form_path = PathBuf::from("src/Extensions/Расширение/Forms/Форма/Form.form");

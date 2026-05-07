@@ -1694,7 +1694,7 @@ Dependencies:
 
 - T28, T37.
 
-### T42. TODO: Add line-ending regression matrix for mutating scenarios
+### T42. DONE: Add line-ending regression matrix for mutating scenarios
 
 Upstream issue: `precommit4onec` #36.
 
@@ -1718,14 +1718,45 @@ Acceptance criteria:
 Validation:
 
 - Add scenario-specific focused tests rather than one opaque mega-test.
-- `cargo test trailing_whitespace empty_lines spaces_between_keywords copyright`
-- `cargo test composition_sort duplicate_metadata disable_full_text_search`
-- `cargo test disable_form_change xml_forms`
+- `cargo test --test trailing_whitespace`
+- `cargo test --test empty_lines`
+- `cargo test --test keyword_spacing`
+- `cargo test --test canonical_spelling`
+- `cargo test --test copyright`
+- `cargo test --test unit_tests_processing`
+- `cargo test --test composition_sort`
+- `cargo test --test duplicate_metadata`
+- `cargo test --test disable_full_text_search`
+- `cargo test --test disable_form_change`
+- `cargo test --test xml_forms`
 - `cargo test --workspace`
 
 Dependencies:
 
-- T11, T12, T13, T16, T24, T25, T26, T28, T29.
+- T11, T12, T13, T14, T16, T22, T24, T25, T26, T28, T29.
+
+Completion evidence:
+
+- 2026-05-07: Added scenario-specific LF/CRLF regression tests for every
+  mutating built-in Rust scenario that rewrites files:
+  `УдалениеЛишнихКонцевыхПробелов`, `УдалениеЛишнихПустыхСтрок`,
+  `ДобавлениеПробеловПередКлючевымиСловами`,
+  `ИсправлениеНеКаноническогоНаписания`, `ВставкаКопирайтов`,
+  `ОбработкаЮнитТестов`, `КорректировкаXMLФорм`,
+  `ОтключениеПолнотекстовогоПоиска`,
+  `ОтключениеРазрешенияИзменятьФорму`, `СортировкаСостава`,
+  compatibility sorting aliases `СортировкаДереваМетаданных` /
+  `СортировкаСоставаПодсистем`, and `УдалениеДублейМетаданных`.
+- The new copyright matrix exposed a CRLF regression where inserted copyright
+  header lines used the copyright file's LF line endings instead of the
+  processed module's dominant line ending. Fixed
+  `ВставкаКопирайтов` to normalize inserted copyright text to the target file's
+  line-ending style while keeping second-run idempotence.
+- Updated validation commands to use executable Cargo test targets and included
+  the mutating canonical spelling and unit-test processing scenarios that were
+  implied by the acceptance text.
+- Verification passed: all focused T42 test targets, `cargo fmt --all --check`,
+  `cargo test --workspace`, and `git diff --check`.
 
 ### T43. TODO: Clarify global-scenario disabling compatibility
 

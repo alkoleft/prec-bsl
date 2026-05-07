@@ -104,6 +104,24 @@ fn canonical_spelling_skips_comments_strings_and_identifier_parts() {
 }
 
 #[test]
+fn canonical_spelling_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "// если null{line_ending}если Флаг тогда{line_ending}\tвозврат null;{line_ending}конецесли;{line_ending}"
+        );
+        let expected = format!(
+            "// если null{line_ending}Если Флаг Тогда{line_ending}\tВозврат NULL;{line_ending}КонецЕсли;{line_ending}"
+        );
+
+        let first = fix_non_canonical_spelling(&input);
+        let second = fix_non_canonical_spelling(&first);
+
+        assert_eq!(first, expected, "{name} rewrite must preserve line endings");
+        assert_eq!(second, expected, "{name} second rewrite must be clean");
+    }
+}
+
+#[test]
 fn canonical_spelling_skips_reference_extension_modules_with_change_control() {
     let repo = temp_repo("reference_change_control");
     let repo_path = PathBuf::from("src/МодулиРасширения/МодульСКонтролемИзменений.bsl");

@@ -101,6 +101,42 @@ fn disable_full_text_search_handles_designer_and_xr_metadata_names() {
 }
 
 #[test]
+fn disable_full_text_search_line_ending_matrix_is_idempotent() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        let input = format!(
+            "<mdclass:Catalog>{line_ending}  <attributes>{line_ending}    <name>Описание</name>{line_ending}    <fullTextSearch>Use</fullTextSearch>{line_ending}  </attributes>{line_ending}</mdclass:Catalog>{line_ending}"
+        );
+        let expected = format!(
+            "<mdclass:Catalog>{line_ending}  <attributes>{line_ending}    <name>Описание</name>{line_ending}    <fullTextSearch>DontUse</fullTextSearch>{line_ending}  </attributes>{line_ending}</mdclass:Catalog>{line_ending}"
+        );
+
+        let first = disable_full_text_search_text(
+            Path::new("src/Catalogs/Товары/Object.mdo"),
+            SourceFileKind::EdtMetadata,
+            &input,
+            &FullTextSearchExclusions::DisableAll,
+        );
+        assert_eq!(
+            first,
+            FullTextSearchDisabling::Modified(expected.clone()),
+            "{name} rewrite must preserve line endings"
+        );
+
+        let second = disable_full_text_search_text(
+            Path::new("src/Catalogs/Товары/Object.mdo"),
+            SourceFileKind::EdtMetadata,
+            &expected,
+            &FullTextSearchExclusions::DisableAll,
+        );
+        assert_eq!(
+            second,
+            FullTextSearchDisabling::Clean,
+            "{name} second rewrite must be clean"
+        );
+    }
+}
+
+#[test]
 fn disable_full_text_search_preserves_configured_attribute_exclusions() {
     let input = concat!(
         "<mdclass:Catalog>\n",
