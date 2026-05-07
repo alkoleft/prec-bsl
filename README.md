@@ -1,17 +1,33 @@
 # prec-bsl
 
-`prec-bsl` is a Rust hook package for `prek` and `pre-commit` users who keep
-1C:Enterprise BSL sources in Git. It preserves the staged-file processing model
-of `precommit4onec` for the built-in v1 scenario set without requiring OScript
-for ordinary hook execution.
+`prec-bsl` - Rust-пакет hook'ов для `prek` и `pre-commit` в проектах 1C,
+где BSL, Designer XML и EDT-источники хранятся в Git.
 
-## Install With prek
+Цель проекта - сохранить привычную механику `precommit4onec` для встроенного
+v1-набора сценариев, но убрать обязательную зависимость от OScript в обычном
+пути выполнения hook'а. `prec-bsl` читает staged-файлы из Git index, запускает
+встроенные проверки и фиксаторы, явно сообщает об изменениях и, когда файл был
+исправлен, передает restaging в отдельный Git-слой.
 
-Add the hook repository to the consuming project's `prek.toml`:
+## Что делает
+
+- публикует hook `prec-bsl` через `.pre-commit-hooks.yaml`;
+- запускается из `prek` / `pre-commit` как Rust hook;
+- в commit-режиме использует Git index, а не список файлов от runner'а;
+- читает настройки из `v8config.json`, включая совместимый ключ
+  `Precommt4onecСценарии`;
+- поддерживает запуск выбранных правил по source root'ам через `exec-rules`;
+- классифицирует BSL, Designer XML, EDT `.mdo` / `.form` и внешние
+  `.epf` / `.erf` / `.cfe` артефакты;
+- выводит детерминированный результат в `text` или `json`.
+
+## Установка через prek
+
+Добавьте hook-репозиторий в `prek.toml` потребляющего проекта:
 
 ```toml
 [[repos]]
-repo = "https://github.com/<org>/prec-bsl"
+repo = "https://github.com/alkoleft/prec-bsl"
 rev = "v0.1.0"
 
 [[repos.hooks]]
@@ -19,18 +35,24 @@ id = "prec-bsl"
 args = ["--config", "v8config.json"]
 ```
 
-The repository manifest exposes the hook as `prec-bsl prek-hook` with
-`language: rust`, `always_run: true`, and `pass_filenames: false`. Commit mode
-uses the staged Git index as its source of truth instead of runner-provided
-filenames.
+Манифест репозитория запускает hook как:
 
-## Install With pre-commit
+```text
+prec-bsl prek-hook
+```
 
-Use the same hook id from `.pre-commit-config.yaml`:
+Hook объявлен как `language: rust`, `always_run: true` и
+`pass_filenames: false`. Это важно: contract commit-режима строится вокруг
+staged Git index, включая удаления и Git-статусы, а не вокруг фильтрации файлов
+со стороны `prek`.
+
+## Установка через pre-commit
+
+Тот же hook можно подключить из `.pre-commit-config.yaml`:
 
 ```yaml
 repos:
-  - repo: https://github.com/<org>/prec-bsl
+  - repo: https://github.com/alkoleft/prec-bsl
     rev: v0.1.0
     hooks:
       - id: prec-bsl
@@ -39,11 +61,11 @@ repos:
           - v8config.json
 ```
 
-Project-specific scenario settings stay in `v8config.json`. Hook args should be
-limited to small stable options such as `--config`, `--source-dir`, `--rules`,
-and `--format`.
+В hook args стоит оставлять только небольшие стабильные CLI-настройки:
+`--config`, `--source-dir`, `--rules`, `--format`. Сценарии, project-specific
+переопределения и большие настройки должны жить в `v8config.json`.
 
-## CLI
+## Команды
 
 Commit hook mode:
 
@@ -51,27 +73,131 @@ Commit hook mode:
 prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json]
 ```
 
-Explicit source-root validation mode:
+Этот режим используется hook'ом. Он определяет корень Git-репозитория, читает
+staged-файлы через `git diff --name-status --staged --no-renames`, запускает
+настроенные сценарии и явно сообщает о modified paths.
+
+Явный запуск правил по source root'ам:
 
 ```text
 prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]
 ```
 
-Example CI-style run:
+Этот режим удобен для CI, миграционной проверки и ручного запуска выбранных
+правил. `--source-dir` и `--rules` принимают списки через запятую.
+
+Пример:
 
 ```bash
-prec-bsl exec-rules . --source-dir fixtures/configuration/src,exts/rat/src --rules УдалениеЛишнихКонцевыхПробелов,ПроверкаКорректностиОбластей
+prec-bsl exec-rules . \
+  --source-dir fixtures/configuration/src,exts/rat/src \
+  --rules УдалениеЛишнихКонцевыхПробелов,ПроверкаКорректностиОбластей
 ```
 
-## v1 Release Notes
+JSON-вывод:
 
-- Built-in Rust scenarios cover the required v1 scenario set documented in
-  `spec/IMPLEMENTATION_TODO.md`.
-- `РазборОбычныхФормНаИсходники` is intentionally unsupported and fails config
-  validation when enabled.
-- Repository-local `.os` scenarios are not executed in v1. Enabled local or
-  unknown scenarios produce clear unsupported diagnostics.
-- `РазборОтчетовОбработокРасширений` is registered as a required scenario with
-  an explicit 1C platform dependency boundary. The current v1 slice reports
-  missing runtime or not-yet-implemented unpack execution clearly and does not
-  run 1C from the ordinary hook path.
+```bash
+prec-bsl exec-rules . --rules ПроверкаКорректностиОбластей --format json
+```
+
+## Конфигурация
+
+Основной domain-config - `v8config.json` в корне репозитория. Порядок
+приоритета:
+
+1. CLI-аргументы hook'а или ручного запуска.
+2. `v8config.json`.
+3. Встроенные значения по умолчанию.
+
+Минимальный пример:
+
+```json
+{
+  "GLOBAL": {
+    "version": "2.0",
+    "ФорматEDT": true,
+    "ВерсияПлатформы": ""
+  },
+  "Precommt4onecСценарии": {
+    "ИспользоватьСценарииРепозитория": false,
+    "КаталогЛокальныхСценариев": "",
+    "ГлобальныеСценарии": [
+      "УдалениеЛишнихКонцевыхПробелов.os",
+      "ПроверкаКорректностиОбластей.os"
+    ],
+    "ОтключенныеСценарии": [],
+    "НастройкиСценариев": {}
+  }
+}
+```
+
+Историческое написание `Precommt4onecСценарии` сохранено намеренно для
+совместимости с `precommit4onec`.
+
+## Поддержанные v1-сценарии
+
+Встроенный v1-набор покрывает required-сценарии из спецификации:
+
+- `ВставкаКопирайтов`
+- `ДобавлениеПробеловПередКлючевымиСловами`
+- `ЗапретИспользованияПерейти`
+- `ИсправлениеНеКаноническогоНаписания`
+- `КорректировкаXMLФорм`
+- `ОбработкаЮнитТестов`
+- `ОтключениеПолнотекстовогоПоиска`
+- `ОтключениеРазрешенияИзменятьФорму`
+- `ПроверкаДублейПроцедурИФункций`
+- `ПроверкаКорректностиИнструкцийПрепроцессора`
+- `ПроверкаКорректностиОбластей`
+- `ПроверкаНецензурныхСлов`
+- `РазборОтчетовОбработокРасширений`
+- `СинхронизацияОбъектовМетаданныхИФайлов`
+- `СортировкаСостава`
+- `УдалениеДублейМетаданных`
+- `УдалениеЛишнихКонцевыхПробелов`
+- `УдалениеЛишнихПустыхСтрок`
+
+BSL-сценарии, которым нужна синтаксическая структура, используют
+`tree-sitter-bsl`. Текстовые parity-фиксаторы остаются лексическими там, где
+главный contract - точное сохранение текста.
+
+XML/EDT-сценарии используют структурный XML-слой, а не широкие regex-rewrite'ы.
+
+## Явные ограничения v1
+
+- `РазборОбычныхФормНаИсходники` не реализуется по продуктовому решению.
+  Если сценарий включен в `v8config.json`, конфигурация должна завершиться
+  понятной ошибкой.
+- Repository-local `.os` сценарии не выполняются в v1. Включенные локальные или
+  неизвестные сценарии должны давать явную unsupported-диагностику.
+- `РазборОтчетовОбработокРасширений` зарегистрирован как required-сценарий, но
+  имеет отдельную runtime-границу: для реального разбора внешних
+  отчетов/обработок/расширений нужна 1C platform runtime. Обычный Rust hook не
+  запускает 1C скрыто.
+
+## Поведение hook'а
+
+Hook mode возвращает `0` только когда нет blocking diagnostics и не осталось
+непросмотренных изменений. Если фиксер изменил файл, путь будет показан в
+отчете, файл будет явно restaged Git-слоем, а пользователь должен увидеть
+результат и повторить проверку при необходимости.
+
+Форматы вывода:
+
+- `text` - человекочитаемый отчет по правилам и файлам;
+- `json` - структурированный отчет для CI и внешних инструментов.
+
+## Источник истины
+
+README - пользовательский вход в проект. Детальные продуктовые и
+implementation-контракты находятся в `spec/`:
+
+- `spec/prd-prec-bsl.md`
+- `spec/configuration.md`
+- `spec/parser-strategy.md`
+- `spec/testing-strategy.md`
+- `spec/release-readiness-checklist.md`
+- `spec/IMPLEMENTATION_TODO.md`
+
+Если README и `spec/` расходятся, актуализируйте спецификацию и только потом
+синхронизируйте пользовательскую документацию.
