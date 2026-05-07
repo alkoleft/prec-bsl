@@ -68,6 +68,135 @@ fn duplicate_methods_reports_all_duplicate_procedure_and_function_definitions_wi
 }
 
 #[test]
+fn duplicate_methods_allows_same_name_in_mutually_exclusive_preprocessor_branches() {
+    let input = concat!(
+        "#Если Сервер Тогда\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#Иначе\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#КонецЕсли\n",
+    );
+
+    let report = run_duplicate_methods("exclusive_branches", input, PipelineMode::ExecRules);
+
+    assert!(report.results.is_empty());
+    assert_eq!(report.exec_rules_exit_code(), 0);
+}
+
+#[test]
+fn duplicate_methods_allows_same_name_in_elsif_preprocessor_branches() {
+    let input = concat!(
+        "#Если Сервер Тогда\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#ИначеЕсли ВебКлиент Тогда\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#Иначе\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#КонецЕсли\n",
+    );
+
+    let report = run_duplicate_methods("elsif_branches", input, PipelineMode::ExecRules);
+
+    assert!(report.results.is_empty());
+    assert_eq!(report.exec_rules_exit_code(), 0);
+}
+
+#[test]
+fn duplicate_methods_reports_same_name_repeated_inside_same_preprocessor_branch() {
+    let input = concat!(
+        "#Если Сервер Тогда\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "\n",
+        "Функция повтор()\n",
+        "    Возврат 1;\n",
+        "КонецФункции\n",
+        "#Иначе\n",
+        "Процедура Уникальная()\n",
+        "КонецПроцедуры\n",
+        "#КонецЕсли\n",
+    );
+
+    let report = run_duplicate_methods("same_branch_duplicates", input, PipelineMode::Hook);
+
+    assert_eq!(report.results.len(), 2);
+    assert!(report.results.iter().all(|result| {
+        result.rule_id == DUPLICATE_METHODS_RULE
+            && result.status == ScenarioResultStatus::HardFailure
+            && result
+                .message
+                .starts_with("duplicate procedure or function definition:")
+    }));
+    assert_eq!(report.hook_exit_code(), 1);
+}
+
+#[test]
+fn duplicate_methods_reports_duplicates_in_malformed_preprocessor_branches() {
+    let input = concat!(
+        "#Если Сервер Тогда\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#Иначе\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#Иначе\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#КонецЕсли\n",
+    );
+
+    let report = run_duplicate_methods("malformed_branches", input, PipelineMode::Hook);
+
+    assert_eq!(report.results.len(), 3);
+    assert!(report.results.iter().all(|result| {
+        result.rule_id == DUPLICATE_METHODS_RULE
+            && result.status == ScenarioResultStatus::HardFailure
+            && result
+                .message
+                .starts_with("duplicate procedure or function definition:")
+    }));
+    assert_eq!(report.hook_exit_code(), 1);
+}
+
+#[test]
+fn duplicate_methods_handles_nested_preprocessor_branches_conservatively() {
+    let input = concat!(
+        "#Если Сервер Тогда\n",
+        "    #Если ВебКлиент Тогда\n",
+        "    Процедура Повтор()\n",
+        "    КонецПроцедуры\n",
+        "    #Иначе\n",
+        "    Процедура Повтор()\n",
+        "    КонецПроцедуры\n",
+        "    #КонецЕсли\n",
+        "#Иначе\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "Процедура Повтор()\n",
+        "КонецПроцедуры\n",
+        "#КонецЕсли\n",
+    );
+
+    let report = run_duplicate_methods("nested_branches", input, PipelineMode::Hook);
+
+    assert_eq!(report.results.len(), 2);
+    assert_eq!(
+        report
+            .results
+            .iter()
+            .filter(|result| result.path == PathBuf::from("src/Модуль.bsl"))
+            .count(),
+        2
+    );
+    assert_eq!(report.hook_exit_code(), 1);
+}
+
+#[test]
 fn duplicate_methods_accepts_unique_procedure_and_function_names() {
     let repo = temp_repo("accepts_unique");
     let repo_path = PathBuf::from("src/Модуль.bsl");
@@ -193,6 +322,30 @@ fn duplicate_methods_config() -> prec_bsl::config::ResolvedConfig {
         }"#,
     )
     .unwrap()
+}
+
+fn run_duplicate_methods(
+    test_name: &str,
+    input: &str,
+    mode: PipelineMode,
+) -> prec_bsl::scenario_pipeline::PipelineReport {
+    let repo = temp_repo(test_name);
+    let repo_path = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.join(&repo_path), input);
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path, None).unwrap();
+
+    run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &duplicate_methods_config(),
+            files: vec![file],
+            mode,
+        },
+    )
 }
 
 fn span_text(input: &str, span: prec_bsl::scenario_pipeline::SourceSpan) -> &str {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 
 use tree_sitter::Node;
@@ -257,6 +257,7 @@ pub struct GotoUsage {
 pub struct MethodDefinition {
     pub name: String,
     pub name_span: BslByteSpan,
+    branch_context: BranchContext,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -287,14 +288,15 @@ pub fn find_duplicate_method_definitions(
     let mut definitions = Vec::new();
     collect_method_definitions(parsed.tree().root_node(), input, &mut definitions);
 
-    let mut counts = BTreeMap::<String, usize>::new();
-    for definition in &definitions {
-        *counts.entry(definition.name.to_lowercase()).or_default() += 1;
+    let contexts = preprocessor_branch_contexts(input);
+    for definition in &mut definitions {
+        definition.branch_context = contexts.context_at(definition.name_span.start_byte);
     }
 
     Ok(definitions
-        .into_iter()
-        .filter(|definition| counts[&definition.name.to_lowercase()] > 1)
+        .iter()
+        .filter(|definition| can_coexist_with_same_name(definition, &definitions))
+        .cloned()
         .collect())
 }
 
@@ -350,6 +352,7 @@ fn collect_method_definitions(
                     .expect("tree-sitter name span must point to valid UTF-8 source")
                     .to_owned(),
                 name_span: BslByteSpan::new(name.start_byte(), name.end_byte()),
+                branch_context: BranchContext::default(),
             });
         }
     }
@@ -358,6 +361,19 @@ fn collect_method_definitions(
     for child in node.children(&mut cursor) {
         collect_method_definitions(child, input, definitions);
     }
+}
+
+fn can_coexist_with_same_name(
+    definition: &MethodDefinition,
+    definitions: &[MethodDefinition],
+) -> bool {
+    definitions.iter().any(|other| {
+        other.name_span != definition.name_span
+            && other.name.to_lowercase() == definition.name.to_lowercase()
+            && !definition
+                .branch_context
+                .is_mutually_exclusive_with(&other.branch_context)
+    })
 }
 
 fn collect_preprocessor_instruction_errors(
@@ -594,6 +610,176 @@ fn invalid_preprocessor_instruction(span: BslByteSpan) -> PreprocessorInstructio
         span,
         message: "invalid preprocessor instruction".to_owned(),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct BranchContext {
+    choices: Vec<BranchChoice>,
+}
+
+impl BranchContext {
+    fn is_mutually_exclusive_with(&self, other: &Self) -> bool {
+        self.choices.iter().any(|choice| {
+            other.choices.iter().any(|other_choice| {
+                choice.block_id == other_choice.block_id
+                    && choice.branch_id != other_choice.branch_id
+            })
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BranchChoice {
+    block_id: usize,
+    branch_id: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BranchFrame {
+    block_id: usize,
+    branch_id: usize,
+    else_seen: bool,
+}
+
+#[derive(Debug, Clone)]
+struct BranchContextCheckpoint {
+    start_byte: usize,
+    context: BranchContext,
+}
+
+#[derive(Debug, Clone)]
+struct BranchContexts {
+    checkpoints: Vec<BranchContextCheckpoint>,
+}
+
+impl BranchContexts {
+    fn context_at(&self, byte_offset: usize) -> BranchContext {
+        self.checkpoints
+            .iter()
+            .take_while(|checkpoint| checkpoint.start_byte <= byte_offset)
+            .last()
+            .map(|checkpoint| checkpoint.context.clone())
+            .unwrap_or_default()
+    }
+}
+
+fn preprocessor_branch_contexts(input: &str) -> BranchContexts {
+    let invalid_blocks = invalid_preprocessor_branch_blocks(input);
+    let mut checkpoints = Vec::new();
+    let mut stack = Vec::<BranchFrame>::new();
+    let mut next_block_id = 0;
+
+    let mut offset = 0;
+    for line in input.split_inclusive('\n') {
+        checkpoints.push(BranchContextCheckpoint {
+            start_byte: offset,
+            context: branch_context_from_stack(&stack, &invalid_blocks),
+        });
+
+        let line_without_ending = line.trim_end_matches(['\r', '\n']);
+        if let Some(directive) = preprocessor_directive(line_without_ending, offset) {
+            match directive.kind {
+                PreprocessorDirectiveKind::If => {
+                    stack.push(BranchFrame {
+                        block_id: next_block_id,
+                        branch_id: 0,
+                        else_seen: false,
+                    });
+                    next_block_id += 1;
+                }
+                PreprocessorDirectiveKind::Elsif => {
+                    if let Some(open_if) = stack.last_mut() {
+                        open_if.branch_id += 1;
+                    }
+                }
+                PreprocessorDirectiveKind::Else => {
+                    if let Some(open_if) = stack.last_mut() {
+                        open_if.branch_id += 1;
+                        open_if.else_seen = true;
+                    }
+                }
+                PreprocessorDirectiveKind::EndIf => {
+                    stack.pop();
+                }
+            }
+        }
+
+        offset += line.len();
+    }
+
+    checkpoints.push(BranchContextCheckpoint {
+        start_byte: offset,
+        context: branch_context_from_stack(&stack, &invalid_blocks),
+    });
+
+    BranchContexts { checkpoints }
+}
+
+fn branch_context_from_stack(
+    stack: &[BranchFrame],
+    invalid_blocks: &BTreeSet<usize>,
+) -> BranchContext {
+    BranchContext {
+        choices: stack
+            .iter()
+            .filter(|frame| !invalid_blocks.contains(&frame.block_id))
+            .map(|frame| BranchChoice {
+                block_id: frame.block_id,
+                branch_id: frame.branch_id,
+            })
+            .collect(),
+    }
+}
+
+fn invalid_preprocessor_branch_blocks(input: &str) -> BTreeSet<usize> {
+    let mut invalid_blocks = BTreeSet::new();
+    let mut stack = Vec::<BranchFrame>::new();
+    let mut next_block_id = 0;
+
+    let mut offset = 0;
+    for line in input.split_inclusive('\n') {
+        let line_without_ending = line.trim_end_matches(['\r', '\n']);
+        if let Some(directive) = preprocessor_directive(line_without_ending, offset) {
+            match directive.kind {
+                PreprocessorDirectiveKind::If => {
+                    stack.push(BranchFrame {
+                        block_id: next_block_id,
+                        branch_id: 0,
+                        else_seen: false,
+                    });
+                    next_block_id += 1;
+                }
+                PreprocessorDirectiveKind::Elsif => match stack.last_mut() {
+                    Some(open_if) if open_if.else_seen => {
+                        invalid_blocks.insert(open_if.block_id);
+                        open_if.branch_id += 1;
+                    }
+                    Some(open_if) => {
+                        open_if.branch_id += 1;
+                    }
+                    None => {}
+                },
+                PreprocessorDirectiveKind::Else => match stack.last_mut() {
+                    Some(open_if) if open_if.else_seen => {
+                        invalid_blocks.insert(open_if.block_id);
+                        open_if.branch_id += 1;
+                    }
+                    Some(open_if) => {
+                        open_if.branch_id += 1;
+                        open_if.else_seen = true;
+                    }
+                    None => {}
+                },
+                PreprocessorDirectiveKind::EndIf => {
+                    stack.pop();
+                }
+            }
+        }
+        offset += line.len();
+    }
+
+    invalid_blocks.extend(stack.into_iter().map(|frame| frame.block_id));
+    invalid_blocks
 }
 
 #[derive(Debug, Clone, Copy)]

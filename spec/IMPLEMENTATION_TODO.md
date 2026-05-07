@@ -1597,7 +1597,7 @@ These tasks capture risks found during the 2026-05-07 review of open
 work so upstream problems are either fixed in `prec-bsl` or intentionally kept
 outside the Rust v1 scope.
 
-### T40. TODO: Make duplicate method detection preprocessor-branch aware
+### T40. DONE: Make duplicate method detection preprocessor-branch aware
 
 Upstream issue: `precommit4onec` #16.
 
@@ -1625,6 +1625,22 @@ Validation:
 - Add focused fixtures to `tests/duplicate_methods.rs`.
 - `cargo test duplicate_methods`
 - `cargo test --workspace`
+
+Completion evidence:
+
+- 2026-05-07: Updated parser-backed duplicate method detection to keep method
+  discovery in `tree-sitter-bsl` while adding a narrow line-oriented
+  preprocessor branch context for duplicate coexistence checks.
+- Same-name procedures/functions repeated only across mutually exclusive
+  `#Если` / `#ИначеЕсли` / `#Иначе` branches are no longer reported as
+  duplicates. Repeats in the same branch, repeats in malformed conditional
+  blocks, and procedure/function pairs that can coexist still report hard
+  failures with method-name spans.
+- Documented the branch-context contract in `spec/parser-strategy.md` and
+  updated the legacy parity mapping note in `spec/testing-strategy.md`.
+- Added focused `tests/duplicate_methods.rs` coverage for exclusive branches,
+  `#ИначеЕсли`, same-branch duplicates, nested conditionals, and malformed
+  duplicate `#Иначе` structure.
 
 Dependencies:
 

@@ -50,7 +50,9 @@ Do not patch around parser gaps in `prec-bsl` with broad regex fallbacks until t
 Use `tree-sitter-bsl` for:
 
 - `ЗапретИспользованияПерейти`: detect `Перейти` / `goto` as syntax, not as raw text.
-- `ПроверкаДублейПроцедурИФункций`: collect procedure and function names from the syntax tree.
+- `ПроверкаДублейПроцедурИФункций`: collect procedure and function names from
+  the syntax tree, with a narrow preprocessor branch context for duplicate
+  coexistence checks.
 - `ПроверкаКорректностиИнструкцийПрепроцессора`: validate preprocessor nodes and error nodes where the grammar covers directives.
 - `ПроверкаКорректностиОбластей`: inspect `#Область` / `#КонецОбласти` tokens where grammar coverage is sufficient, with a lexical stack fallback if needed.
 - `ОбработкаЮнитТестов`: locate procedures/functions and loader methods more safely than line regexes.
@@ -365,6 +367,33 @@ file.
 - Treat `tree.root_node().has_error()` as a scenario-specific signal, not always as a global hard failure. Some existing checks should still report the best available diagnostics on partially invalid modules.
 - Keep fixture parity against `precommit4onec` for every scenario that switches from regex scanning to AST traversal.
 - Do not use tree-sitter to reformat or regenerate BSL source. Use it only to identify syntax ranges and semantic structure.
+
+### Duplicate procedure/function checker contract
+
+`ПроверкаДублейПроцедурИФункций` is parser-backed and does not modify source
+text. Procedure and function definitions are discovered from the syntax tree,
+and diagnostics are anchored to method-name byte spans.
+
+The checker treats procedure and function names case-insensitively. Repeated
+names are hard failures when the definitions can coexist in the same compiled
+variant, including repeated definitions in the same preprocessor branch and
+procedure/function pairs with the same name.
+
+To avoid false positives from upstream issue `precommit4onec` #16, the checker
+also builds a narrow line-oriented preprocessor branch context from
+`#Если` / `#ИначеЕсли` / `#Иначе` / `#КонецЕсли` directive lines. Definitions
+that repeat only across mutually exclusive branches of the same conditional
+block are not reported as duplicates. Nested conditional blocks are handled
+conservatively: definitions are considered mutually exclusive when any shared
+conditional block has different branch ids; otherwise they can coexist.
+Malformed conditional structure, such as repeated `#Иначе` in one block or a
+missing `#КонецЕсли`, must not weaken duplicate detection; in that case the
+affected conditional block is ignored for duplicate-suppression purposes.
+
+This branch context is not a general BSL parser fallback and must not replace
+tree-sitter method discovery. Parser and malformed-preprocessor diagnostics
+remain scenario-specific: `ПроверкаКорректностиИнструкцийПрепроцессора`
+continues to own directive validity checks.
 
 ### Preprocessor instruction checker contract
 
