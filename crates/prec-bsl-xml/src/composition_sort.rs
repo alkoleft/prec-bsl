@@ -21,6 +21,7 @@ const EDT_CONFIGURATION_COMPOSITION_TAG_ORDER: &[&str] = &[
     "styleItems",
     "styles",
     "commonPictures",
+    "interfaces",
     "sessionParameters",
     "roles",
     "commonTemplates",
@@ -64,6 +65,57 @@ const EDT_CONFIGURATION_COMPOSITION_TAG_ORDER: &[&str] = &[
     "bots",
     "webSocketClients",
     "paletteColors",
+];
+const DESIGNER_CONFIGURATION_COMPOSITION_TAG_ORDER: &[&str] = &[
+    "Language",
+    "Subsystem",
+    "StyleItem",
+    "Style",
+    "CommonPicture",
+    "Interface",
+    "SessionParameter",
+    "Role",
+    "CommonTemplate",
+    "FilterCriterion",
+    "CommonModule",
+    "CommonAttribute",
+    "ExchangePlan",
+    "XDTOPackage",
+    "WebService",
+    "HTTPService",
+    "WSReference",
+    "EventSubscription",
+    "ScheduledJob",
+    "SettingsStorage",
+    "FunctionalOption",
+    "FunctionalOptionsParameter",
+    "DefinedType",
+    "CommonCommand",
+    "CommandGroup",
+    "Constant",
+    "CommonForm",
+    "Catalog",
+    "Document",
+    "DocumentNumerator",
+    "Sequence",
+    "DocumentJournal",
+    "Enum",
+    "Report",
+    "DataProcessor",
+    "InformationRegister",
+    "AccumulationRegister",
+    "ChartOfCharacteristicTypes",
+    "ChartOfAccounts",
+    "AccountingRegister",
+    "ChartOfCalculationTypes",
+    "CalculationRegister",
+    "BusinessProcess",
+    "Task",
+    "ExternalDataSource",
+    "IntegrationService",
+    "Bot",
+    "WebSocketClient",
+    "PaletteColor",
 ];
 
 pub const COMPOSITION_SORT_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
@@ -331,8 +383,20 @@ fn collect_composition_blocks(input: &str, target: CompositionTarget) -> Vec<Com
                 }
                 stack.push(tag);
             }
-            Ok(Event::Empty(_event)) => {
-                if let Some(block) = active.as_mut()
+            Ok(Event::Empty(event)) => {
+                let tag = local_name(event.name().as_ref());
+                if target_parent(&stack, target) && active.is_none() {
+                    let end = reader.buffer_position() as usize;
+                    let sortable = is_sortable_block(target, &tag, "", false);
+                    blocks.push(CompositionBlock {
+                        tag,
+                        source: input[start..end].to_owned(),
+                        value: String::new(),
+                        start,
+                        end,
+                        sortable,
+                    });
+                } else if let Some(block) = active.as_mut()
                     && stack.len() > block.parent_depth
                 {
                     block.has_nested_elements = true;
@@ -440,10 +504,7 @@ fn is_sortable_block(
                 && type_name.chars().all(|ch| ch.is_ascii_alphabetic())
         }
         CompositionTarget::DesignerConfiguration => {
-            !has_nested_elements
-                && !tag.eq_ignore_ascii_case("Language")
-                && !tag.eq_ignore_ascii_case("Subsystem")
-                && !value.is_empty()
+            !has_nested_elements && designer_configuration_tag_order(tag).is_some()
         }
         CompositionTarget::EdtSubsystem => {
             !has_nested_elements && tag.eq_ignore_ascii_case("content")
@@ -459,8 +520,11 @@ fn sorted_replacements(
     settings: &CompositionSortSettings,
     target: CompositionTarget,
 ) -> Vec<Replacement> {
-    if target == CompositionTarget::EdtConfiguration {
-        return sorted_edt_configuration_replacements(blocks, settings);
+    if matches!(
+        target,
+        CompositionTarget::EdtConfiguration | CompositionTarget::DesignerConfiguration
+    ) {
+        return sorted_configuration_replacements(blocks, settings, target);
     }
 
     let mut by_tag = BTreeMap::<&str, Vec<&CompositionBlock>>::new();
@@ -491,9 +555,10 @@ fn sorted_replacements(
     replacements
 }
 
-fn sorted_edt_configuration_replacements(
+fn sorted_configuration_replacements(
     blocks: &[CompositionBlock],
     settings: &CompositionSortSettings,
+    target: CompositionTarget,
 ) -> Vec<Replacement> {
     let mut replacements = Vec::new();
     let mut index = 0;
@@ -510,8 +575,11 @@ fn sorted_edt_configuration_replacements(
         let run = &blocks[run_start..index];
         let mut sorted = run.iter().collect::<Vec<_>>();
         sorted.sort_by(|left, right| {
-            edt_configuration_sort_key(left, &settings.prefixes)
-                .cmp(&edt_configuration_sort_key(right, &settings.prefixes))
+            configuration_sort_key(left, &settings.prefixes, target).cmp(&configuration_sort_key(
+                right,
+                &settings.prefixes,
+                target,
+            ))
         });
 
         for (slot, replacement) in run.iter().zip(sorted.iter()) {
@@ -529,17 +597,32 @@ fn sorted_edt_configuration_replacements(
     replacements
 }
 
-fn edt_configuration_sort_key(
+fn configuration_sort_key(
     block: &CompositionBlock,
     prefixes: &[String],
+    target: CompositionTarget,
 ) -> (usize, usize, String) {
-    let type_order = edt_configuration_tag_order(&block.tag).unwrap_or(usize::MAX);
+    let type_order = configuration_tag_order(target, &block.tag).unwrap_or(usize::MAX);
     let (prefix_bucket, name_key) = sort_key(&block.value, prefixes);
     (type_order, prefix_bucket, name_key)
 }
 
+fn configuration_tag_order(target: CompositionTarget, tag: &str) -> Option<usize> {
+    match target {
+        CompositionTarget::EdtConfiguration => edt_configuration_tag_order(tag),
+        CompositionTarget::DesignerConfiguration => designer_configuration_tag_order(tag),
+        CompositionTarget::EdtSubsystem | CompositionTarget::DesignerSubsystem => None,
+    }
+}
+
 fn edt_configuration_tag_order(tag: &str) -> Option<usize> {
     EDT_CONFIGURATION_COMPOSITION_TAG_ORDER
+        .iter()
+        .position(|candidate| candidate.eq_ignore_ascii_case(tag))
+}
+
+fn designer_configuration_tag_order(tag: &str) -> Option<usize> {
+    DESIGNER_CONFIGURATION_COMPOSITION_TAG_ORDER
         .iter()
         .position(|candidate| candidate.eq_ignore_ascii_case(tag))
 }

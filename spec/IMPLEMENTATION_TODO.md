@@ -1016,10 +1016,11 @@ Completion evidence:
 - Documented and implemented the v1 configuration-description contract:
   `Configuration/Configuration.mdo` and `Configuration.xml` are sorted through
   source-root-relative identity, XML is validated through the shared XML/EDT
-  parser boundary before rewriting, direct EDT composition references are
-  sorted by the EDT reference metadata-kind order from `languages` through
-  `paletteColors` and then by object name, Designer `ChildObjects` entries are
-  sorted deterministically by metadata type slots, UID-like references
+  parser boundary before rewriting, direct EDT composition references and
+  Designer `ChildObjects` entries are sorted by the reference metadata-kind
+  order from `languages` / `Language` through `paletteColors` / `PaletteColor`
+  and then by object name, using the `v8-context-fixture` EDT/Designer
+  configuration files as the metadata-kind order baseline. UID-like references
   containing `-` remain in place, prefix buckets from `УчитываяПрефикс` are
   honored, and `ОтключенныеОбъекты = Конфигурация` skips the configuration
   slice.

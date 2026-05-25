@@ -217,14 +217,17 @@ not added to the built-in v1 default scenario list.
 
 `СортировкаДереваМетаданных` applies the configuration composition behavior
 from the reference `СортировкаСостава.os` scenario to `Configuration.mdo` /
-`Configuration.xml`. For EDT `Configuration.mdo`, sorting covers both object
-names inside the same metadata kind and the order of metadata kinds themselves;
-the kind order follows the EDT configuration reference fixture order from
-`languages` through `paletteColors`, including `subsystems`, where
-`filterCriteria` precedes `commonModules` and `xDTOPackages` follows
-`exchangePlans`. `СортировкаСоставаПодсистем` applies the subsystem composition
-behavior from the same reference scenario to EDT subsystem `.mdo` files and
-Designer subsystem `.xml` files.
+`Configuration.xml`. For EDT `Configuration.mdo` and Designer
+`Configuration.xml`, sorting covers both object names inside the same metadata
+kind and the order of metadata kinds themselves; the kind order follows the
+configuration reference fixture order from `languages` / `Language` through
+`paletteColors` / `PaletteColor`, including `subsystems` / `Subsystem` and
+`interfaces` / `Interface`, where `filterCriteria` / `FilterCriterion`
+precedes `commonModules` / `CommonModule` and `xDTOPackages` / `XDTOPackage`
+follows `exchangePlans` / `ExchangePlan`.
+`СортировкаСоставаПодсистем` applies the subsystem composition behavior from
+the same reference scenario to EDT subsystem `.mdo` files and Designer subsystem
+`.xml` files.
 
 Unsupported by product decision:
 

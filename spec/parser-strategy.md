@@ -332,15 +332,17 @@ composition reference elements whose text has the `Type.Name` shape, such as
 configuration files, it sorts direct elements inside
 `MetaDataObject/Configuration/ChildObjects`, such as
 `<CommonModule>Модуль</CommonModule>`.
+The metadata-kind order baseline is the EDT and Designer fixtures in
+`/home/alko/develop/open-source/v8-context-fixture`, not the older imported
+`precommit4onec-reference/fixtures/СортировкаСостава/Configuration/После`
+composition order.
 
 Sorting is deterministic and preserves the existing XML element text:
 
-- EDT `Configuration.mdo` metadata type groups are reordered by the reference
-  configuration kind order from `languages` through `paletteColors`, while
+- EDT `Configuration.mdo` and Designer `Configuration.xml` metadata type
+  groups are reordered by the reference configuration kind order from
+  `languages` / `Language` through `paletteColors` / `PaletteColor`, while
   unrelated configuration properties remain outside the sortable runs;
-- Designer `Configuration.xml` metadata type groups keep their existing slots
-  and are not reordered against other metadata types or unrelated configuration
-  properties;
 - sortable object references within each metadata type are ordered by their
   full reference text using the reference `precommit4onec`
   `ТаблицаЗначений.Сортировать("СтрокаСортировки")` string ordering, not
@@ -352,9 +354,9 @@ Sorting is deterministic and preserves the existing XML element text:
   `НастройкиСценариев.СортировкаСостава.УчитываяПрефикс` are sorted in prefix
   buckets after non-prefixed references, preserving the configured prefix
   order;
-- EDT `languages` and `subsystems` participate in the reference
-  `Configuration.mdo` kind order; Designer `Language` and `Subsystem`
-  `ChildObjects` remain in their existing slots;
+- `languages` / `Language`, `subsystems` / `Subsystem`, and
+  `interfaces` / `Interface` participate in the reference configuration kind
+  order;
 - references containing `-` are treated as broken UID-like references and are
   left in their original slots.
 

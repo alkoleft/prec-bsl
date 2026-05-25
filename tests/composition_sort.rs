@@ -81,12 +81,12 @@ fn composition_sort_sorts_designer_child_objects() {
         "<MetaDataObject>\n",
         "  <Configuration>\n",
         "    <ChildObjects>\n",
+        "      <Subsystem>Администрирование</Subsystem>\n",
+        "      <Subsystem>Ядро</Subsystem>\n",
         "      <CommonModule>АМодуль</CommonModule>\n",
         "      <CommonModule>ЯМодуль</CommonModule>\n",
         "      <Catalog>Контрагенты</Catalog>\n",
         "      <Catalog>Товары</Catalog>\n",
-        "      <Subsystem>Ядро</Subsystem>\n",
-        "      <Subsystem>Администрирование</Subsystem>\n",
         "    </ChildObjects>\n",
         "  </Configuration>\n",
         "</MetaDataObject>\n",
@@ -101,6 +101,77 @@ fn composition_sort_sorts_designer_child_objects() {
     );
 
     assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn metadata_tree_sort_orders_designer_child_object_kinds_like_reference_fixture() {
+    let input = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonTemplate>РатИнтерфейс</CommonTemplate>\n",
+        "      <CommonModule>Server</CommonModule>\n",
+        "      <XDTOPackage>ПакетXDTO</XDTOPackage>\n",
+        "      <Subsystem>РатПубличный</Subsystem>\n",
+        "      <FilterCriterion>КритерийОтбора</FilterCriterion>\n",
+        "      <PaletteColor>ЦветПалитры</PaletteColor>\n",
+        "      <Language>Русский</Language>\n",
+        "      <CommonModule>Client</CommonModule>\n",
+        "      <Subsystem>Рат</Subsystem>\n",
+        "      <Interface>Основной</Interface>\n",
+        "      <CommonPicture>РатКрыса</CommonPicture>\n",
+        "      <ExchangePlan>ExtPlan</ExchangePlan>\n",
+        "      <CommonTemplate>РатМетаданные</CommonTemplate>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+    let expected = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <Language>Русский</Language>\n",
+        "      <Subsystem>Рат</Subsystem>\n",
+        "      <Subsystem>РатПубличный</Subsystem>\n",
+        "      <CommonPicture>РатКрыса</CommonPicture>\n",
+        "      <Interface>Основной</Interface>\n",
+        "      <CommonTemplate>РатИнтерфейс</CommonTemplate>\n",
+        "      <CommonTemplate>РатМетаданные</CommonTemplate>\n",
+        "      <FilterCriterion>КритерийОтбора</FilterCriterion>\n",
+        "      <CommonModule>Client</CommonModule>\n",
+        "      <CommonModule>Server</CommonModule>\n",
+        "      <ExchangePlan>ExtPlan</ExchangePlan>\n",
+        "      <XDTOPackage>ПакетXDTO</XDTOPackage>\n",
+        "      <PaletteColor>ЦветПалитры</PaletteColor>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration.xml"),
+        SourceFileKind::XmlMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::MetadataTree,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn metadata_tree_sort_keeps_reference_designer_configuration_clean() {
+    let input = include_str!("fixtures/composition-sort/designer-reference-configuration.xml");
+
+    let result = sort_composition_text(
+        Path::new("Configuration.xml"),
+        SourceFileKind::XmlMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::MetadataTree,
+    );
+
+    assert_eq!(result, CompositionSorting::Clean);
 }
 
 #[test]
@@ -257,6 +328,44 @@ fn metadata_tree_sort_keeps_uid_like_references_as_boundaries() {
     let result = sort_composition_text(
         Path::new("Configuration/Configuration.mdo"),
         SourceFileKind::ConfigurationMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::MetadataTree,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn metadata_tree_sort_keeps_designer_uid_like_references_as_boundaries() {
+    let input = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonModule>Server</CommonModule>\n",
+        "      <CommonModule>UID-123</CommonModule>\n",
+        "      <FilterCriterion>КритерийОтбора</FilterCriterion>\n",
+        "      <CommonTemplate>РатМетаданные</CommonTemplate>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+    let expected = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonModule>Server</CommonModule>\n",
+        "      <CommonModule>UID-123</CommonModule>\n",
+        "      <CommonTemplate>РатМетаданные</CommonTemplate>\n",
+        "      <FilterCriterion>КритерийОтбора</FilterCriterion>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration.xml"),
+        SourceFileKind::XmlMetadata,
         input,
         &CompositionSortSettings::from_settings(None).unwrap(),
         CompositionSortScope::MetadataTree,
