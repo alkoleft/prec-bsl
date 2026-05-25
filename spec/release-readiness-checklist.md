@@ -41,8 +41,9 @@ Unsupported by product decision:
 - `.pre-commit-hooks.yaml` contains hook id `prec-bsl`, entry
   `prec-bsl prek-hook`, `language: rust`, `always_run: true`, and
   `pass_filenames: false`.
-- `prec-bsl prek-hook` supports `--config`, `--source-dir`, `--rules`, and
-  `--format text|json`.
+- `prec-bsl prek-hook` supports `--config`, `--source-dir`, `--rules`,
+  `--format text|json`, `--ignore-merge-commit`, and
+  `--ignore-remote-merge-commit`.
 - `prec-bsl exec-rules <repo>` supports `--config`, comma-separated
   `--source-dir`, comma-separated `--rules`, and `--format text|json`.
 - Hook mode uses Git staged-file discovery through

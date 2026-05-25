@@ -1953,3 +1953,49 @@ Validation:
 Dependencies:
 
 - T6.
+
+## Milestone 13: Hook Execution Controls
+
+### T47. DONE: Add merge-commit skip options for `prek-hook`
+
+Add a small opt-in CLI control for repositories that want merge commits to
+bypass `prec-bsl` processing while keeping normal commit hook behavior
+unchanged.
+
+Acceptance criteria:
+
+- `prec-bsl prek-hook` accepts `--ignore-merge-commit`.
+- `prec-bsl prek-hook` accepts `--ignore-remote-merge-commit`.
+- Both merge-ignore options are mutually exclusive.
+- The option is valid only for hook mode, not for `exec-rules`.
+- When `--ignore-merge-commit` is present and Git reports an active merge
+  state through `MERGE_HEAD`, hook mode exits with code `0` before staged-file
+  discovery, scenario execution or restaging.
+- When `--ignore-remote-merge-commit` is present, the same early successful
+  exit applies only when at least one `MERGE_HEAD` SHA is reachable from
+  `refs/remotes/*`; local merge commits continue through normal hook
+  processing.
+- Without the option, existing hook processing is unchanged.
+- The command help, README and configuration contract document the option as a
+  small end-user hook argument.
+
+Validation:
+
+- `cargo test prek_hook`
+- `cargo test cli`
+- `cargo fmt --check`
+- `git diff --check`
+
+Completion evidence:
+
+- 2026-05-26: Added `--ignore-merge-commit` and
+  `--ignore-remote-merge-commit` to `prek-hook`, documented them in the public
+  CLI contract, enforced mutual exclusion, and covered both merge skip modes
+  with temporary Git repository regressions that prove staged files are not
+  modified or restaged. The remote-only regression also proves local
+  `MERGE_HEAD` commits without matching `refs/remotes/*` continue through
+  normal hook processing.
+
+Dependencies:
+
+- T31.

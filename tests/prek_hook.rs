@@ -63,6 +63,146 @@ fn prek_hook_uses_git_index_ignores_passed_filenames_and_restages_modifications(
 }
 
 #[test]
+fn prek_hook_can_skip_merge_commits_without_processing_staged_files() {
+    let repo = TempGitRepo::new("skip_merge_commit");
+    let staged_path = PathBuf::from("src/Стадированный.bsl");
+
+    write_file(
+        repo.path().join(&staged_path),
+        "Процедура Тест()\nКонецПроцедуры\n",
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    write_file(
+        repo.path().join(&staged_path),
+        "Процедура Тест()\n    Сообщить(\"merge\");   \nКонецПроцедуры\t\n",
+    );
+    run_git(repo.path(), ["add", "src/Стадированный.bsl"]);
+    write_merge_head(repo.path());
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "prek-hook",
+            "--ignore-merge-commit",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("prec-bsl hook: processed 0 file(s)"));
+    assert!(stdout.contains("Exit code: 0"));
+    assert!(stderr.contains("skipped merge commit"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
+        "Процедура Тест()\n    Сообщить(\"merge\");   \nКонецПроцедуры\t\n"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["show", ":src/Стадированный.bsl"]),
+        "Процедура Тест()\n    Сообщить(\"merge\");   \nКонецПроцедуры\t\n"
+    );
+}
+
+#[test]
+fn prek_hook_can_skip_remote_merge_commits_without_processing_staged_files() {
+    let repo = TempGitRepo::new("skip_remote_merge_commit");
+    let staged_path = PathBuf::from("src/Стадированный.bsl");
+
+    write_file(
+        repo.path().join(&staged_path),
+        "Процедура Тест()\nКонецПроцедуры\n",
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+    run_git(
+        repo.path(),
+        ["update-ref", "refs/remotes/origin/integration", "HEAD"],
+    );
+
+    write_file(
+        repo.path().join(&staged_path),
+        "Процедура Тест()\n    Сообщить(\"remote merge\");   \nКонецПроцедуры\t\n",
+    );
+    run_git(repo.path(), ["add", "src/Стадированный.bsl"]);
+    write_merge_head(repo.path());
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "prek-hook",
+            "--ignore-remote-merge-commit",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("prec-bsl hook: processed 0 file(s)"));
+    assert!(stdout.contains("Exit code: 0"));
+    assert!(stderr.contains("--ignore-remote-merge-commit"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
+        "Процедура Тест()\n    Сообщить(\"remote merge\");   \nКонецПроцедуры\t\n"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["show", ":src/Стадированный.bsl"]),
+        "Процедура Тест()\n    Сообщить(\"remote merge\");   \nКонецПроцедуры\t\n"
+    );
+}
+
+#[test]
+fn prek_hook_remote_merge_skip_does_not_skip_local_merge_commits() {
+    let repo = TempGitRepo::new("do_not_skip_local_merge_commit");
+    let staged_path = PathBuf::from("src/Стадированный.bsl");
+
+    write_file(
+        repo.path().join(&staged_path),
+        "Процедура Тест()\nКонецПроцедуры\n",
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    write_file(
+        repo.path().join(&staged_path),
+        "Процедура Тест()\n    Сообщить(\"local merge\");   \nКонецПроцедуры\t\n",
+    );
+    run_git(repo.path(), ["add", "src/Стадированный.bsl"]);
+    write_merge_head(repo.path());
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "prek-hook",
+            "--ignore-remote-merge-commit",
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
+    assert!(!stderr.contains("skipped merge commit"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
+        "Процедура Тест()\n    Сообщить(\"local merge\");\nКонецПроцедуры\n"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["show", ":src/Стадированный.bsl"]),
+        "Процедура Тест()\n    Сообщить(\"local merge\");\nКонецПроцедуры\n"
+    );
+}
+
+#[test]
 fn prek_hook_passes_deleted_files_only_to_deleted_file_capable_scenarios() {
     let repo = TempGitRepo::new("deleted_files");
     let deleted_path = PathBuf::from("src/Удаленный.bsl");
@@ -279,6 +419,17 @@ fn run_git_stdout<const N: usize>(repo: &Path, args: [&str; N]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn write_merge_head(repo: &Path) {
+    let git_path = run_git_stdout(repo, ["rev-parse", "--git-path", "MERGE_HEAD"]);
+    let git_path = PathBuf::from(git_path.trim());
+    let merge_head = if git_path.is_absolute() {
+        git_path
+    } else {
+        repo.join(git_path)
+    };
+    write_file(merge_head, &run_git_stdout(repo, ["rev-parse", "HEAD"]));
 }
 
 fn output_text(output: &Output) -> String {

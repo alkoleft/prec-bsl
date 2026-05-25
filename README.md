@@ -88,7 +88,9 @@ repos:
 ```
 
 В hook args стоит оставлять только небольшие стабильные CLI-настройки:
-`--config`, `--source-dir`, `--rules`, `--format`. Сценарии, project-specific
+`--config`, `--source-dir`, `--rules`, `--format`, `--ignore-merge-commit`,
+`--ignore-remote-merge-commit`.
+Сценарии, project-specific
 переопределения и большие настройки должны жить в `v8config.json`.
 
 ## Команды
@@ -96,7 +98,7 @@ repos:
 Commit hook mode:
 
 ```text
-prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json]
+prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json] [--ignore-merge-commit|--ignore-remote-merge-commit]
 ```
 
 Этот режим используется hook'ом. Он определяет корень Git-репозитория, читает
@@ -105,6 +107,11 @@ staged-файлы через `git diff --name-status --staged --no-renames`, з�
 указан, source roots определяются по `v8project.yaml` `source-set`, а при
 отсутствии manifest - по staged-файлам и ближайшим
 `Configuration/Configuration.mdo` или `Configuration.xml`.
+С `--ignore-merge-commit` режим выходит с кодом `0`, когда Git сообщает
+активное merge-состояние через `MERGE_HEAD`, и не запускает проверки,
+фиксаторы или restaging. С `--ignore-remote-merge-commit` skip применяется
+только когда хотя бы один SHA из `MERGE_HEAD` достижим из `refs/remotes/*`.
+Оба merge-ignore флага нельзя указывать одновременно.
 
 Явный запуск правил по source root'ам:
 

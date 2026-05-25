@@ -108,7 +108,15 @@ Allowed here:
 - `--source-dir <path>` for simple single-root repositories;
 - `--rules <rule1,rule2>` for explicit hook variants;
 - `--format text|json`;
+- `--ignore-merge-commit` when a consuming repository wants merge commits to
+  bypass `prec-bsl` hook processing;
+- `--ignore-remote-merge-commit` when only merge commits whose `MERGE_HEAD`
+  SHA is reachable from `refs/remotes/*` should bypass `prec-bsl` hook
+  processing;
 - `--profile <name>` if profiles are added later.
+
+`--ignore-merge-commit` and `--ignore-remote-merge-commit` are mutually
+exclusive.
 
 Not allowed here:
 
@@ -240,7 +248,7 @@ If `v8config.json` enables `РазборОбычныхФормНаИсходни
 `prec-bsl prek-hook`:
 
 ```text
-prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json]
+prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json] [--ignore-merge-commit|--ignore-remote-merge-commit]
 ```
 
 Behavior:
@@ -249,6 +257,14 @@ Behavior:
 - Reads staged Git changes from the repository.
 - Uses config discovery unless `--config` is provided.
 - CLI `--source-dir` and `--rules` are overrides for simple hook configuration.
+- If `--ignore-merge-commit` is set and Git reports an active merge commit
+  state through `MERGE_HEAD`, exits successfully before staged-file discovery,
+  scenario execution or restaging.
+- If `--ignore-remote-merge-commit` is set, the same early successful exit
+  applies only when at least one non-empty SHA from `MERGE_HEAD` is reachable
+  from `refs/remotes/*`.
+- `--ignore-merge-commit` and `--ignore-remote-merge-commit` cannot be used in
+  the same hook invocation.
 - If `--source-dir` is omitted, discovers source roots from root
   `v8project.yaml` `source-set` entries when the manifest is present. EDT
   source sets resolve to their `src` subdirectory. Only source roots containing

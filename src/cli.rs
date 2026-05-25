@@ -23,6 +23,14 @@ pub struct PrekHookArgs {
     pub source_dir: Option<PathBuf>,
     pub rules: Option<RuleList>,
     pub format: OutputFormat,
+    pub merge_commit_skip: MergeCommitSkipMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeCommitSkipMode {
+    None,
+    Any,
+    Remote,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +95,7 @@ pub fn help(topic: HelpTopic) -> &'static str {
             "Usage: prec-bsl <command> [options]\n\nCommands:\n  prek-hook    Run commit hook mode over the staged Git index\n  exec-rules   Run selected rules over a repository\n\nUse 'prec-bsl <command> --help' for command options."
         }
         HelpTopic::PrekHook => {
-            "Usage: prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json]\n\nOptions:\n  --config <path>       Path to v8config.json\n  --source-dir <path>   Source root override\n  --rules <list>        Comma-separated rule list\n  --format text|json    Output format, defaults to text"
+            "Usage: prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json] [--ignore-merge-commit|--ignore-remote-merge-commit]\n\nOptions:\n  --config <path>                 Path to v8config.json\n  --source-dir <path>             Source root override\n  --rules <list>                  Comma-separated rule list\n  --format text|json              Output format, defaults to text\n  --ignore-merge-commit           Exit successfully without processing when MERGE_HEAD is present\n  --ignore-remote-merge-commit    Exit successfully only when MERGE_HEAD is reachable from refs/remotes/*"
         }
         HelpTopic::ExecRules => {
             "Usage: prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]\n\nOptions:\n  --config <path>       Path to v8config.json\n  --source-dir <list>   Comma-separated source root list\n  --rules <list>        Comma-separated rule list\n  --format text|json    Output format, defaults to text"
@@ -101,6 +109,7 @@ fn parse_prek_hook(args: &[OsString]) -> Result<CliCommand, CliError> {
         source_dir: None,
         rules: None,
         format: OutputFormat::default(),
+        merge_commit_skip: MergeCommitSkipMode::None,
     };
 
     let mut index = 0;
@@ -128,6 +137,12 @@ fn parse_prek_hook(args: &[OsString]) -> Result<CliCommand, CliError> {
             "--format" => {
                 parsed.format = parse_format(&required_utf8_value(args, &mut index, "--format")?)?;
             }
+            "--ignore-merge-commit" => {
+                set_merge_commit_skip(&mut parsed, MergeCommitSkipMode::Any, argument)?;
+            }
+            "--ignore-remote-merge-commit" => {
+                set_merge_commit_skip(&mut parsed, MergeCommitSkipMode::Remote, argument)?;
+            }
             other if other.starts_with("--") => {
                 return Err(CliError::new(format!(
                     "unknown option for prek-hook: {other}"
@@ -143,6 +158,20 @@ fn parse_prek_hook(args: &[OsString]) -> Result<CliCommand, CliError> {
     }
 
     Ok(CliCommand::PrekHook(parsed))
+}
+
+fn set_merge_commit_skip(
+    parsed: &mut PrekHookArgs,
+    mode: MergeCommitSkipMode,
+    option: &str,
+) -> Result<(), CliError> {
+    if parsed.merge_commit_skip != MergeCommitSkipMode::None {
+        return Err(CliError::new(format!(
+            "{option} cannot be used together with another merge-commit ignore option"
+        )));
+    }
+    parsed.merge_commit_skip = mode;
+    Ok(())
 }
 
 fn parse_exec_rules(args: &[OsString]) -> Result<CliCommand, CliError> {
@@ -266,7 +295,55 @@ mod tests {
                 source_dir: Some(PathBuf::from("src/cf")),
                 rules: Some(RuleList("Rule1,Rule2".to_owned())),
                 format: OutputFormat::Json,
+                merge_commit_skip: MergeCommitSkipMode::None,
             })
+        );
+    }
+
+    #[test]
+    fn prek_hook_accepts_ignore_merge_commit() {
+        let command = parse_args(["prek-hook", "--ignore-merge-commit"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::PrekHook(PrekHookArgs {
+                config: None,
+                source_dir: None,
+                rules: None,
+                format: OutputFormat::Text,
+                merge_commit_skip: MergeCommitSkipMode::Any,
+            })
+        );
+    }
+
+    #[test]
+    fn prek_hook_accepts_ignore_remote_merge_commit() {
+        let command = parse_args(["prek-hook", "--ignore-remote-merge-commit"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::PrekHook(PrekHookArgs {
+                config: None,
+                source_dir: None,
+                rules: None,
+                format: OutputFormat::Text,
+                merge_commit_skip: MergeCommitSkipMode::Remote,
+            })
+        );
+    }
+
+    #[test]
+    fn prek_hook_rejects_combined_merge_commit_ignore_modes() {
+        let error = parse_args([
+            "prek-hook",
+            "--ignore-merge-commit",
+            "--ignore-remote-merge-commit",
+        ])
+        .unwrap_err();
+
+        assert_eq!(
+            error.message(),
+            "--ignore-remote-merge-commit cannot be used together with another merge-commit ignore option"
         );
     }
 
@@ -288,6 +365,7 @@ mod tests {
                 source_dir: None,
                 rules: Some(RuleList("УдалениеЛишнихКонцевыхПробелов".to_owned())),
                 format: OutputFormat::Text,
+                merge_commit_skip: MergeCommitSkipMode::None,
             })
         );
     }
@@ -303,6 +381,7 @@ mod tests {
                 source_dir: None,
                 rules: None,
                 format: OutputFormat::Text,
+                merge_commit_skip: MergeCommitSkipMode::None,
             })
         );
     }
@@ -325,6 +404,7 @@ mod tests {
                 source_dir: None,
                 rules: None,
                 format: OutputFormat::Text,
+                merge_commit_skip: MergeCommitSkipMode::None,
             })
         );
     }
@@ -370,6 +450,26 @@ mod tests {
                 rules: None,
                 format: OutputFormat::Json,
             })
+        );
+    }
+
+    #[test]
+    fn exec_rules_rejects_ignore_merge_commit() {
+        let error = parse_args(["exec-rules", ".", "--ignore-merge-commit"]).unwrap_err();
+
+        assert_eq!(
+            error.message(),
+            "unknown option for exec-rules: --ignore-merge-commit"
+        );
+    }
+
+    #[test]
+    fn exec_rules_rejects_ignore_remote_merge_commit() {
+        let error = parse_args(["exec-rules", ".", "--ignore-remote-merge-commit"]).unwrap_err();
+
+        assert_eq!(
+            error.message(),
+            "unknown option for exec-rules: --ignore-remote-merge-commit"
         );
     }
 
