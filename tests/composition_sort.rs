@@ -375,6 +375,44 @@ fn metadata_tree_sort_keeps_designer_uid_like_references_as_boundaries() {
 }
 
 #[test]
+fn metadata_tree_sort_keeps_designer_empty_child_objects_as_boundaries() {
+    let input = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonModule>Server</CommonModule>\n",
+        "      <Unknown/>\n",
+        "      <FilterCriterion>КритерийОтбора</FilterCriterion>\n",
+        "      <CommonTemplate>РатМетаданные</CommonTemplate>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+    let expected = concat!(
+        "<MetaDataObject>\n",
+        "  <Configuration>\n",
+        "    <ChildObjects>\n",
+        "      <CommonModule>Server</CommonModule>\n",
+        "      <Unknown/>\n",
+        "      <CommonTemplate>РатМетаданные</CommonTemplate>\n",
+        "      <FilterCriterion>КритерийОтбора</FilterCriterion>\n",
+        "    </ChildObjects>\n",
+        "  </Configuration>\n",
+        "</MetaDataObject>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration.xml"),
+        SourceFileKind::XmlMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::MetadataTree,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
 fn composition_sort_line_ending_matrix_is_idempotent() {
     for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
         let input = format!(
