@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 prec-bsl-git = { path = "../prec-bsl-git" }
+serde = { version = "1", features = ["derive"] }
+serde_yml = "0.0.12"

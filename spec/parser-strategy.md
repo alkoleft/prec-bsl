@@ -335,8 +335,12 @@ configuration files, it sorts direct elements inside
 
 Sorting is deterministic and preserves the existing XML element text:
 
-- metadata type groups keep their existing slots and are not reordered against
-  other metadata types or unrelated configuration properties;
+- EDT `Configuration.mdo` metadata type groups are reordered by the reference
+  configuration kind order from `languages` through `paletteColors`, while
+  unrelated configuration properties remain outside the sortable runs;
+- Designer `Configuration.xml` metadata type groups keep their existing slots
+  and are not reordered against other metadata types or unrelated configuration
+  properties;
 - sortable object references within each metadata type are ordered by their
   full reference text using the reference `precommit4onec`
   `ТаблицаЗначений.Сортировать("СтрокаСортировки")` string ordering, not
@@ -348,8 +352,9 @@ Sorting is deterministic and preserves the existing XML element text:
   `НастройкиСценариев.СортировкаСостава.УчитываяПрефикс` are sorted in prefix
   buckets after non-prefixed references, preserving the configured prefix
   order;
-- `languages`/`Language` and `subsystems`/`Subsystem` composition references
-  are intentionally not sorted, matching the reference scenario exclusions;
+- EDT `languages` and `subsystems` participate in the reference
+  `Configuration.mdo` kind order; Designer `Language` and `Subsystem`
+  `ChildObjects` remain in their existing slots;
 - references containing `-` are treated as broken UID-like references and are
   left in their original slots.
 

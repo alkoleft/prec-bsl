@@ -217,9 +217,14 @@ not added to the built-in v1 default scenario list.
 
 `СортировкаДереваМетаданных` applies the configuration composition behavior
 from the reference `СортировкаСостава.os` scenario to `Configuration.mdo` /
-`Configuration.xml`. `СортировкаСоставаПодсистем` applies the subsystem
-composition behavior from the same reference scenario to EDT subsystem `.mdo`
-files and Designer subsystem `.xml` files.
+`Configuration.xml`. For EDT `Configuration.mdo`, sorting covers both object
+names inside the same metadata kind and the order of metadata kinds themselves;
+the kind order follows the EDT configuration reference fixture order from
+`languages` through `paletteColors`, including `subsystems`, where
+`filterCriteria` precedes `commonModules` and `xDTOPackages` follows
+`exchangePlans`. `СортировкаСоставаПодсистем` applies the subsystem composition
+behavior from the same reference scenario to EDT subsystem `.mdo` files and
+Designer subsystem `.xml` files.
 
 Unsupported by product decision:
 
@@ -241,6 +246,18 @@ Behavior:
 - Reads staged Git changes from the repository.
 - Uses config discovery unless `--config` is provided.
 - CLI `--source-dir` and `--rules` are overrides for simple hook configuration.
+- If `--source-dir` is omitted, discovers source roots from root
+  `v8project.yaml` `source-set` entries when the manifest is present. EDT
+  source sets resolve to their `src` subdirectory. Only source roots containing
+  staged source files participate in the hook run.
+- If `v8project.yaml` is absent, falls back to staged source paths by locating
+  the nearest EDT `Configuration/Configuration.mdo` or Designer
+  `Configuration.xml` marker. Unsupported staged files, such as hook
+  configuration files, do not create source roots.
+- Staged files outside discovered source roots are ignored unless they are
+  source-like files that require a source root marker; those receive a clear
+  source-root diagnostic instead of being processed relative to the repository
+  root.
 
 `prec-bsl exec-rules`:
 

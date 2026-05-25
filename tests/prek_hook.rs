@@ -91,6 +91,116 @@ fn prek_hook_passes_deleted_files_only_to_deleted_file_capable_scenarios() {
     );
 }
 
+#[test]
+fn prek_hook_discovers_source_root_from_staged_configuration_metadata() {
+    let repo = TempGitRepo::new("discovers_source_root");
+    let config_path = PathBuf::from("exts/rat/src/Configuration/Configuration.mdo");
+    write_file(
+        repo.path().join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: RAT\n",
+            "    type: EXTENSION\n",
+            "    path: exts/rat\n",
+        ),
+    );
+    write_file(
+        repo.path().join("v8config.json"),
+        concat!(
+            "{\n",
+            "  \"Precommt4onecСценарии\": {\n",
+            "    \"ГлобальныеСценарии\": [\n",
+            "      \"СинхронизацияОбъектовМетаданныхИФайлов.os\",\n",
+            "      \"СортировкаДереваМетаданных.os\"\n",
+            "    ]\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    write_file(repo.path().join(&config_path), sorted_edt_configuration());
+    write_file(
+        repo.path()
+            .join("exts/rat/src/CommonModules/АМодуль/АМодуль.mdo"),
+        "<mdclass:CommonModule/>\n",
+    );
+    write_file(
+        repo.path()
+            .join("exts/rat/src/CommonModules/ЯМодуль/ЯМодуль.mdo"),
+        "<mdclass:CommonModule/>\n",
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    write_file(repo.path().join(&config_path), unsorted_edt_configuration());
+    run_git(
+        repo.path(),
+        ["add", "exts/rat/src/Configuration/Configuration.mdo"],
+    );
+
+    let output = run_prec_bsl(repo.path(), ["prek-hook", "--config", "v8config.json"]);
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
+    assert!(stdout.contains("СортировкаДереваМетаданных"));
+    assert!(!stdout.contains("missing metadata directory"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&config_path)).unwrap(),
+        sorted_edt_configuration()
+    );
+
+    let second_output = run_prec_bsl(repo.path(), ["prek-hook", "--config", "v8config.json"]);
+
+    assert!(
+        second_output.status.success(),
+        "{}",
+        output_text(&second_output)
+    );
+}
+
+#[test]
+fn prek_hook_explicit_source_dir_overrides_v8project_source_sets() {
+    let repo = TempGitRepo::new("explicit_source_dir_override");
+    let config_path = PathBuf::from("src/Configuration/Configuration.mdo");
+    write_file(
+        repo.path().join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: other\n",
+            "    type: EXTENSION\n",
+            "    path: exts/other\n",
+        ),
+    );
+    write_file(repo.path().join(&config_path), sorted_edt_configuration());
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    write_file(repo.path().join(&config_path), unsorted_edt_configuration());
+    run_git(repo.path(), ["add", "src/Configuration/Configuration.mdo"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "prek-hook",
+            "--source-dir",
+            "src",
+            "--rules",
+            "СортировкаДереваМетаданных",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
+    assert!(stdout.contains("СортировкаДереваМетаданных"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&config_path)).unwrap(),
+        sorted_edt_configuration()
+    );
+}
+
 struct TempGitRepo {
     path: PathBuf,
 }
@@ -176,5 +286,23 @@ fn output_text(output: &Output) -> String {
         "stdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+fn unsorted_edt_configuration() -> &'static str {
+    concat!(
+        "<mdclass:Configuration>\n",
+        "  <commonModules>CommonModule.ЯМодуль</commonModules>\n",
+        "  <commonModules>CommonModule.АМодуль</commonModules>\n",
+        "</mdclass:Configuration>\n",
+    )
+}
+
+fn sorted_edt_configuration() -> &'static str {
+    concat!(
+        "<mdclass:Configuration>\n",
+        "  <commonModules>CommonModule.АМодуль</commonModules>\n",
+        "  <commonModules>CommonModule.ЯМодуль</commonModules>\n",
+        "</mdclass:Configuration>\n",
     )
 }

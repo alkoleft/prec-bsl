@@ -186,6 +186,86 @@ fn composition_sort_honors_prefix_buckets_after_non_prefixed_references() {
 }
 
 #[test]
+fn metadata_tree_sort_orders_edt_configuration_kinds_like_reference_fixture() {
+    let input = concat!(
+        "<mdclass:Configuration>\n",
+        "  <name>Demo</name>\n",
+        "  <commonTemplates>CommonTemplate.РатИнтерфейс</commonTemplates>\n",
+        "  <commonModules>CommonModule.Server</commonModules>\n",
+        "  <xDTOPackages>XDTOPackage.ПакетXDTO</xDTOPackages>\n",
+        "  <subsystems>Subsystem.РатПубличный</subsystems>\n",
+        "  <filterCriteria>FilterCriterion.КритерийОтбора</filterCriteria>\n",
+        "  <languages uuid=\"1\">\n",
+        "    <name>Русский</name>\n",
+        "  </languages>\n",
+        "  <commonModules>CommonModule.Client</commonModules>\n",
+        "  <subsystems>Subsystem.Рат</subsystems>\n",
+        "  <commonPictures>CommonPicture.РатКрыса</commonPictures>\n",
+        "  <exchangePlans>ExchangePlan.ExtPlan</exchangePlans>\n",
+        "  <commonTemplates>CommonTemplate.РатМетаданные</commonTemplates>\n",
+        "</mdclass:Configuration>\n",
+    );
+    let expected = concat!(
+        "<mdclass:Configuration>\n",
+        "  <name>Demo</name>\n",
+        "  <languages uuid=\"1\">\n",
+        "    <name>Русский</name>\n",
+        "  </languages>\n",
+        "  <subsystems>Subsystem.Рат</subsystems>\n",
+        "  <subsystems>Subsystem.РатПубличный</subsystems>\n",
+        "  <commonPictures>CommonPicture.РатКрыса</commonPictures>\n",
+        "  <commonTemplates>CommonTemplate.РатИнтерфейс</commonTemplates>\n",
+        "  <commonTemplates>CommonTemplate.РатМетаданные</commonTemplates>\n",
+        "  <filterCriteria>FilterCriterion.КритерийОтбора</filterCriteria>\n",
+        "  <commonModules>CommonModule.Client</commonModules>\n",
+        "  <commonModules>CommonModule.Server</commonModules>\n",
+        "  <exchangePlans>ExchangePlan.ExtPlan</exchangePlans>\n",
+        "  <xDTOPackages>XDTOPackage.ПакетXDTO</xDTOPackages>\n",
+        "</mdclass:Configuration>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration/Configuration.mdo"),
+        SourceFileKind::ConfigurationMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::MetadataTree,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
+fn metadata_tree_sort_keeps_uid_like_references_as_boundaries() {
+    let input = concat!(
+        "<mdclass:Configuration>\n",
+        "  <commonModules>CommonModule.Server</commonModules>\n",
+        "  <commonModules>CommonModule.UID-123</commonModules>\n",
+        "  <filterCriteria>FilterCriterion.КритерийОтбора</filterCriteria>\n",
+        "  <commonTemplates>CommonTemplate.РатМетаданные</commonTemplates>\n",
+        "</mdclass:Configuration>\n",
+    );
+    let expected = concat!(
+        "<mdclass:Configuration>\n",
+        "  <commonModules>CommonModule.Server</commonModules>\n",
+        "  <commonModules>CommonModule.UID-123</commonModules>\n",
+        "  <commonTemplates>CommonTemplate.РатМетаданные</commonTemplates>\n",
+        "  <filterCriteria>FilterCriterion.КритерийОтбора</filterCriteria>\n",
+        "</mdclass:Configuration>\n",
+    );
+
+    let result = sort_composition_text(
+        Path::new("Configuration/Configuration.mdo"),
+        SourceFileKind::ConfigurationMetadata,
+        input,
+        &CompositionSortSettings::from_settings(None).unwrap(),
+        CompositionSortScope::MetadataTree,
+    );
+
+    assert_eq!(result, CompositionSorting::Modified(expected.to_owned()));
+}
+
+#[test]
 fn composition_sort_line_ending_matrix_is_idempotent() {
     for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
         let input = format!(
@@ -722,12 +802,12 @@ fn sorted_edt_configuration() -> &'static str {
         "<mdclass:Configuration>\n",
         "  <name>Demo</name>\n",
         "  <languages>Language.Русский</languages>\n",
-        "  <commonModules>CommonModule.АМодуль</commonModules>\n",
-        "  <commonModules>CommonModule.ЯМодуль</commonModules>\n",
-        "  <subsystems>Subsystem.Ядро</subsystems>\n",
         "  <subsystems>Subsystem.Администрирование</subsystems>\n",
+        "  <subsystems>Subsystem.Ядро</subsystems>\n",
         "  <commonTemplates>CommonTemplate.АШаблон</commonTemplates>\n",
         "  <commonTemplates>CommonTemplate.Шаблон</commonTemplates>\n",
+        "  <commonModules>CommonModule.АМодуль</commonModules>\n",
+        "  <commonModules>CommonModule.ЯМодуль</commonModules>\n",
         "  <commonModules>CommonModule.UID-123</commonModules>\n",
         "</mdclass:Configuration>\n",
     )

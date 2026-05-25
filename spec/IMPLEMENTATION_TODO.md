@@ -1016,12 +1016,13 @@ Completion evidence:
 - Documented and implemented the v1 configuration-description contract:
   `Configuration/Configuration.mdo` and `Configuration.xml` are sorted through
   source-root-relative identity, XML is validated through the shared XML/EDT
-  parser boundary before rewriting, direct EDT composition references and
-  Designer `ChildObjects` entries are sorted deterministically by metadata type
-  slots, `languages`/`Language` and `subsystems`/`Subsystem` remain unsorted,
-  UID-like references containing `-` remain in place, prefix buckets from
-  `УчитываяПрефикс` are honored, and `ОтключенныеОбъекты = Конфигурация`
-  skips the configuration slice.
+  parser boundary before rewriting, direct EDT composition references are
+  sorted by the EDT reference metadata-kind order from `languages` through
+  `paletteColors` and then by object name, Designer `ChildObjects` entries are
+  sorted deterministically by metadata type slots, UID-like references
+  containing `-` remain in place, prefix buckets from `УчитываяПрефикс` are
+  honored, and `ОтключенныеОбъекты = Конфигурация` skips the configuration
+  slice.
 - Added `tests/composition_sort.rs` coverage for EDT and Designer sorting,
   hook-mode modified-path reporting, second-run idempotence, prefix buckets,
   disabled configuration settings, non-configuration skip behavior, invalid
@@ -1155,6 +1156,13 @@ Completion evidence:
   discovery, config/source-root resolution, staged Git-index discovery, source
   classification, scenario pipeline execution, modified-path restaging, and
   deterministic text/JSON report rendering.
+- 2026-05-25: Added source-root auto-discovery for `prek-hook` when
+  `--source-dir` is omitted. Hook mode now prefers root `v8project.yaml`
+  `source-set` entries, resolves EDT source sets to their `src` subdirectory,
+  falls back to staged EDT `Configuration/Configuration.mdo` and Designer
+  `Configuration.xml` markers when the manifest is absent, ignores unsupported
+  staged files when no source root applies, and keeps an explicit
+  `--source-dir` override authoritative.
 - `prek-hook` now ignores runner-passed positional filenames, including
   non-UTF-8 and single-dash path edge cases, while unknown long options remain
   CLI errors. Commit-mode processing continues to use the Git index as the

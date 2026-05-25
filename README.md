@@ -101,7 +101,10 @@ prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--f
 
 Этот режим используется hook'ом. Он определяет корень Git-репозитория, читает
 staged-файлы через `git diff --name-status --staged --no-renames`, запускает
-настроенные сценарии и явно сообщает о modified paths.
+настроенные сценарии и явно сообщает о modified paths. Если `--source-dir` не
+указан, source roots определяются по `v8project.yaml` `source-set`, а при
+отсутствии manifest - по staged-файлам и ближайшим
+`Configuration/Configuration.mdo` или `Configuration.xml`.
 
 Явный запуск правил по source root'ам:
 

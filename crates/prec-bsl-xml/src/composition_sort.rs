@@ -15,6 +15,56 @@ use prec_bsl_source::SourceFileKind;
 pub const COMPOSITION_SORT_RULE: &str = "СортировкаСостава";
 pub const METADATA_TREE_SORT_RULE: &str = "СортировкаДереваМетаданных";
 pub const SUBSYSTEM_COMPOSITION_SORT_RULE: &str = "СортировкаСоставаПодсистем";
+const EDT_CONFIGURATION_COMPOSITION_TAG_ORDER: &[&str] = &[
+    "languages",
+    "subsystems",
+    "styleItems",
+    "styles",
+    "commonPictures",
+    "sessionParameters",
+    "roles",
+    "commonTemplates",
+    "filterCriteria",
+    "commonModules",
+    "commonAttributes",
+    "exchangePlans",
+    "xDTOPackages",
+    "webServices",
+    "httpServices",
+    "wsReferences",
+    "eventSubscriptions",
+    "scheduledJobs",
+    "settingsStorages",
+    "functionalOptions",
+    "functionalOptionsParameters",
+    "definedTypes",
+    "commonCommands",
+    "commandGroups",
+    "constants",
+    "commonForms",
+    "catalogs",
+    "documents",
+    "documentNumerators",
+    "sequences",
+    "documentJournals",
+    "enums",
+    "reports",
+    "dataProcessors",
+    "informationRegisters",
+    "accumulationRegisters",
+    "chartsOfCharacteristicTypes",
+    "chartsOfAccounts",
+    "accountingRegisters",
+    "chartsOfCalculationTypes",
+    "calculationRegisters",
+    "businessProcesses",
+    "tasks",
+    "externalDataSources",
+    "integrationServices",
+    "bots",
+    "webSocketClients",
+    "paletteColors",
+];
 
 pub const COMPOSITION_SORT_SCENARIO: ScenarioDefinition = ScenarioDefinition::required_v1(
     COMPOSITION_SORT_RULE,
@@ -171,7 +221,7 @@ pub fn sort_composition_text(
     }
 
     let blocks = collect_composition_blocks(input, target);
-    let replacements = sorted_replacements(&blocks, settings);
+    let replacements = sorted_replacements(&blocks, settings, target);
     if replacements.is_empty() {
         return CompositionSorting::Clean;
     }
@@ -249,6 +299,7 @@ struct ActiveBlock {
     start: usize,
     parent_depth: usize,
     text: String,
+    nested_name: String,
     has_nested_elements: bool,
 }
 
@@ -270,6 +321,7 @@ fn collect_composition_blocks(input: &str, target: CompositionTarget) -> Vec<Com
                         start,
                         parent_depth: stack.len(),
                         text: String::new(),
+                        nested_name: String::new(),
                         has_nested_elements: false,
                     });
                 } else if let Some(block) = active.as_mut()
@@ -288,10 +340,14 @@ fn collect_composition_blocks(input: &str, target: CompositionTarget) -> Vec<Com
             }
             Ok(Event::Text(event)) => {
                 if let Some(block) = active.as_mut()
-                    && stack.len() == block.parent_depth + 1
+                    && let Ok(text) = event.decode()
                 {
-                    if let Ok(text) = event.decode() {
+                    if stack.len() == block.parent_depth + 1 {
                         block.text.push_str(&text);
+                    } else if stack.len() == block.parent_depth + 2
+                        && stack.last().is_some_and(|tag| tag == "name")
+                    {
+                        block.nested_name.push_str(&text);
                     }
                 }
             }
@@ -310,9 +366,12 @@ fn collect_composition_blocks(input: &str, target: CompositionTarget) -> Vec<Com
                     .is_some_and(|block| stack.len() == block.parent_depth + 1 && block.tag == tag);
                 if completes_active {
                     let block = active.take().expect("active block was checked");
-                    let value = block.text.trim().to_owned();
+                    let mut value = block.text.trim().to_owned();
+                    if value.is_empty() {
+                        value = block.nested_name.trim().to_owned();
+                    }
                     let sortable =
-                        is_sortable_block(target, &block.tag, &value) && !block.has_nested_elements;
+                        is_sortable_block(target, &block.tag, &value, block.has_nested_elements);
                     blocks.push(CompositionBlock {
                         tag: block.tag,
                         source: input[block.start..end].to_owned(),
@@ -355,35 +414,55 @@ fn target_parent(stack: &[String], target: CompositionTarget) -> bool {
     }
 }
 
-fn is_sortable_block(target: CompositionTarget, tag: &str, value: &str) -> bool {
+fn is_sortable_block(
+    target: CompositionTarget,
+    tag: &str,
+    value: &str,
+    has_nested_elements: bool,
+) -> bool {
     if value.is_empty() || value.contains('-') {
         return false;
     }
 
     match target {
         CompositionTarget::EdtConfiguration => {
-            if tag.eq_ignore_ascii_case("languages") || tag.eq_ignore_ascii_case("subsystems") {
+            if edt_configuration_tag_order(tag).is_none() {
                 return false;
+            }
+            if tag.eq_ignore_ascii_case("languages") {
+                return true;
             }
             let Some((type_name, object_name)) = value.split_once('.') else {
                 return false;
             };
-            !object_name.is_empty() && type_name.chars().all(|ch| ch.is_ascii_alphabetic())
+            !has_nested_elements
+                && !object_name.is_empty()
+                && type_name.chars().all(|ch| ch.is_ascii_alphabetic())
         }
         CompositionTarget::DesignerConfiguration => {
-            !tag.eq_ignore_ascii_case("Language")
+            !has_nested_elements
+                && !tag.eq_ignore_ascii_case("Language")
                 && !tag.eq_ignore_ascii_case("Subsystem")
                 && !value.is_empty()
         }
-        CompositionTarget::EdtSubsystem => tag.eq_ignore_ascii_case("content"),
-        CompositionTarget::DesignerSubsystem => tag.eq_ignore_ascii_case("Item"),
+        CompositionTarget::EdtSubsystem => {
+            !has_nested_elements && tag.eq_ignore_ascii_case("content")
+        }
+        CompositionTarget::DesignerSubsystem => {
+            !has_nested_elements && tag.eq_ignore_ascii_case("Item")
+        }
     }
 }
 
 fn sorted_replacements(
     blocks: &[CompositionBlock],
     settings: &CompositionSortSettings,
+    target: CompositionTarget,
 ) -> Vec<Replacement> {
+    if target == CompositionTarget::EdtConfiguration {
+        return sorted_edt_configuration_replacements(blocks, settings);
+    }
+
     let mut by_tag = BTreeMap::<&str, Vec<&CompositionBlock>>::new();
     for block in blocks.iter().filter(|block| block.sortable) {
         by_tag.entry(&block.tag).or_default().push(block);
@@ -410,6 +489,59 @@ fn sorted_replacements(
 
     replacements.sort_by_key(|replacement| replacement.start);
     replacements
+}
+
+fn sorted_edt_configuration_replacements(
+    blocks: &[CompositionBlock],
+    settings: &CompositionSortSettings,
+) -> Vec<Replacement> {
+    let mut replacements = Vec::new();
+    let mut index = 0;
+    while index < blocks.len() {
+        if !blocks[index].sortable {
+            index += 1;
+            continue;
+        }
+
+        let run_start = index;
+        while index < blocks.len() && blocks[index].sortable {
+            index += 1;
+        }
+        let run = &blocks[run_start..index];
+        let mut sorted = run.iter().collect::<Vec<_>>();
+        sorted.sort_by(|left, right| {
+            edt_configuration_sort_key(left, &settings.prefixes)
+                .cmp(&edt_configuration_sort_key(right, &settings.prefixes))
+        });
+
+        for (slot, replacement) in run.iter().zip(sorted.iter()) {
+            if slot.source != replacement.source {
+                replacements.push(Replacement {
+                    start: slot.start,
+                    end: slot.end,
+                    source: replacement.source.clone(),
+                });
+            }
+        }
+    }
+
+    replacements.sort_by_key(|replacement| replacement.start);
+    replacements
+}
+
+fn edt_configuration_sort_key(
+    block: &CompositionBlock,
+    prefixes: &[String],
+) -> (usize, usize, String) {
+    let type_order = edt_configuration_tag_order(&block.tag).unwrap_or(usize::MAX);
+    let (prefix_bucket, name_key) = sort_key(&block.value, prefixes);
+    (type_order, prefix_bucket, name_key)
+}
+
+fn edt_configuration_tag_order(tag: &str) -> Option<usize> {
+    EDT_CONFIGURATION_COMPOSITION_TAG_ORDER
+        .iter()
+        .position(|candidate| candidate.eq_ignore_ascii_case(tag))
 }
 
 fn sort_key(value: &str, prefixes: &[String]) -> (usize, String) {

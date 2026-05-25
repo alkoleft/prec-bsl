@@ -10,7 +10,8 @@ use crate::scenario_pipeline::{
     PipelineMode, PipelineReport, PipelineRequest, ScenarioResult, run_pipeline,
 };
 use crate::source_files::{
-    classify_staged_files, collect_source_files, parse_source_dir_list, resolve_source_roots,
+    classify_staged_files, collect_source_files, discover_source_roots_from_staged_files,
+    parse_source_dir_list, resolve_source_roots,
 };
 
 pub fn run_prek_hook(args: &PrekHookArgs) -> i32 {
@@ -19,22 +20,27 @@ pub fn run_prek_hook(args: &PrekHookArgs) -> i32 {
         Err(message) => return print_error(message),
     };
 
-    let source_dirs = args.source_dir.iter().cloned().collect::<Vec<_>>();
-    let Some((config, roots)) = resolve_config_and_roots(
-        &repo_root,
-        args.config.clone(),
-        args.rules.as_ref().map(|rules| rules.0.clone()),
-        &source_dirs,
-        PipelineMode::Hook,
-        args.format,
-    ) else {
-        return 1;
-    };
-
     let staged_files = match collect_staged_files(&repo_root) {
         Ok(staged_files) => staged_files,
         Err(error) => return print_error(error.to_string()),
     };
+    let Some(config) = resolve_config_for_run(
+        &repo_root,
+        args.config.clone(),
+        args.rules.as_ref().map(|rules| rules.0.clone()),
+    ) else {
+        return 1;
+    };
+    let source_resolution = if let Some(source_dir) = &args.source_dir {
+        resolve_source_roots(&repo_root, std::slice::from_ref(source_dir))
+    } else {
+        discover_source_roots_from_staged_files(&repo_root, &staged_files)
+    };
+    let Some(roots) = resolve_roots_or_report(source_resolution, PipelineMode::Hook, args.format)
+    else {
+        return 1;
+    };
+
     let files = classify_staged_files(&roots, &staged_files);
     let report = run_pipeline(
         &reference_registry(),
@@ -106,35 +112,53 @@ fn resolve_config_and_roots(
     crate::config::ResolvedConfig,
     Vec<crate::source_files::SourceRoot>,
 )> {
+    let config = resolve_config_for_run(repo_root, config_path, rule_override)?;
+
+    let resolution = resolve_source_roots(repo_root, source_dirs);
+    let roots = resolve_roots_or_report(resolution, mode, format)?;
+
+    Some((config, roots))
+}
+
+fn resolve_config_for_run(
+    repo_root: &Path,
+    config_path: Option<PathBuf>,
+    rule_override: Option<String>,
+) -> Option<crate::config::ResolvedConfig> {
     let mut config_request = ConfigResolveRequest::new(repo_root);
     config_request.config_path = config_path;
     config_request.rule_override = rule_override;
-    let config = match resolve_config(&config_request) {
-        Ok(config) => config,
+    match resolve_config(&config_request) {
+        Ok(config) => Some(config),
         Err(error) => {
             eprintln!("error: {error}");
-            return None;
+            None
         }
-    };
+    }
+}
 
-    let resolution = resolve_source_roots(repo_root, source_dirs);
-    if !resolution.diagnostics.is_empty() {
-        let report = PipelineReport {
-            mode,
-            processed_files: Vec::new(),
-            results: resolution
-                .diagnostics
-                .into_iter()
-                .map(|diagnostic| {
-                    ScenarioResult::hard_failure("source-root", PathBuf::new(), diagnostic.message)
-                })
-                .collect(),
-        };
-        print!("{}", render_report(&report, format));
-        return None;
+fn resolve_roots_or_report(
+    resolution: crate::source_files::SourceRootResolution,
+    mode: PipelineMode,
+    format: OutputFormat,
+) -> Option<Vec<crate::source_files::SourceRoot>> {
+    if resolution.diagnostics.is_empty() {
+        return Some(resolution.roots);
     }
 
-    Some((config, resolution.roots))
+    let report = PipelineReport {
+        mode,
+        processed_files: Vec::new(),
+        results: resolution
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| {
+                ScenarioResult::hard_failure("source-root", PathBuf::new(), diagnostic.message)
+            })
+            .collect(),
+    };
+    print!("{}", render_report(&report, format));
+    None
 }
 
 fn current_repo_root() -> Result<PathBuf, String> {

@@ -212,6 +212,245 @@ fn source_root_list_parses_comma_separated_cli_value() {
     );
 }
 
+#[test]
+fn source_root_discovery_uses_staged_configuration_markers_and_ignores_unsupported_files() {
+    let repo = temp_repo("discovers_staged_configuration_roots");
+    write_file(
+        repo.join("exts/rat/src/Configuration/Configuration.mdo"),
+        "<mdclass:Configuration/>",
+    );
+    write_file(
+        repo.join("tests/src/Configuration/Configuration.mdo"),
+        "<mdclass:Configuration/>",
+    );
+    let staged_files = vec![
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("exts/rat/src/Configuration/Configuration.mdo"),
+            original_path: None,
+        },
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("tests/src/CommonModules/Модуль/Module.bsl"),
+            original_path: None,
+        },
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("prek.toml"),
+            original_path: None,
+        },
+    ];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.diagnostics.is_empty());
+    assert_eq!(
+        resolution
+            .roots
+            .iter()
+            .map(|root| root.repo_relative_path.clone())
+            .collect::<Vec<_>>(),
+        vec![PathBuf::from("exts/rat/src"), PathBuf::from("tests/src")]
+    );
+}
+
+#[test]
+fn source_root_discovery_prefers_v8project_source_sets_for_staged_files() {
+    let repo = temp_repo("discovers_v8project_source_sets");
+    write_file(
+        repo.join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: configuration\n",
+            "    type: CONFIGURATION\n",
+            "    path: fixtures/configuration\n",
+            "  - name: RAT\n",
+            "    type: EXTENSION\n",
+            "    path: exts/rat\n",
+            "  - name: tests\n",
+            "    type: EXTENSION\n",
+            "    path: tests\n",
+        ),
+    );
+    write_file(
+        repo.join("exts/rat/src/Configuration/Configuration.mdo"),
+        "<mdclass:Configuration/>",
+    );
+    let staged_files = vec![
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("exts/rat/src/Configuration/Configuration.mdo"),
+            original_path: None,
+        },
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("prek.toml"),
+            original_path: None,
+        },
+    ];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.diagnostics.is_empty());
+    assert_eq!(resolution.roots.len(), 1);
+    assert_eq!(
+        resolution.roots[0].configured_path,
+        PathBuf::from("exts/rat/src")
+    );
+    assert_eq!(
+        resolution.roots[0].repo_relative_path,
+        PathBuf::from("exts/rat/src")
+    );
+}
+
+#[test]
+fn source_root_discovery_falls_back_to_staged_markers_when_v8project_is_absent() {
+    let repo = temp_repo("falls_back_without_v8project");
+    write_file(
+        repo.join("exts/rat/src/Configuration/Configuration.mdo"),
+        "<mdclass:Configuration/>",
+    );
+    let staged_files = vec![StagedFile {
+        status: StagedStatus::Modified,
+        path: PathBuf::from("exts/rat/src/Configuration/Configuration.mdo"),
+        original_path: None,
+    }];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.diagnostics.is_empty());
+    assert_eq!(
+        resolution.roots[0].repo_relative_path,
+        PathBuf::from("exts/rat/src")
+    );
+}
+
+#[test]
+fn source_root_discovery_does_not_fall_back_when_v8project_has_no_supported_source_sets() {
+    let repo = temp_repo("present_v8project_without_supported_source_sets");
+    write_file(
+        repo.join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: docs\n",
+            "    type: DOCUMENTATION\n",
+            "    path: docs\n",
+        ),
+    );
+    write_file(
+        repo.join("exts/rat/src/Configuration/Configuration.mdo"),
+        "<mdclass:Configuration/>",
+    );
+    let staged_files = vec![StagedFile {
+        status: StagedStatus::Modified,
+        path: PathBuf::from("exts/rat/src/Configuration/Configuration.mdo"),
+        original_path: None,
+    }];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.roots.is_empty());
+    assert_eq!(
+        resolution.diagnostics,
+        vec![SourceRootDiagnostic {
+            severity: SourceRootDiagnosticSeverity::Blocking,
+            message: "v8project.yaml does not define supported source-set entries".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn source_root_discovery_reports_malformed_v8project() {
+    let repo = temp_repo("malformed_v8project");
+    write_file(repo.join("v8project.yaml"), "source-set: [");
+    let staged_files = vec![StagedFile {
+        status: StagedStatus::Modified,
+        path: PathBuf::from("exts/rat/src/Configuration/Configuration.mdo"),
+        original_path: None,
+    }];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.roots.is_empty());
+    assert_eq!(resolution.diagnostics.len(), 1);
+    assert!(
+        resolution.diagnostics[0]
+            .message
+            .contains("failed to parse v8project.yaml source-set manifest")
+    );
+}
+
+#[test]
+fn source_root_discovery_reports_staged_metadata_outside_v8project_source_sets() {
+    let repo = temp_repo("outside_v8project_source_sets");
+    write_file(
+        repo.join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: RAT\n",
+            "    type: EXTENSION\n",
+            "    path: exts/rat\n",
+        ),
+    );
+    let staged_files = vec![StagedFile {
+        status: StagedStatus::Modified,
+        path: PathBuf::from("other/src/CommonModules/Модуль/Module.bsl"),
+        original_path: None,
+    }];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.roots.is_empty());
+    assert_eq!(
+        resolution.diagnostics,
+        vec![SourceRootDiagnostic {
+            severity: SourceRootDiagnosticSeverity::Blocking,
+            message: "staged source file is outside v8project.yaml source roots: other/src/CommonModules/Модуль/Module.bsl".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn source_root_discovery_reports_metadata_like_paths_without_markers() {
+    let repo = temp_repo("reports_missing_marker_for_metadata_path");
+    let staged_files = vec![StagedFile {
+        status: StagedStatus::Modified,
+        path: PathBuf::from("exts/rat/src/CommonModules/Модуль/Module.bsl"),
+        original_path: None,
+    }];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.roots.is_empty());
+    assert_eq!(
+        resolution.diagnostics,
+        vec![SourceRootDiagnostic {
+            severity: SourceRootDiagnosticSeverity::Blocking,
+            message: "unable to discover source root for exts/rat/src/CommonModules/Модуль/Module.bsl; pass --source-dir explicitly".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn source_root_discovery_falls_back_to_repository_root_for_plain_bsl_sources() {
+    let repo = temp_repo("falls_back_for_plain_bsl");
+    write_file(repo.join("src/Модуль.bsl"), "");
+    let staged_files = vec![StagedFile {
+        status: StagedStatus::Modified,
+        path: PathBuf::from("src/Модуль.bsl"),
+        original_path: None,
+    }];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(resolution.diagnostics.is_empty());
+    assert_eq!(resolution.roots.len(), 1);
+    assert_eq!(resolution.roots[0].repo_relative_path, PathBuf::new());
+}
+
 fn temp_repo(test_name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
