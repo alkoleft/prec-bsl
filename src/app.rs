@@ -11,7 +11,7 @@ use crate::scenario_pipeline::{
 };
 use crate::source_files::{
     classify_staged_files, collect_source_files, discover_source_roots_from_staged_files,
-    parse_source_dir_list, resolve_source_roots,
+    discover_source_roots_from_v8project_manifest, parse_source_dir_list, resolve_source_roots,
 };
 
 pub fn run_prek_hook(args: &PrekHookArgs) -> i32 {
@@ -81,16 +81,15 @@ pub fn run_exec_rules(args: &ExecRulesArgs) -> i32 {
         Ok(repo_root) => repo_root,
         Err(message) => return print_error(message),
     };
-    let source_dirs = args
+    let explicit_source_dirs = args
         .source_dirs
         .as_ref()
-        .map(|source_dirs| parse_source_dir_list(&source_dirs.0))
-        .unwrap_or_default();
+        .map(|source_dirs| parse_source_dir_list(&source_dirs.0));
     let Some((config, roots)) = resolve_config_and_roots(
         &repo_root,
         args.config.clone(),
         args.rules.as_ref().map(|rules| rules.0.clone()),
-        &source_dirs,
+        explicit_source_dirs.as_deref(),
         PipelineMode::ExecRules,
         args.format,
     ) else {
@@ -120,7 +119,7 @@ fn resolve_config_and_roots(
     repo_root: &Path,
     config_path: Option<PathBuf>,
     rule_override: Option<String>,
-    source_dirs: &[PathBuf],
+    source_dirs: Option<&[PathBuf]>,
     mode: PipelineMode,
     format: OutputFormat,
 ) -> Option<(
@@ -129,7 +128,11 @@ fn resolve_config_and_roots(
 )> {
     let config = resolve_config_for_run(repo_root, config_path, rule_override)?;
 
-    let resolution = resolve_source_roots(repo_root, source_dirs);
+    let resolution = match source_dirs {
+        Some(source_dirs) => resolve_source_roots(repo_root, source_dirs),
+        None => discover_source_roots_from_v8project_manifest(repo_root)
+            .unwrap_or_else(|| resolve_source_roots(repo_root, &[])),
+    };
     let roots = resolve_roots_or_report(resolution, mode, format)?;
 
     Some((config, roots))

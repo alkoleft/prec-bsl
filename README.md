@@ -120,7 +120,10 @@ prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <lis
 ```
 
 Этот режим удобен для CI, миграционной проверки и ручного запуска выбранных
-правил. `--source-dir` и `--rules` принимают списки через запятую.
+правил. `--source-dir` и `--rules` принимают списки через запятую. Если
+`--source-dir` не указан, `exec-rules` использует source roots из
+`v8project.yaml` при его наличии; без `v8project.yaml` остается запуск от корня
+репозитория.
 
 Пример:
 

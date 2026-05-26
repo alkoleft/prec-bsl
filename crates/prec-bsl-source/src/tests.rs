@@ -305,6 +305,44 @@ fn source_root_discovery_prefers_v8project_source_sets_for_staged_files() {
 }
 
 #[test]
+fn source_root_discovery_reads_all_v8project_source_sets_for_exec_rules() {
+    let repo = temp_repo("discovers_all_v8project_source_sets");
+    write_file(
+        repo.join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: configuration\n",
+            "    type: CONFIGURATION\n",
+            "    path: configuration\n",
+            "  - name: extension\n",
+            "    type: EXTENSION\n",
+            "    path: extensions/rat\n",
+            "  - name: docs\n",
+            "    type: DOCUMENTATION\n",
+            "    path: docs\n",
+        ),
+    );
+    fs::create_dir_all(repo.join("configuration/src")).unwrap();
+    fs::create_dir_all(repo.join("extensions/rat/src")).unwrap();
+
+    let resolution = discover_source_roots_from_v8project_manifest(&repo).unwrap();
+
+    assert!(resolution.diagnostics.is_empty());
+    assert_eq!(
+        resolution
+            .roots
+            .iter()
+            .map(|root| root.repo_relative_path.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            PathBuf::from("configuration/src"),
+            PathBuf::from("extensions/rat/src"),
+        ]
+    );
+}
+
+#[test]
 fn source_root_discovery_falls_back_to_staged_markers_when_v8project_is_absent() {
     let repo = temp_repo("falls_back_without_v8project");
     write_file(

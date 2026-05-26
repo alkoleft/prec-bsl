@@ -143,12 +143,11 @@ pub fn discover_source_roots_from_staged_files(
     discover_source_roots_from_staged_markers(repo_root, staged_files)
 }
 
-fn discover_source_roots_from_v8project(
+pub fn discover_source_roots_from_v8project_manifest(
     repo_root: &Path,
-    staged_files: &[StagedFile],
 ) -> Option<SourceRootResolution> {
-    let manifest = match read_v8project_manifest(repo_root)? {
-        Ok(manifest) => manifest,
+    let source_dirs = match read_v8project_source_dirs(repo_root)? {
+        Ok(source_dirs) => source_dirs,
         Err(message) => {
             return Some(SourceRootResolution {
                 roots: Vec::new(),
@@ -159,7 +158,36 @@ fn discover_source_roots_from_v8project(
             });
         }
     };
-    let source_dirs = manifest_source_dirs(&manifest);
+
+    if source_dirs.is_empty() {
+        return Some(SourceRootResolution {
+            roots: Vec::new(),
+            diagnostics: vec![SourceRootDiagnostic {
+                severity: SourceRootDiagnosticSeverity::Blocking,
+                message: "v8project.yaml does not define supported source-set entries".to_owned(),
+            }],
+        });
+    }
+
+    Some(resolve_source_roots(repo_root, &source_dirs))
+}
+
+fn discover_source_roots_from_v8project(
+    repo_root: &Path,
+    staged_files: &[StagedFile],
+) -> Option<SourceRootResolution> {
+    let source_dirs = match read_v8project_source_dirs(repo_root)? {
+        Ok(source_dirs) => source_dirs,
+        Err(message) => {
+            return Some(SourceRootResolution {
+                roots: Vec::new(),
+                diagnostics: vec![SourceRootDiagnostic {
+                    severity: SourceRootDiagnosticSeverity::Blocking,
+                    message,
+                }],
+            });
+        }
+    };
     if source_dirs.is_empty() {
         return Some(SourceRootResolution {
             roots: Vec::new(),
@@ -272,6 +300,11 @@ fn read_v8project_manifest(repo_root: &Path) -> Option<Result<V8ProjectManifest,
             format!("failed to parse v8project.yaml source-set manifest: {error}")
         }),
     )
+}
+
+fn read_v8project_source_dirs(repo_root: &Path) -> Option<Result<Vec<PathBuf>, String>> {
+    read_v8project_manifest(repo_root)
+        .map(|result| result.map(|manifest| manifest_source_dirs(&manifest)))
 }
 
 fn manifest_source_dirs(manifest: &V8ProjectManifest) -> Vec<PathBuf> {

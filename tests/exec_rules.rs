@@ -67,6 +67,130 @@ fn exec_rules_reports_missing_source_roots() {
 }
 
 #[test]
+fn exec_rules_without_source_dir_uses_v8project_source_sets_only() {
+    let repo = TempRepo::new("v8project_roots_only");
+    write_file(
+        repo.path().join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: configuration\n",
+            "    type: CONFIGURATION\n",
+            "    path: configuration\n",
+        ),
+    );
+    write_file(
+        repo.path().join("configuration/src/Модуль.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("other/src/ДругойМодуль.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+
+    let output = run_prec_bsl(
+        external_cwd(),
+        [
+            "exec-rules",
+            repo.path().to_str().unwrap(),
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("configuration/src/Модуль.bsl"));
+    assert!(!stdout.contains("other/src/ДругойМодуль.bsl"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join("configuration/src/Модуль.bsl")).unwrap(),
+        "Процедура Тест()\nКонецПроцедуры\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join("other/src/ДругойМодуль.bsl")).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n"
+    );
+}
+
+#[test]
+fn exec_rules_explicit_source_dir_overrides_v8project_source_sets() {
+    let repo = TempRepo::new("explicit_source_dir_overrides_v8project");
+    write_file(
+        repo.path().join("v8project.yaml"),
+        concat!(
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: extension\n",
+            "    type: EXTENSION\n",
+            "    path: extensions/rat\n",
+        ),
+    );
+    write_file(
+        repo.path().join("src/Модуль.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("extensions/rat/src/ДругойМодуль.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+
+    let output = run_prec_bsl(
+        external_cwd(),
+        [
+            "exec-rules",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("src/Модуль.bsl"));
+    assert!(!stdout.contains("extensions/rat/src/ДругойМодуль.bsl"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join("src/Модуль.bsl")).unwrap(),
+        "Процедура Тест()\nКонецПроцедуры\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join("extensions/rat/src/ДругойМодуль.bsl")).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n"
+    );
+}
+
+#[test]
+fn exec_rules_without_source_dir_or_v8project_uses_repository_root() {
+    let repo = TempRepo::new("no_v8project_repository_root");
+    write_file(
+        repo.path().join("src/Модуль.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+
+    let output = run_prec_bsl(
+        external_cwd(),
+        [
+            "exec-rules",
+            repo.path().to_str().unwrap(),
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("src/Модуль.bsl"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join("src/Модуль.bsl")).unwrap(),
+        "Процедура Тест()\nКонецПроцедуры\n"
+    );
+}
+
+#[test]
 fn exec_rules_missing_explicit_default_v8config_uses_defaults() {
     let repo = TempRepo::new("missing_explicit_default_v8config");
     write_file(

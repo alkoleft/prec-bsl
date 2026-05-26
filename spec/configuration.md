@@ -295,6 +295,12 @@ prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <lis
 Behavior:
 
 - Runs over configured source roots rather than only the staged index.
+- If `--source-dir` is provided, runs only over those explicit source roots.
+- If `--source-dir` is omitted and root `v8project.yaml` is present, resolves
+  source roots from supported `source-set` entries. EDT source sets resolve to
+  their `src` subdirectory.
+- If `--source-dir` is omitted and `v8project.yaml` is absent, uses the
+  repository root as the default full-tree source root.
 - Used for CI, migration checks, and manual validation.
 
 ## Configuration Precedence
