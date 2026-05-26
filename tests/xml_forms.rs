@@ -7,9 +7,7 @@ use prec_bsl::scenario_pipeline::{
     PipelineMode, PipelineRequest, ScenarioResultStatus, run_pipeline,
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
-use prec_bsl::xml_forms::{
-    FormElement, XML_FORM_CORRECTION_RULE, XmlFormCorrection, correct_edt_form_text,
-};
+use prec_bsl::xml_forms::{XML_FORM_CORRECTION_RULE, XmlFormCorrection, correct_edt_form_text};
 
 #[test]
 fn xml_forms_corrects_duplicate_ids_and_is_idempotent() {
@@ -104,32 +102,37 @@ fn xml_forms_preserves_base_form_ids_and_reassigns_non_borrowed_duplicates() {
 }
 
 #[test]
-fn xml_forms_reports_ambiguous_base_form_matches_as_hard_failure() {
-    let current = concat!(
-        "<form:Form>\n",
-        "  <items>\n",
-        "    <name>Общий</name>\n",
-        "    <id>1</id>\n",
-        "  </items>\n",
-        "  <items>\n",
-        "    <name>Общий</name>\n",
-        "    <id>2</id>\n",
-        "  </items>\n",
-        "</form:Form>\n",
+fn xml_forms_preserves_base_form_id_for_non_positive_current_id_without_name_matching() {
+    let repo = temp_repo("base_form_non_positive_id");
+    let form_path = PathBuf::from("src/Extensions/Расширение/Forms/Форма/Form.form");
+    let base_path = PathBuf::from("src/Extensions/Расширение/Forms/Форма/BaseForm/Form.form");
+    write_file(repo.join(&base_path), base_form_with_different_name());
+    write_file(
+        repo.join(&form_path),
+        extension_form_with_non_positive_borrowed_id(),
     );
-    let base_elements = vec![FormElement {
-        path: "form:Form.items.Общий".to_owned(),
-        name: "Общий".to_owned(),
-        id: 5,
-    }];
-    let result = correct_edt_form_text(Path::new("Form.form"), current, Some(&base_elements));
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, form_path.clone(), None).unwrap();
+    let config = xml_forms_config();
+
+    let report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file],
+            mode: PipelineMode::Hook,
+        },
+    );
 
     assert_eq!(
-        result,
-        XmlFormCorrection::Failed(
-            "base form element match is ambiguous: form:Form.items.Общий".to_owned()
-        )
+        fs::read_to_string(repo.join(&form_path)).unwrap(),
+        corrected_extension_form_with_non_positive_borrowed_id()
     );
+    assert_eq!(report.results.len(), 1);
+    assert_eq!(report.results[0].status, ScenarioResultStatus::Modified);
 }
 
 #[test]
@@ -243,6 +246,19 @@ fn xml_forms_reports_invalid_ids_as_hard_failures() {
 }
 
 #[test]
+fn xml_forms_reports_empty_ids_as_hard_failures() {
+    for invalid_id in ["<id/>", "<id></id>"] {
+        let input = format!("<form:Form><items>{invalid_id}</items></form:Form>");
+
+        let result = correct_edt_form_text(Path::new("Form.form"), &input, None);
+
+        assert!(
+            matches!(result, XmlFormCorrection::Failed(message) if message == "form element id must be a positive integer: ")
+        );
+    }
+}
+
+#[test]
 fn xml_forms_reassigns_non_positive_ids() {
     let input = concat!(
         "<form:Form>",
@@ -269,10 +285,10 @@ fn xml_forms_reassigns_non_positive_ids() {
 }
 
 #[test]
-fn xml_forms_only_reassigns_form_element_ids() {
+fn xml_forms_reassigns_all_direct_id_nodes_with_cross_cutting_numbering() {
     let input = concat!(
         "<form:Form>",
-        "<attributes><name>Реквизит</name><id>-1</id></attributes>",
+        "<attributes><name>Реквизит</name><id>1</id></attributes>",
         "<items><name>Поле</name><id>1</id></items>",
         "<autoCommandBar><name>ФормаКоманднаяПанель</name><id>-1</id></autoCommandBar>",
         "<formCommands><name>Команда</name><id>0</id></formCommands>",
@@ -280,10 +296,10 @@ fn xml_forms_only_reassigns_form_element_ids() {
     );
     let expected = concat!(
         "<form:Form>",
-        "<attributes><name>Реквизит</name><id>-1</id></attributes>",
+        "<attributes><name>Реквизит</name><id>2</id></attributes>",
         "<items><name>Поле</name><id>1</id></items>",
-        "<autoCommandBar><name>ФормаКоманднаяПанель</name><id>2</id></autoCommandBar>",
-        "<formCommands><name>Команда</name><id>0</id></formCommands>",
+        "<autoCommandBar><name>ФормаКоманднаяПанель</name><id>3</id></autoCommandBar>",
+        "<formCommands><name>Команда</name><id>4</id></formCommands>",
         "</form:Form>",
     );
 
@@ -445,6 +461,17 @@ fn base_form() -> &'static str {
     )
 }
 
+fn base_form_with_different_name() -> &'static str {
+    concat!(
+        "<form:Form>\n",
+        "  <items>\n",
+        "    <name>ИмяВБазовойФорме</name>\n",
+        "    <id>5</id>\n",
+        "  </items>\n",
+        "</form:Form>\n",
+    )
+}
+
 fn base_form_with_duplicate_ids() -> &'static str {
     concat!(
         "<form:Form>\n",
@@ -490,6 +517,17 @@ fn extension_form_with_duplicate_base_id() -> &'static str {
     )
 }
 
+fn extension_form_with_non_positive_borrowed_id() -> &'static str {
+    concat!(
+        "<form:Form>\n",
+        "  <items>\n",
+        "    <name>ДругоеИмяВРасширении</name>\n",
+        "    <id>0</id>\n",
+        "  </items>\n",
+        "</form:Form>\n",
+    )
+}
+
 fn extension_form_matching_base() -> &'static str {
     concat!(
         "<form:Form>\n",
@@ -530,6 +568,17 @@ fn corrected_extension_form_with_base_id() -> &'static str {
         "  <items>\n",
         "    <name>Локальный</name>\n",
         "    <id>1</id>\n",
+        "  </items>\n",
+        "</form:Form>\n",
+    )
+}
+
+fn corrected_extension_form_with_non_positive_borrowed_id() -> &'static str {
+    concat!(
+        "<form:Form>\n",
+        "  <items>\n",
+        "    <name>ДругоеИмяВРасширении</name>\n",
+        "    <id>5</id>\n",
         "  </items>\n",
         "</form:Form>\n",
     )

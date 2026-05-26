@@ -113,6 +113,14 @@ struct EditableFormElement {
     borrowed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FormXmlFrame {
+    tag: String,
+    sibling_index: usize,
+    child_counts: BTreeMap<String, usize>,
+    has_text: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TextSpan {
     start: usize,
@@ -179,8 +187,7 @@ pub fn correct_edt_form_text(
         }
     }
 
-    replace_non_positive_ids(&mut elements);
-    replace_duplicate_ids(&mut elements);
+    replace_invalid_and_duplicate_ids(&mut elements);
 
     if elements
         .iter()
@@ -201,18 +208,38 @@ fn collect_form_elements(input: &str) -> Result<Vec<EditableFormElement>, String
     let mut reader = Reader::from_str(input);
     reader.config_mut().trim_text(false);
     let mut elements = Vec::new();
-    let mut stack = Vec::new();
-    let mut current_name = String::new();
+    let mut stack: Vec<FormXmlFrame> = Vec::new();
 
     loop {
         match reader.read_event() {
-            Ok(Event::Start(event)) => stack.push(tag_name(event.name().as_ref())),
-            Ok(Event::Empty(_)) => {}
+            Ok(Event::Start(event)) => {
+                let tag = tag_name(event.name().as_ref());
+                let sibling_index = next_sibling_index(&mut stack, &tag);
+                stack.push(FormXmlFrame {
+                    tag,
+                    sibling_index,
+                    child_counts: BTreeMap::new(),
+                    has_text: false,
+                });
+            }
+            Ok(Event::Empty(event)) => {
+                let tag = tag_name(event.name().as_ref());
+                next_sibling_index(&mut stack, &tag);
+                if tag == "id" {
+                    return Err("form element id must be a positive integer: ".to_owned());
+                }
+            }
             Ok(Event::End(_)) => {
+                if stack
+                    .last()
+                    .is_some_and(|frame| frame.tag == "id" && !frame.has_text)
+                {
+                    return Err("form element id must be a positive integer: ".to_owned());
+                }
                 stack.pop();
             }
             Ok(Event::Text(event)) => {
-                let Some(tag) = stack.last().cloned() else {
+                let Some(is_id) = stack.last().map(|frame| frame.tag == "id") else {
                     continue;
                 };
                 let value = event
@@ -220,23 +247,21 @@ fn collect_form_elements(input: &str) -> Result<Vec<EditableFormElement>, String
                     .map_err(|error| format!("failed to decode XML form text: {error}"))?
                     .into_owned();
 
-                if tag == "name" && current_form_element_tag(&stack).is_some() {
-                    current_name = value;
-                    if stack.len() >= 2 {
-                        let parent_index = stack.len() - 2;
-                        stack[parent_index] = format!("{}.{}", stack[parent_index], current_name);
-                    }
-                } else if tag == "id"
-                    && !current_name.is_empty()
-                    && current_form_element_tag(&stack).is_some()
-                {
+                if let Some(frame) = stack.last_mut() {
+                    frame.has_text = true;
+                }
+
+                if is_id {
+                    let Some(parent_index) = stack.len().checked_sub(2) else {
+                        continue;
+                    };
                     let id_text = value.trim();
                     let id = parse_form_element_id(id_text)?;
                     let span_end = reader.buffer_position() as usize;
                     let span_start = span_end.saturating_sub(event.as_ref().len());
                     elements.push(EditableFormElement {
-                        path: stack[..stack.len().saturating_sub(1)].join("."),
-                        name: current_name.clone(),
+                        path: form_element_path(&stack[..=parent_index]),
+                        name: String::new(),
                         id,
                         new_id: id.unwrap_or(0),
                         id_span: TextSpan {
@@ -251,8 +276,8 @@ fn collect_form_elements(input: &str) -> Result<Vec<EditableFormElement>, String
                 let Some(tag) = stack.last() else {
                     continue;
                 };
-                if tag == "id" || tag == "name" {
-                    return Err("form element name and id must be plain XML text".to_owned());
+                if tag.tag == "id" {
+                    return Err("form element id must be plain XML text".to_owned());
                 }
                 let _ = event;
             }
@@ -265,12 +290,21 @@ fn collect_form_elements(input: &str) -> Result<Vec<EditableFormElement>, String
     Ok(elements)
 }
 
-fn current_form_element_tag(stack: &[String]) -> Option<&str> {
-    let parent_tag = stack.get(stack.len().checked_sub(2)?).and_then(|tag| {
-        tag.split_once('.')
-            .map_or(Some(tag.as_str()), |(tag, _)| Some(tag))
-    })?;
-    matches!(parent_tag, "items" | "autoCommandBar").then_some(parent_tag)
+fn form_element_path(stack: &[FormXmlFrame]) -> String {
+    stack
+        .iter()
+        .map(|frame| format!("{}[{}]", frame.tag, frame.sibling_index))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+fn next_sibling_index(stack: &mut [FormXmlFrame], tag: &str) -> usize {
+    let Some(parent) = stack.last_mut() else {
+        return 1;
+    };
+    let count = parent.child_counts.entry(tag.to_owned()).or_default();
+    *count += 1;
+    *count
 }
 
 fn parse_form_element_id(id_text: &str) -> Result<Option<u64>, String> {
@@ -298,10 +332,7 @@ fn restore_base_form_links(
         let matching_indexes = elements
             .iter()
             .enumerate()
-            .filter_map(|(index, element)| {
-                (element.path == base_element.path && element.name == base_element.name)
-                    .then_some(index)
-            })
+            .filter_map(|(index, element)| (element.path == base_element.path).then_some(index))
             .collect::<Vec<_>>();
 
         match matching_indexes.as_slice() {
@@ -323,14 +354,13 @@ fn restore_base_form_links(
     Ok(())
 }
 
-fn replace_non_positive_ids(elements: &mut [EditableFormElement]) {
-    let mut free_ids = FreeIdAllocator::new(elements);
-    for element in elements.iter_mut().filter(|element| element.id.is_none()) {
-        element.new_id = free_ids.next_id();
-    }
-}
+fn replace_invalid_and_duplicate_ids(elements: &mut [EditableFormElement]) {
+    let mut indexes_to_replace = elements
+        .iter()
+        .enumerate()
+        .filter_map(|(index, element)| (element.id.is_none() && !element.borrowed).then_some(index))
+        .collect::<BTreeSet<_>>();
 
-fn replace_duplicate_ids(elements: &mut [EditableFormElement]) {
     let mut groups = duplicate_groups(elements);
     groups.sort_by(|left, right| {
         right
@@ -339,11 +369,9 @@ fn replace_duplicate_ids(elements: &mut [EditableFormElement]) {
             .then_with(|| elements[left[0]].new_id.cmp(&elements[right[0]].new_id))
     });
 
-    let mut free_ids = FreeIdAllocator::new(elements);
-
     for group in groups {
         let has_borrowed_element = group.iter().any(|index| elements[*index].borrowed);
-        let indexes_to_replace = if has_borrowed_element {
+        let group_indexes_to_replace = if has_borrowed_element {
             group
                 .into_iter()
                 .filter(|index| !elements[*index].borrowed)
@@ -352,9 +380,14 @@ fn replace_duplicate_ids(elements: &mut [EditableFormElement]) {
             group[..group.len() - 1].to_vec()
         };
 
-        for index in indexes_to_replace {
-            elements[index].new_id = free_ids.next_id();
+        for index in group_indexes_to_replace {
+            indexes_to_replace.insert(index);
         }
+    }
+
+    let mut free_ids = FreeIdAllocator::new(elements);
+    for index in indexes_to_replace {
+        elements[index].new_id = free_ids.next_id();
     }
 }
 

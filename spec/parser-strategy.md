@@ -193,33 +193,30 @@ tests.
 initial v1 slice applies to EDT `Form.form` files and uses the shared XML/EDT
 parser boundary to validate XML before rewriting text.
 
-The fixer collects form elements only from ordered `<name>...</name>` and
-`<id>...</id>` pairs that belong to EDT form element containers: `items` and
-`autoCommandBar`. Attribute ids, command ids, handler names, data-path refs and
-other non-element XML ids are not part of the scenario's renumbering surface.
-Duplicate element ids are corrected deterministically:
+The fixer collects every direct XML `<id>...</id>` value in the EDT form
+description and treats ids from form elements, attributes, columns, commands
+and related form metadata as one shared id space. Element names are not used for
+selection or matching. Duplicate ids are corrected deterministically:
 
 - if an id is used by multiple elements and none of those elements is borrowed
   from a base form, all but the last occurrence receive free ids;
 - free ids are the lowest positive integers not currently used, then
   monotonically increasing ids after the current maximum;
-- if a sibling `BaseForm/Form.form` exists for the EDT form, elements matching
-  the same XML path and name keep the base form id and are treated as borrowed;
+- if a sibling `BaseForm/Form.form` exists for the EDT form, ids matching the
+  same indexed XML path keep the base form id and are treated as borrowed;
 - duplicate groups containing borrowed elements keep borrowed ids and reassign
   the non-borrowed elements;
 - non-positive numeric ids, for example `-1` or `0`, are treated as missing
   valid ids and receive free positive ids through the same deterministic
   allocator;
-- if more than one current-form element matches the same base-form path/name,
-  the scenario reports a hard failure instead of guessing.
 
 The scenario must skip non-`Form.form` files and `BaseForm/Form.form` files when
 they are processed directly. When an owning `Form.form` has a sibling
 `BaseForm/Form.form`, the base form may also be corrected and reported as a
 modified path. The fixer must preserve unrelated XML text, report modified
 files, and prove idempotence through focused tests. XML parse errors,
-non-numeric or overflowing ids, and ambiguous base-form matches are hard
-failures for the processed file.
+non-numeric ids, and overflowing positive ids are hard failures for the
+processed file.
 
 ### Metadata object/file synchronization contract
 
