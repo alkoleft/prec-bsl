@@ -497,7 +497,11 @@ pub fn remove_trailing_spaces_and_tabs(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     for line in input.split_inclusive('\n') {
         let (body, ending) = split_line_ending(line);
-        output.push_str(body.trim_end_matches([' ', '\t']));
+        if is_alignment_line(body) || contains_line_comment(body) {
+            output.push_str(body);
+        } else {
+            output.push_str(body.trim_end_matches([' ', '\t']));
+        }
         output.push_str(ending);
     }
 
@@ -856,6 +860,32 @@ fn flush_blank_run(output: &mut String, blank_run: &[(&str, &str)]) {
 
 fn is_blank_line(body: &str, ending: &str) -> bool {
     !ending.is_empty() && body.trim_matches([' ', '\t']).is_empty()
+}
+
+fn is_alignment_line(body: &str) -> bool {
+    !body.is_empty() && body.trim_matches([' ', '\t']).is_empty()
+}
+
+fn contains_line_comment(body: &str) -> bool {
+    let mut chars = body.chars().peekable();
+    let mut in_string = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            if in_string && chars.peek() == Some(&'"') {
+                chars.next();
+            } else {
+                in_string = !in_string;
+            }
+            continue;
+        }
+
+        if !in_string && ch == '/' && chars.peek() == Some(&'/') {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn split_line_ending(line: &str) -> (&str, &str) {

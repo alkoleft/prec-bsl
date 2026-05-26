@@ -79,6 +79,34 @@ fn trailing_whitespace_preserves_line_endings() {
 }
 
 #[test]
+fn trailing_whitespace_preserves_alignment_lines_and_comments() {
+    let input = concat!(
+        "   1   \n",
+        "   \n",
+        "   2\t\n",
+        "// Комментарий   \n",
+        "\t// Выравнивание комментария\t\n",
+        "Значение = \"// не комментарий\";   \n",
+        "Значение = 1; // комментарий\t\n",
+    );
+
+    let output = remove_trailing_spaces_and_tabs(input);
+
+    assert_eq!(
+        output,
+        concat!(
+            "   1\n",
+            "   \n",
+            "   2\n",
+            "// Комментарий   \n",
+            "\t// Выравнивание комментария\t\n",
+            "Значение = \"// не комментарий\";\n",
+            "Значение = 1; // комментарий\t\n",
+        )
+    );
+}
+
+#[test]
 fn trailing_whitespace_line_ending_matrix_is_idempotent() {
     for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
         let input = format!(

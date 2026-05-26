@@ -368,7 +368,10 @@ Scenario: `УдалениеЛишнихКонцевыхПробелов`.
 
 Acceptance criteria:
 
-- Removes trailing spaces and tabs without changing unrelated text.
+- Removes trailing spaces and tabs from ordinary code lines without changing
+  unrelated text.
+- Preserves whitespace-only alignment lines and BSL comment text, including
+  inline `//` comments.
 - Preserves line endings according to fixture expectations.
 - Is idempotent.
 - Reports modified files.
@@ -385,6 +388,8 @@ Completion evidence:
   for the Cyrillic golden fixture, modified-file reporting, hook-mode blocking
   after unreviewed modifications, second-run idempotence, and LF/CRLF
   preservation.
+- 2026-05-26: Updated the fixer contract to preserve whitespace-only alignment
+  lines and BSL comments while continuing to trim ordinary code lines.
 - Verification passed: `cargo fmt --check`, `cargo test trailing_whitespace`,
   and `cargo test`.
 - Independent reviewer pass returned `APPROVED` with no missing verification.
