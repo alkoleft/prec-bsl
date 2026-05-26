@@ -131,9 +131,15 @@ Default file: `v8config.json`.
 
 Discovery:
 
-1. CLI `--config <path>`.
+1. CLI `--config <path>` when the file exists.
 2. `v8config.json` in repository root.
 3. Built-in defaults.
+
+`v8config.json` is optional. If neither repository discovery nor an explicit
+`--config v8config.json` path finds that file, `prec-bsl` uses built-in
+defaults: the supported v1 scenario set is enabled and scenario settings are
+empty/default. A missing explicit custom config path, for example
+`--config custom-v8config.json`, remains a configuration error.
 
 Canonical JSON shape:
 
@@ -255,7 +261,9 @@ Behavior:
 
 - Runs in commit mode.
 - Reads staged Git changes from the repository.
-- Uses config discovery unless `--config` is provided.
+- Uses config discovery unless `--config` is provided. The default
+  `--config v8config.json` path is optional and falls back to built-in defaults
+  when the file is absent.
 - CLI `--source-dir` and `--rules` are overrides for simple hook configuration.
 - If `--ignore-merge-commit` is set and Git reports an active merge commit
   state through `MERGE_HEAD`, exits successfully before staged-file discovery,

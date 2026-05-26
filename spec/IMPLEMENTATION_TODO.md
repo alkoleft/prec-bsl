@@ -212,6 +212,10 @@ Completion evidence:
   scenario ids remain parse-compatible warnings for `0.x`; credential-like
   keys and non-repository-relative local-scenario/project paths are rejected.
 - Verification passed: `cargo test config` and `cargo test`.
+- 2026-05-26: Clarified and fixed the optional default config contract:
+  missing repository `v8config.json` and missing explicit `--config v8config.json`
+  use built-in defaults, while missing custom explicit config paths remain hard
+  errors.
 
 Dependencies:
 

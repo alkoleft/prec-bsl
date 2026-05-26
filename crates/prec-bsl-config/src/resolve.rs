@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::error::ConfigError;
 use crate::model::{
@@ -37,10 +38,22 @@ pub fn resolve_config_with_catalog(
     let (source, mut config) = match &request.config_path {
         Some(config_path) => {
             let path = resolve_repo_path(&request.repo_root, config_path);
-            (
-                ConfigSource::Explicit(path.clone()),
-                load_config_from_path(&path)?,
-            )
+            if path.is_file() {
+                (
+                    ConfigSource::Explicit(path.clone()),
+                    load_config_from_path(&path)?,
+                )
+            } else if is_repo_default_config_path(&request.repo_root, config_path, &path) {
+                (
+                    ConfigSource::BuiltInDefaults,
+                    built_in_defaults_with_catalog(catalog),
+                )
+            } else {
+                (
+                    ConfigSource::Explicit(path.clone()),
+                    load_config_from_path(&path)?,
+                )
+            }
         }
         None => {
             let path = request.repo_root.join(CONFIG_FILE_NAME);
@@ -119,6 +132,26 @@ fn load_config_from_path(path: &Path) -> Result<ResolvedConfig, ConfigError> {
     let raw = parse_raw_config(&source, Some(path))?;
 
     Ok(raw.into_resolved(ConfigSource::RepositoryDefault(path.to_path_buf())))
+}
+
+fn is_repo_default_config_path(
+    repo_root: &Path,
+    original_path: &Path,
+    resolved_path: &Path,
+) -> bool {
+    if original_path.is_absolute() {
+        return resolved_path == repo_root.join(CONFIG_FILE_NAME);
+    }
+
+    let mut components = original_path
+        .components()
+        .filter(|component| !matches!(component, Component::CurDir));
+
+    matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(file_name)), None)
+            if file_name == OsStr::new(CONFIG_FILE_NAME)
+    )
 }
 
 fn parse_scenario_list(value: &str) -> Vec<String> {

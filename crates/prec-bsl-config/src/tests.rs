@@ -127,6 +127,36 @@ fn config_built_in_defaults_are_available_without_file() {
 }
 
 #[test]
+fn config_missing_explicit_default_v8config_uses_built_in_defaults() {
+    let repo = temp_repo("missing_explicit_default_v8config_uses_built_in_defaults");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.config_path = Some(PathBuf::from(CONFIG_FILE_NAME));
+
+    let config = resolve_config(&request).unwrap();
+
+    assert_eq!(config.source, ConfigSource::BuiltInDefaults);
+    assert!(
+        config
+            .scenarios
+            .global_scenarios
+            .contains(&"УдалениеЛишнихКонцевыхПробелов".to_owned())
+    );
+}
+
+#[test]
+fn config_missing_explicit_custom_config_is_an_error() {
+    let repo = temp_repo("missing_explicit_custom_config_is_an_error");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.config_path = Some(PathBuf::from("custom-v8config.json"));
+
+    let error = resolve_config(&request).unwrap_err();
+
+    assert!(matches!(error, ConfigError::Io { .. }));
+}
+
+#[test]
 fn config_parses_global_historic_key_and_all_scenario_layers() {
     let config = parse_config_str(
         r#"{

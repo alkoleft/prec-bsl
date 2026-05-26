@@ -67,6 +67,35 @@ fn exec_rules_reports_missing_source_roots() {
 }
 
 #[test]
+fn exec_rules_missing_explicit_default_v8config_uses_defaults() {
+    let repo = TempRepo::new("missing_explicit_default_v8config");
+    write_file(
+        repo.path().join("src/Модуль.bsl"),
+        "Процедура Тест()\nКонецПроцедуры\n",
+    );
+
+    let output = run_prec_bsl(
+        external_cwd(),
+        [
+            "exec-rules",
+            repo.path().to_str().unwrap(),
+            "--config",
+            "v8config.json",
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(!stderr.contains("No such file or directory"));
+}
+
+#[test]
 fn exec_rules_uses_explicit_config_and_accumulates_hard_failures_after_traversal() {
     let repo = TempRepo::new("config_and_failures");
     write_file(
