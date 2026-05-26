@@ -13,24 +13,21 @@ fn output_text_groups_messages_and_separates_modified_files_and_failures() {
     assert_eq!(
         output,
         concat!(
-            "prec-bsl hook: processed 2 file(s)\n",
+            "prec-bsl хук: обработано файлов: 2\n",
             "\n",
-            "Modified files:\n",
+            "Измененные файлы:\n",
             "  src/Исправленный.bsl\n",
             "\n",
-            "Hard failures:\n",
-            "  [ПроверкаНецензурныхСлов] src/Плохой.bsl: matched dictionary word\n",
+            "Блокирующие ошибки:\n",
+            "  [ПроверкаНецензурныхСлов] src/Плохой.bsl: найдено слово из словаря 'плохоеСлово' в строке 1\n",
             "\n",
-            "Messages:\n",
-            "  ПроверкаНецензурныхСлов\n",
-            "    src/Плохой.bsl\n",
-            "      hard_failure: matched dictionary word [7..13]\n",
+            "Сообщения:\n",
             "  УдалениеЛишнихКонцевыхПробелов\n",
             "    src/Исправленный.bsl\n",
-            "      modified: removed trailing whitespace\n",
-            "      warning: file contained tabs\n",
+            "      изменено: удалены лишние пробелы или табы в конце строк\n",
+            "      предупреждение: файл содержит табы\n",
             "\n",
-            "Exit code: 1\n"
+            "Код выхода: 1\n"
         )
     );
 }
@@ -58,9 +55,86 @@ fn output_text_renders_unsupported_as_blocking_failure() {
 
     let output = render_text_report(&report);
 
-    assert!(output.contains("Hard failures:\n  [ЛокальныйСценарий] src/Модуль.bsl"));
-    assert!(output.contains("unsupported: dynamic local .os execution is not supported in v1"));
-    assert!(output.contains("Exit code: 1"));
+    assert!(output.contains("Блокирующие ошибки:\n  [ЛокальныйСценарий] src/Модуль.bsl"));
+    assert!(output.contains(
+        "src/Модуль.bsl: не поддерживается: динамическое выполнение локальных .os-сценариев не поддерживается в v1"
+    ));
+    assert!(!output.contains("Сообщения:"));
+    assert!(output.contains("Код выхода: 1"));
+}
+
+#[test]
+fn output_text_suppresses_skipped_messages_when_actionable_results_exist() {
+    let report = PipelineReport {
+        mode: PipelineMode::Hook,
+        processed_files: vec![
+            PathBuf::from("src/Форма.form"),
+            PathBuf::from("src/Модуль.bsl"),
+        ],
+        results: vec![
+            ScenarioResult::skipped(
+                "ВставкаКопирайтов",
+                "src/Форма.form",
+                "scenario handles only BSL modules",
+            ),
+            ScenarioResult::hard_failure(
+                "КорректировкаXMLФорм",
+                "src/Форма.form",
+                "form element id must be a positive integer: -1",
+            ),
+            ScenarioResult::warning(
+                "УдалениеЛишнихКонцевыхПробелов",
+                "src/Модуль.bsl",
+                "file contained tabs",
+            ),
+        ],
+    };
+
+    let output = render_text_report(&report);
+
+    assert!(output.contains("Блокирующие ошибки:"));
+    assert!(output.contains("Сообщения:"));
+    assert!(output.contains("предупреждение: файл содержит табы"));
+    assert!(!output.contains("scenario handles only BSL modules"));
+    assert!(!output.contains("ошибка: идентификатор элемента формы"));
+}
+
+#[test]
+fn output_text_keeps_skipped_messages_when_they_are_the_only_explanation() {
+    let report = PipelineReport {
+        mode: PipelineMode::Hook,
+        processed_files: vec![PathBuf::from("src/Форма.form")],
+        results: vec![ScenarioResult::skipped(
+            "ВставкаКопирайтов",
+            "src/Форма.form",
+            "scenario handles only BSL modules",
+        )],
+    };
+
+    let output = render_text_report(&report);
+
+    assert!(output.contains("Сообщения:"));
+    assert!(output.contains("пропущено: сценарий обрабатывает только модули BSL"));
+}
+
+#[test]
+fn output_text_localizes_real_xml_messages() {
+    let report = PipelineReport {
+        mode: PipelineMode::ExecRules,
+        processed_files: vec![PathBuf::from("src/Form.form")],
+        results: vec![ScenarioResult::modified(
+            "КорректировкаXMLФорм",
+            "src/Form.form",
+            "corrected duplicate XML form element ids",
+        )],
+    };
+
+    let output = render_text_report(&report);
+
+    assert!(output.contains(
+        "изменено: исправлены повторяющиеся или неположительные идентификаторы элементов XML-формы"
+    ));
+    assert!(!output.contains("corrected duplicate XML form element ids"));
 }
 
 #[test]
@@ -92,7 +166,10 @@ fn output_json_contains_stable_contract_fields_and_source_span() {
     assert_eq!(profanity["path"], "src/Плохой.bsl");
     assert_eq!(profanity["severity"], "hard_failure");
     assert_eq!(profanity["modified"], false);
-    assert_eq!(profanity["message"], "matched dictionary word");
+    assert_eq!(
+        profanity["message"],
+        "matched dictionary word 'плохоеСлово' at line 1"
+    );
     assert_eq!(profanity["source_span"]["start_byte"], 7);
     assert_eq!(profanity["source_span"]["end_byte"], 13);
 
@@ -134,13 +211,13 @@ fn sample_report() -> PipelineReport {
             ScenarioResult::hard_failure(
                 "ПроверкаНецензурныхСлов",
                 "src/Плохой.bsl",
-                "matched dictionary word",
+                "matched dictionary word 'плохоеСлово' at line 1",
             )
             .with_source_span(SourceSpan::new(7, 13)),
             ScenarioResult::modified(
                 "УдалениеЛишнихКонцевыхПробелов",
                 "src/Исправленный.bsl",
-                "removed trailing whitespace",
+                "removed trailing spaces or tabs",
             ),
         ],
     }

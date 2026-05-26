@@ -107,7 +107,7 @@ pub struct FormElement {
 struct EditableFormElement {
     path: String,
     name: String,
-    id: u64,
+    id: Option<u64>,
     new_id: u64,
     id_span: TextSpan,
     borrowed: bool,
@@ -179,9 +179,13 @@ pub fn correct_edt_form_text(
         }
     }
 
+    replace_non_positive_ids(&mut elements);
     replace_duplicate_ids(&mut elements);
 
-    if elements.iter().all(|element| element.id == element.new_id) {
+    if elements
+        .iter()
+        .all(|element| element.id == Some(element.new_id))
+    {
         return XmlFormCorrection::Clean;
     }
 
@@ -216,27 +220,25 @@ fn collect_form_elements(input: &str) -> Result<Vec<EditableFormElement>, String
                     .map_err(|error| format!("failed to decode XML form text: {error}"))?
                     .into_owned();
 
-                if tag == "name" {
+                if tag == "name" && current_form_element_tag(&stack).is_some() {
                     current_name = value;
                     if stack.len() >= 2 {
                         let parent_index = stack.len() - 2;
                         stack[parent_index] = format!("{}.{}", stack[parent_index], current_name);
                     }
-                } else if tag == "id" && !current_name.is_empty() {
+                } else if tag == "id"
+                    && !current_name.is_empty()
+                    && current_form_element_tag(&stack).is_some()
+                {
                     let id_text = value.trim();
-                    let id = id_text.parse::<u64>().map_err(|_| {
-                        format!("form element id must be a positive integer: {id_text}")
-                    })?;
-                    if id == 0 {
-                        return Err("form element id must be a positive integer: 0".to_owned());
-                    }
+                    let id = parse_form_element_id(id_text)?;
                     let span_end = reader.buffer_position() as usize;
                     let span_start = span_end.saturating_sub(event.as_ref().len());
                     elements.push(EditableFormElement {
                         path: stack[..stack.len().saturating_sub(1)].join("."),
                         name: current_name.clone(),
                         id,
-                        new_id: id,
+                        new_id: id.unwrap_or(0),
                         id_span: TextSpan {
                             start: span_start,
                             end: span_end,
@@ -261,6 +263,31 @@ fn collect_form_elements(input: &str) -> Result<Vec<EditableFormElement>, String
     }
 
     Ok(elements)
+}
+
+fn current_form_element_tag(stack: &[String]) -> Option<&str> {
+    let parent_tag = stack.get(stack.len().checked_sub(2)?).and_then(|tag| {
+        tag.split_once('.')
+            .map_or(Some(tag.as_str()), |(tag, _)| Some(tag))
+    })?;
+    matches!(parent_tag, "items" | "autoCommandBar").then_some(parent_tag)
+}
+
+fn parse_form_element_id(id_text: &str) -> Result<Option<u64>, String> {
+    match id_text.parse::<u64>() {
+        Ok(0) => Ok(None),
+        Ok(id) => Ok(Some(id)),
+        Err(_) if is_negative_integer_text(id_text) => Ok(None),
+        Err(_) => Err(format!(
+            "form element id must be a positive integer: {id_text}"
+        )),
+    }
+}
+
+fn is_negative_integer_text(value: &str) -> bool {
+    value.strip_prefix('-').is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
 }
 
 fn restore_base_form_links(
@@ -294,6 +321,13 @@ fn restore_base_form_links(
     }
 
     Ok(())
+}
+
+fn replace_non_positive_ids(elements: &mut [EditableFormElement]) {
+    let mut free_ids = FreeIdAllocator::new(elements);
+    for element in elements.iter_mut().filter(|element| element.id.is_none()) {
+        element.new_id = free_ids.next_id();
+    }
 }
 
 fn replace_duplicate_ids(elements: &mut [EditableFormElement]) {
@@ -347,6 +381,7 @@ impl FreeIdAllocator {
         let used_ids = elements
             .iter()
             .map(|element| element.new_id)
+            .filter(|id| *id > 0)
             .collect::<BTreeSet<_>>();
         let next_after_max = used_ids
             .iter()
@@ -396,7 +431,7 @@ impl FreeIdAllocator {
 fn replace_id_lines(input: &str, elements: &[EditableFormElement]) -> String {
     let mut replacements = elements
         .iter()
-        .filter(|element| element.id != element.new_id)
+        .filter(|element| element.id != Some(element.new_id))
         .map(|element| (element.id_span, element.new_id.to_string()))
         .collect::<Vec<_>>();
     replacements.sort_by_key(|(span, _)| span.start);

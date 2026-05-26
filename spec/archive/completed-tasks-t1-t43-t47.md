@@ -1,4 +1,4 @@
-# Completed implementation tasks: T1-T43, T47
+# Completed implementation tasks: T1-T43, T47-T49
 
 Archived from `spec/IMPLEMENTATION_TODO.md` on 2026-05-26 to keep the active
 implementation ledger focused on open work. Task text below preserves the
@@ -1856,3 +1856,75 @@ Completion evidence:
 Dependencies:
 
 - T31.
+
+### T48. DONE: Reduce noisy human-readable hook output
+
+Keep commit-hook output focused on information a developer can act on when a
+commit is blocked.
+
+Acceptance criteria:
+
+- Text output continues to list modified files separately from hard failures.
+- Text output does not duplicate hard failures in the grouped `Messages`
+  section.
+- Text output suppresses non-actionable `skipped` details when modifications,
+  warnings, hard failures or unsupported diagnostics are present.
+- Text output still shows `skipped` messages when they are the only explanation
+  for processed files.
+- JSON output keeps the full stable result list unchanged.
+
+Validation:
+
+- `cargo test -p prec-bsl-output`
+- `cargo test --workspace`
+- `cargo fmt --all --check`
+- `git diff --check`
+
+Completion evidence:
+
+- 2026-05-26: Adjusted the text renderer in `prec-bsl-output` so the default
+  hook/exec-rules text output shows concise summaries plus actionable grouped
+  details, while JSON serialization still emits the complete per-result
+  contract. Added focused renderer regressions for suppressed skip noise and
+  the all-skipped explanatory case.
+
+Dependencies:
+
+- T10.
+
+### T49. DONE: Localize human-readable text output to Russian
+
+Make the default text output readable for Russian-speaking 1C developers while
+preserving the machine-readable JSON contract.
+
+Acceptance criteria:
+
+- Text output uses Russian section labels for processed count, modified files,
+  blocking failures, grouped messages and exit code.
+- Text output uses Russian status labels for modifications, warnings, hard
+  failures, skips and unsupported scenarios.
+- Common built-in scenario messages are rendered in Russian at the presentation
+  boundary.
+- JSON output keeps the existing stable English keys and severity values.
+- CLI error prefixes and merge-skip notices are Russian.
+
+Validation:
+
+- `cargo test -p prec-bsl-output`
+- `cargo test -p prec-bsl --test exec_rules`
+- `cargo test -p prec-bsl --test prek_hook`
+- `cargo test -p prec-bsl --test rat_acceptance`
+- `cargo test --workspace`
+- `cargo fmt --all --check`
+- `git diff --check`
+
+Completion evidence:
+
+- 2026-05-26: Added Russian text labels/statuses and presentation-boundary
+  translations for common built-in diagnostics in `prec-bsl-output`, updated
+  hook/exec-rules/RAT acceptance assertions, and kept JSON serialization
+  unchanged.
+
+Dependencies:
+
+- T48.

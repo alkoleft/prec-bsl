@@ -38,8 +38,8 @@ fn prek_hook_uses_git_index_ignores_passed_filenames_and_restages_modifications(
 
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
-    assert!(stdout.contains("Modified files:"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 1"));
+    assert!(stdout.contains("Измененные файлы:"));
     assert!(stdout.contains("src/Стадированный.bsl"));
     assert!(!stdout.contains("src/Переданный.bsl"));
 
@@ -94,9 +94,9 @@ fn prek_hook_can_skip_merge_commits_without_processing_staged_files() {
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.contains("prec-bsl hook: processed 0 file(s)"));
-    assert!(stdout.contains("Exit code: 0"));
-    assert!(stderr.contains("skipped merge commit"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 0"));
+    assert!(stdout.contains("Код выхода: 0"));
+    assert!(stderr.contains("пропущен merge commit"));
     assert_eq!(
         fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
         "Процедура Тест()\n    Сообщить(\"merge\");   \nКонецПроцедуры\t\n"
@@ -143,8 +143,8 @@ fn prek_hook_can_skip_remote_merge_commits_without_processing_staged_files() {
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.contains("prec-bsl hook: processed 0 file(s)"));
-    assert!(stdout.contains("Exit code: 0"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 0"));
+    assert!(stdout.contains("Код выхода: 0"));
     assert!(stderr.contains("--ignore-remote-merge-commit"));
     assert_eq!(
         fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
@@ -190,8 +190,8 @@ fn prek_hook_remote_merge_skip_does_not_skip_local_merge_commits() {
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
-    assert!(!stderr.contains("skipped merge commit"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 1"));
+    assert!(!stderr.contains("пропущен merge commit"));
     assert_eq!(
         fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
         "Процедура Тест()\n    Сообщить(\"local merge\");\nКонецПроцедуры\n"
@@ -223,8 +223,8 @@ fn prek_hook_passes_deleted_files_only_to_deleted_file_capable_scenarios() {
 
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
-    assert!(stdout.contains("scenario does not handle deleted files"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 1"));
+    assert!(stdout.contains("сценарий не обрабатывает удаленные файлы"));
     assert_eq!(
         run_git_stdout(repo.path(), ["diff", "--cached", "--name-status"]),
         "D\tsrc/Удаленный.bsl\n"
@@ -282,9 +282,9 @@ fn prek_hook_discovers_source_root_from_staged_configuration_metadata() {
 
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 1"));
     assert!(stdout.contains("СортировкаДереваМетаданных"));
-    assert!(!stdout.contains("missing metadata directory"));
+    assert!(!stdout.contains("отсутствует каталог метаданных"));
     assert_eq!(
         fs::read_to_string(repo.path().join(&config_path)).unwrap(),
         sorted_edt_configuration()
@@ -333,7 +333,7 @@ fn prek_hook_explicit_source_dir_overrides_v8project_source_sets() {
 
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl hook: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl хук: обработано файлов: 1"));
     assert!(stdout.contains("СортировкаДереваМетаданных"));
     assert_eq!(
         fs::read_to_string(repo.path().join(&config_path)).unwrap(),

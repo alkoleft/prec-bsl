@@ -25,12 +25,12 @@ fn exec_rules_processes_multiple_source_roots_with_source_root_context() {
 
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 2 file(s)"));
-    assert!(stdout.contains("Modified files:"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 2"));
+    assert!(stdout.contains("Измененные файлы:"));
     assert!(stdout.contains("configuration/Configuration/Configuration.mdo"));
     assert!(stdout.contains("extensions/rat/Configuration/Configuration.mdo"));
     assert!(stdout.contains("СортировкаСостава"));
-    assert!(stdout.contains("УдалениеЛишнихКонцевыхПробелов"));
+    assert!(!stdout.contains("УдалениеЛишнихКонцевыхПробелов"));
     assert_eq!(
         fs::read_to_string(repo.path().join(first)).unwrap(),
         sorted_edt_configuration()
@@ -59,10 +59,10 @@ fn exec_rules_reports_missing_source_roots() {
 
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 0 file(s)"));
-    assert!(stdout.contains("Hard failures:"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 0"));
+    assert!(stdout.contains("Блокирующие ошибки:"));
     assert!(stdout.contains("[source-root]"));
-    assert!(stdout.contains("missing source root:"));
+    assert!(stdout.contains("не найден корень исходников:"));
     assert!(stdout.contains("missing-root"));
 }
 
@@ -100,7 +100,7 @@ fn exec_rules_without_source_dir_uses_v8project_source_sets_only() {
 
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 1"));
     assert!(stdout.contains("configuration/src/Модуль.bsl"));
     assert!(!stdout.contains("other/src/ДругойМодуль.bsl"));
     assert_eq!(
@@ -149,7 +149,7 @@ fn exec_rules_explicit_source_dir_overrides_v8project_source_sets() {
 
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 1"));
     assert!(stdout.contains("src/Модуль.bsl"));
     assert!(!stdout.contains("extensions/rat/src/ДругойМодуль.bsl"));
     assert_eq!(
@@ -182,7 +182,7 @@ fn exec_rules_without_source_dir_or_v8project_uses_repository_root() {
 
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 1"));
     assert!(stdout.contains("src/Модуль.bsl"));
     assert_eq!(
         fs::read_to_string(repo.path().join("src/Модуль.bsl")).unwrap(),
@@ -222,7 +222,7 @@ fn exec_rules_without_source_dir_skips_dot_files_and_directories() {
 
     assert!(output.status.success(), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 1"));
     assert!(stdout.contains("src/Модуль.bsl"));
     assert!(!stdout.contains(".git/internal.bsl"));
     assert!(!stdout.contains(".hidden.bsl"));
@@ -270,7 +270,7 @@ fn exec_rules_missing_explicit_default_v8config_uses_defaults() {
     assert_eq!(output.status.code(), Some(0), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 1"));
     assert!(!stderr.contains("No such file or directory"));
 }
 
@@ -318,11 +318,11 @@ fn exec_rules_uses_explicit_config_and_accumulates_hard_failures_after_traversal
 
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("prec-bsl exec-rules: processed 2 file(s)"));
-    assert!(stdout.contains("Hard failures:"));
+    assert!(stdout.contains("prec-bsl exec-rules: обработано файлов: 2"));
+    assert!(stdout.contains("Блокирующие ошибки:"));
     assert!(stdout.contains("[ЗапретИспользованияПерейти] src/Первый.bsl"));
     assert!(stdout.contains("[ЗапретИспользованияПерейти] src/Второй.bsl"));
-    assert_eq!(stdout.matches("goto statement is forbidden").count(), 4);
+    assert_eq!(stdout.matches("оператор Перейти запрещен").count(), 2);
 }
 
 struct TempRepo {

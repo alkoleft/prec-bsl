@@ -230,7 +230,7 @@ fn xml_forms_reports_modified_sibling_base_form_path() {
 
 #[test]
 fn xml_forms_reports_invalid_ids_as_hard_failures() {
-    for invalid_id in ["0", "abc", "18446744073709551616"] {
+    for invalid_id in ["abc", "18446744073709551616"] {
         let input =
             format!("<form:Form><items><name>Поле</name><id>{invalid_id}</id></items></form:Form>");
 
@@ -240,6 +240,60 @@ fn xml_forms_reports_invalid_ids_as_hard_failures() {
             matches!(result, XmlFormCorrection::Failed(message) if message == format!("form element id must be a positive integer: {invalid_id}"))
         );
     }
+}
+
+#[test]
+fn xml_forms_reassigns_non_positive_ids() {
+    let input = concat!(
+        "<form:Form>",
+        "<items><name>A</name><id>-1</id></items>",
+        "<items><name>B</name><id>0</id></items>",
+        "<items><name>C</name><id>2</id></items>",
+        "</form:Form>",
+    );
+    let expected = concat!(
+        "<form:Form>",
+        "<items><name>A</name><id>1</id></items>",
+        "<items><name>B</name><id>3</id></items>",
+        "<items><name>C</name><id>2</id></items>",
+        "</form:Form>",
+    );
+
+    let result = correct_edt_form_text(Path::new("Form.form"), input, None);
+
+    assert_eq!(result, XmlFormCorrection::Modified(expected.to_owned()));
+    assert_eq!(
+        correct_edt_form_text(Path::new("Form.form"), expected, None),
+        XmlFormCorrection::Clean
+    );
+}
+
+#[test]
+fn xml_forms_only_reassigns_form_element_ids() {
+    let input = concat!(
+        "<form:Form>",
+        "<attributes><name>Реквизит</name><id>-1</id></attributes>",
+        "<items><name>Поле</name><id>1</id></items>",
+        "<autoCommandBar><name>ФормаКоманднаяПанель</name><id>-1</id></autoCommandBar>",
+        "<formCommands><name>Команда</name><id>0</id></formCommands>",
+        "</form:Form>",
+    );
+    let expected = concat!(
+        "<form:Form>",
+        "<attributes><name>Реквизит</name><id>-1</id></attributes>",
+        "<items><name>Поле</name><id>1</id></items>",
+        "<autoCommandBar><name>ФормаКоманднаяПанель</name><id>2</id></autoCommandBar>",
+        "<formCommands><name>Команда</name><id>0</id></formCommands>",
+        "</form:Form>",
+    );
+
+    let result = correct_edt_form_text(Path::new("Form.form"), input, None);
+
+    assert_eq!(result, XmlFormCorrection::Modified(expected.to_owned()));
+    assert_eq!(
+        correct_edt_form_text(Path::new("Form.form"), expected, None),
+        XmlFormCorrection::Clean
+    );
 }
 
 #[test]

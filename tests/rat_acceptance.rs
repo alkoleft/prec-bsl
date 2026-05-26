@@ -324,9 +324,9 @@ fn rat_text_idempotence_runs_text_fixers_on_temp_copy_only() {
         output_text(&first_run)
     );
     let first_stdout = String::from_utf8_lossy(&first_run.stdout);
-    assert!(first_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(first_stdout.contains("prec-bsl exec-rules: обработано файлов: "));
     assert!(
-        first_stdout.contains("Modified files:"),
+        first_stdout.contains("Измененные файлы:"),
         "first RAT text fixer run must report modified files:\n{}",
         first_stdout
     );
@@ -359,9 +359,9 @@ fn rat_text_idempotence_runs_text_fixers_on_temp_copy_only() {
         output_text(&second_run)
     );
     let second_stdout = String::from_utf8_lossy(&second_run.stdout);
-    assert!(second_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(second_stdout.contains("prec-bsl exec-rules: обработано файлов: "));
     assert!(
-        !second_stdout.contains("Modified files:"),
+        !second_stdout.contains("Измененные файлы:"),
         "second RAT text fixer run must be clean for the same scenario set:\n{}",
         second_stdout
     );
@@ -463,9 +463,9 @@ fn rat_xml_edt_acceptance_runs_on_temp_copy_only() {
         output_text(&first_run)
     );
     let first_stdout = String::from_utf8_lossy(&first_run.stdout);
-    assert!(first_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(first_stdout.contains("prec-bsl exec-rules: обработано файлов: "));
     assert!(
-        first_stdout.contains("Modified files:"),
+        first_stdout.contains("Измененные файлы:"),
         "first RAT XML/EDT fixer run must report modified files:\n{}",
         first_stdout
     );
@@ -509,15 +509,15 @@ fn rat_xml_edt_acceptance_runs_on_temp_copy_only() {
         output_text(&second_run)
     );
     let second_stdout = String::from_utf8_lossy(&second_run.stdout);
-    assert!(second_stdout.contains("prec-bsl exec-rules: processed "));
+    assert!(second_stdout.contains("prec-bsl exec-rules: обработано файлов: "));
     assert!(
-        !second_stdout.contains("Modified files:"),
+        !second_stdout.contains("Измененные файлы:"),
         "second RAT XML/EDT fixer run must be clean for the same scenario set:\n{}",
         second_stdout
     );
 
-    let form_before_failure = fs::read_to_string(tempdir.path().join(RAT_XML_FORM_FAILURE_FILE))
-        .expect("XML form failure probe must be readable before the diagnostic run");
+    let form_before_correction = fs::read_to_string(tempdir.path().join(RAT_XML_FORM_FAILURE_FILE))
+        .expect("XML form correction probe must be readable before the diagnostic run");
     let form_correction_run = run_prec_bsl([
         "exec-rules",
         tempdir
@@ -530,28 +530,57 @@ fn rat_xml_edt_acceptance_runs_on_temp_copy_only() {
         RAT_XML_FORM_RULE,
     ]);
     assert!(
-        !form_correction_run.status.success(),
-        "RAT XML form correction diagnostic run must fail closed:\n{}",
+        form_correction_run.status.success(),
+        "RAT XML form correction diagnostic run must rewrite non-positive ids:\n{}",
         output_text(&form_correction_run)
     );
     let form_correction_stdout = String::from_utf8_lossy(&form_correction_run.stdout);
     assert!(
-        form_correction_stdout.contains("prec-bsl exec-rules: processed 2 file(s)"),
+        form_correction_stdout.contains("prec-bsl exec-rules: обработано файлов: 2"),
         "RAT XML form correction diagnostic run must process the copied form directory:\n{}",
         form_correction_stdout
     );
     assert!(
         form_correction_stdout.contains(RAT_XML_FORM_RULE)
             && form_correction_stdout.contains(RAT_XML_FORM_FAILURE_FILE)
-            && form_correction_stdout.contains("form element id must be a positive integer: -1"),
-        "RAT XML form correction diagnostic must include rule, file, and failure reason:\n{}",
+            && form_correction_stdout.contains(
+                "изменено: исправлены повторяющиеся или неположительные идентификаторы элементов XML-формы"
+            ),
+        "RAT XML form correction diagnostic must include rule, file, and modification reason:\n{}",
         form_correction_stdout
     );
-    let form_after_failure = fs::read_to_string(tempdir.path().join(RAT_XML_FORM_FAILURE_FILE))
-        .expect("XML form failure probe must be readable after the diagnostic run");
-    assert_eq!(
-        form_after_failure, form_before_failure,
-        "failed XML form correction run must not partially rewrite the RAT temp copy"
+    let form_after_correction = fs::read_to_string(tempdir.path().join(RAT_XML_FORM_FAILURE_FILE))
+        .expect("XML form correction probe must be readable after the diagnostic run");
+    assert_ne!(
+        form_after_correction, form_before_correction,
+        "XML form correction run must rewrite the RAT temp copy"
+    );
+    assert!(
+        !form_after_correction.contains("<id>-1</id>"),
+        "XML form correction run must replace non-positive form ids"
+    );
+
+    let form_correction_second_run = run_prec_bsl([
+        "exec-rules",
+        tempdir
+            .path()
+            .to_str()
+            .expect("temp RAT path must be UTF-8"),
+        "--source-dir",
+        RAT_XML_FORM_FAILURE_DIR,
+        "--rules",
+        RAT_XML_FORM_RULE,
+    ]);
+    assert!(
+        form_correction_second_run.status.success(),
+        "second RAT XML form correction run must succeed:\n{}",
+        output_text(&form_correction_second_run)
+    );
+    let form_correction_second_stdout = String::from_utf8_lossy(&form_correction_second_run.stdout);
+    assert!(
+        !form_correction_second_stdout.contains("Измененные файлы:"),
+        "second RAT XML form correction run must be clean:\n{}",
+        form_correction_second_stdout
     );
 
     let after_status = git_status_short(repo).expect("RAT git status must be readable after run");

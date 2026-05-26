@@ -84,21 +84,21 @@ where
         Some("-h" | "--help") => Ok(CliCommand::Help(HelpTopic::General)),
         Some("prek-hook") => parse_prek_hook(rest),
         Some("exec-rules") => parse_exec_rules(rest),
-        Some(other) => Err(CliError::new(format!("unknown command: {other}"))),
-        None => Err(CliError::new("command name must be valid UTF-8")),
+        Some(other) => Err(CliError::new(format!("неизвестная команда: {other}"))),
+        None => Err(CliError::new("имя команды должно быть UTF-8")),
     }
 }
 
 pub fn help(topic: HelpTopic) -> &'static str {
     match topic {
         HelpTopic::General => {
-            "Usage: prec-bsl <command> [options]\n\nCommands:\n  prek-hook    Run commit hook mode over the staged Git index\n  exec-rules   Run selected rules over a repository\n\nUse 'prec-bsl <command> --help' for command options."
+            "Использование: prec-bsl <команда> [параметры]\n\nКоманды:\n  prek-hook    Запустить hook-режим по staged Git index\n  exec-rules   Запустить выбранные правила по репозиторию\n\nИспользуйте 'prec-bsl <команда> --help', чтобы посмотреть параметры команды."
         }
         HelpTopic::PrekHook => {
-            "Usage: prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json] [--ignore-merge-commit|--ignore-remote-merge-commit]\n\nOptions:\n  --config <path>                 Path to v8config.json\n  --source-dir <path>             Source root override\n  --rules <list>                  Comma-separated rule list\n  --format text|json              Output format, defaults to text\n  --ignore-merge-commit           Exit successfully without processing when MERGE_HEAD is present\n  --ignore-remote-merge-commit    Exit successfully only when MERGE_HEAD is reachable from refs/remotes/*"
+            "Использование: prec-bsl prek-hook [--config <path>] [--source-dir <path>] [--rules <list>] [--format text|json] [--ignore-merge-commit|--ignore-remote-merge-commit]\n\nПараметры:\n  --config <path>                 Путь к v8config.json\n  --source-dir <path>             Переопределение корня исходников\n  --rules <list>                  Список правил через запятую\n  --format text|json              Формат вывода, по умолчанию text\n  --ignore-merge-commit           Успешно выйти без обработки, когда присутствует MERGE_HEAD\n  --ignore-remote-merge-commit    Успешно выйти только когда MERGE_HEAD достижим из refs/remotes/*"
         }
         HelpTopic::ExecRules => {
-            "Usage: prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]\n\nOptions:\n  --config <path>       Path to v8config.json\n  --source-dir <list>   Comma-separated source root list\n  --rules <list>        Comma-separated rule list\n  --format text|json    Output format, defaults to text"
+            "Использование: prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text"
         }
     }
 }
@@ -145,7 +145,7 @@ fn parse_prek_hook(args: &[OsString]) -> Result<CliCommand, CliError> {
             }
             other if other.starts_with("--") => {
                 return Err(CliError::new(format!(
-                    "unknown option for prek-hook: {other}"
+                    "неизвестный параметр для prek-hook: {other}"
                 )));
             }
             _other => {
@@ -167,7 +167,7 @@ fn set_merge_commit_skip(
 ) -> Result<(), CliError> {
     if parsed.merge_commit_skip != MergeCommitSkipMode::None {
         return Err(CliError::new(format!(
-            "{option} cannot be used together with another merge-commit ignore option"
+            "{option} нельзя использовать вместе с другим параметром пропуска merge commit"
         )));
     }
     parsed.merge_commit_skip = mode;
@@ -203,13 +203,13 @@ fn parse_exec_rules(args: &[OsString]) -> Result<CliCommand, CliError> {
             }
             other if other.starts_with('-') => {
                 return Err(CliError::new(format!(
-                    "unknown option for exec-rules: {other}"
+                    "неизвестный параметр для exec-rules: {other}"
                 )));
             }
             _ => {
                 if repo.is_some() {
                     return Err(CliError::new(
-                        "exec-rules accepts exactly one positional <repo>",
+                        "exec-rules принимает ровно один позиционный аргумент <repo>",
                     ));
                 }
                 repo = Some(PathBuf::from(&args[index]));
@@ -219,7 +219,7 @@ fn parse_exec_rules(args: &[OsString]) -> Result<CliCommand, CliError> {
     }
 
     let Some(repo) = repo else {
-        return Err(CliError::new("missing required argument: <repo>"));
+        return Err(CliError::new("не указан обязательный аргумент: <repo>"));
     };
 
     Ok(CliCommand::ExecRules(ExecRulesArgs {
@@ -234,7 +234,7 @@ fn parse_exec_rules(args: &[OsString]) -> Result<CliCommand, CliError> {
 fn flag(value: &OsStr) -> Result<&str, CliError> {
     value
         .to_str()
-        .ok_or_else(|| CliError::new("argument name must be valid UTF-8"))
+        .ok_or_else(|| CliError::new("имя аргумента должно быть UTF-8"))
 }
 
 fn required_value(
@@ -245,7 +245,7 @@ fn required_value(
     *index += 1;
     args.get(*index)
         .cloned()
-        .ok_or_else(|| CliError::new(format!("missing value for {option}")))
+        .ok_or_else(|| CliError::new(format!("не указано значение для {option}")))
 }
 
 fn required_utf8_value(
@@ -256,7 +256,7 @@ fn required_utf8_value(
     let value = required_value(args, index, option)?;
     value
         .into_string()
-        .map_err(|_| CliError::new(format!("value for {option} must be valid UTF-8")))
+        .map_err(|_| CliError::new(format!("значение {option} должно быть UTF-8")))
 }
 
 fn parse_format(value: &str) -> Result<OutputFormat, CliError> {
@@ -264,7 +264,7 @@ fn parse_format(value: &str) -> Result<OutputFormat, CliError> {
         "text" => Ok(OutputFormat::Text),
         "json" => Ok(OutputFormat::Json),
         other => Err(CliError::new(format!(
-            "invalid value for --format: {other}; expected text or json"
+            "недопустимое значение --format: {other}; ожидается text или json"
         ))),
     }
 }
@@ -298,6 +298,16 @@ mod tests {
                 merge_commit_skip: MergeCommitSkipMode::None,
             })
         );
+    }
+
+    #[test]
+    fn help_text_is_human_readable_russian() {
+        assert!(help(HelpTopic::General).contains("Использование:"));
+        assert!(help(HelpTopic::General).contains("Команды:"));
+        assert!(help(HelpTopic::PrekHook).contains("Параметры:"));
+        assert!(help(HelpTopic::ExecRules).contains("Формат вывода"));
+        assert!(!help(HelpTopic::General).contains("Usage:"));
+        assert!(!help(HelpTopic::PrekHook).contains("Options:"));
     }
 
     #[test]
@@ -343,7 +353,7 @@ mod tests {
 
         assert_eq!(
             error.message(),
-            "--ignore-remote-merge-commit cannot be used together with another merge-commit ignore option"
+            "--ignore-remote-merge-commit нельзя использовать вместе с другим параметром пропуска merge commit"
         );
     }
 
@@ -459,7 +469,7 @@ mod tests {
 
         assert_eq!(
             error.message(),
-            "unknown option for exec-rules: --ignore-merge-commit"
+            "неизвестный параметр для exec-rules: --ignore-merge-commit"
         );
     }
 
@@ -469,7 +479,7 @@ mod tests {
 
         assert_eq!(
             error.message(),
-            "unknown option for exec-rules: --ignore-remote-merge-commit"
+            "неизвестный параметр для exec-rules: --ignore-remote-merge-commit"
         );
     }
 
@@ -479,7 +489,7 @@ mod tests {
 
         assert_eq!(
             error.message(),
-            "invalid value for --format: yaml; expected text or json"
+            "недопустимое значение --format: yaml; ожидается text или json"
         );
     }
 
@@ -487,13 +497,13 @@ mod tests {
     fn unknown_command_is_clear_error() {
         let error = parse_args(["unknown"]).unwrap_err();
 
-        assert_eq!(error.message(), "unknown command: unknown");
+        assert_eq!(error.message(), "неизвестная команда: unknown");
     }
 
     #[test]
     fn missing_exec_rules_repo_is_clear_error() {
         let error = parse_args(["exec-rules", "--rules", "Rule1"]).unwrap_err();
 
-        assert_eq!(error.message(), "missing required argument: <repo>");
+        assert_eq!(error.message(), "не указан обязательный аргумент: <repo>");
     }
 }

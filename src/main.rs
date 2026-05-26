@@ -9,7 +9,7 @@ fn main() {
         Ok(CliCommand::PrekHook(args)) => prec_bsl::app::run_prek_hook(&args),
         Ok(CliCommand::ExecRules(args)) => prec_bsl::app::run_exec_rules(&args),
         Err(error) => {
-            eprintln!("error: {}", error.message());
+            eprintln!("ошибка: {}", error.message());
             eprintln!();
             eprintln!("{}", cli::help(HelpTopic::General));
             2

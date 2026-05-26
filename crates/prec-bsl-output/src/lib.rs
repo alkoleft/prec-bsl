@@ -32,8 +32,8 @@ pub fn render_text_report(report: &PipelineReport) -> String {
 
     writeln!(
         output,
-        "prec-bsl {}: processed {} file(s)",
-        mode_label(report.mode),
+        "prec-bsl {}: обработано файлов: {}",
+        text_mode_label(report.mode),
         report.processed_files.len()
     )
     .expect("writing to a String must not fail");
@@ -41,7 +41,7 @@ pub fn render_text_report(report: &PipelineReport) -> String {
     let modified_paths = report.modified_paths();
     if !modified_paths.is_empty() {
         writeln!(output).expect("writing to a String must not fail");
-        writeln!(output, "Modified files:").expect("writing to a String must not fail");
+        writeln!(output, "Измененные файлы:").expect("writing to a String must not fail");
         for path in modified_paths {
             writeln!(output, "  {}", display_path(&path))
                 .expect("writing to a String must not fail");
@@ -56,24 +56,24 @@ pub fn render_text_report(report: &PipelineReport) -> String {
     );
     if !hard_failures.is_empty() {
         writeln!(output).expect("writing to a String must not fail");
-        writeln!(output, "Hard failures:").expect("writing to a String must not fail");
+        writeln!(output, "Блокирующие ошибки:").expect("writing to a String must not fail");
         for result in hard_failures {
             writeln!(
                 output,
                 "  [{}] {}: {}",
                 result.rule_id,
                 display_path(&result.path),
-                result.message
+                blocking_summary_message(result)
             )
             .expect("writing to a String must not fail");
         }
     }
 
-    let sorted_results = sorted_results(report.results.iter());
+    let sorted_results = text_detail_results(&report.results);
     let grouped = grouped_results(sorted_results);
     if !grouped.is_empty() {
         writeln!(output).expect("writing to a String must not fail");
-        writeln!(output, "Messages:").expect("writing to a String must not fail");
+        writeln!(output, "Сообщения:").expect("writing to a String must not fail");
         for (rule_id, by_path) in grouped {
             writeln!(output, "  {rule_id}").expect("writing to a String must not fail");
             for (path, results) in by_path {
@@ -83,8 +83,8 @@ pub fn render_text_report(report: &PipelineReport) -> String {
                     writeln!(
                         output,
                         "      {}: {}{}",
-                        severity_label(result.status),
-                        result.message,
+                        text_severity_label(result.status),
+                        text_message(&result.message),
                         span_suffix(result.source_span)
                     )
                     .expect("writing to a String must not fail");
@@ -94,10 +94,28 @@ pub fn render_text_report(report: &PipelineReport) -> String {
     }
 
     writeln!(output).expect("writing to a String must not fail");
-    writeln!(output, "Exit code: {}", report.exit_code())
+    writeln!(output, "Код выхода: {}", report.exit_code())
         .expect("writing to a String must not fail");
 
     output
+}
+
+fn text_detail_results(results: &[ScenarioResult]) -> Vec<&ScenarioResult> {
+    let actionable = sorted_results(results.iter().filter(|result| {
+        matches!(
+            result.status,
+            ScenarioResultStatus::Modified | ScenarioResultStatus::Warning
+        )
+    }));
+    if !actionable.is_empty() {
+        return actionable;
+    }
+
+    if results.iter().any(|result| result.status.is_blocking()) {
+        return Vec::new();
+    }
+
+    sorted_results(results.iter())
 }
 
 pub fn render_json_report(report: &PipelineReport) -> String {
@@ -191,6 +209,136 @@ fn span_suffix(source_span: Option<SourceSpan>) -> String {
         .unwrap_or_default()
 }
 
+fn blocking_summary_message(result: &ScenarioResult) -> String {
+    match result.status {
+        ScenarioResultStatus::Unsupported => {
+            format!("не поддерживается: {}", text_message(&result.message))
+        }
+        _ => text_message(&result.message),
+    }
+}
+
+fn text_message(message: &str) -> String {
+    if let Some(value) = message.strip_prefix("form element id must be a positive integer: ") {
+        return format!(
+            "идентификатор элемента формы должен быть положительным целым числом: {value}"
+        );
+    }
+    if let Some(value) = message.strip_prefix("unreferenced metadata object directory for ") {
+        return format!("каталог объекта метаданных не указан в составе конфигурации: {value}");
+    }
+    if let Some(value) = message.strip_prefix("unreferenced metadata object file for ") {
+        return format!("файл объекта метаданных не указан в составе конфигурации: {value}");
+    }
+    if let Some(value) = message.strip_prefix("missing files for ") {
+        return format!("отсутствуют файлы для {value}");
+    }
+    if let Some(value) = message.strip_prefix("missing metadata directory for ") {
+        return format!("отсутствует каталог метаданных для объектов: {value}");
+    }
+    if let Some(value) = message.strip_prefix("missing source root: ") {
+        return format!("не найден корень исходников: {value}");
+    }
+    if let Some(value) = message.strip_prefix("matched dictionary word '") {
+        if let Some((word, line)) = value.split_once("' at line ") {
+            return format!("найдено слово из словаря '{word}' в строке {line}");
+        }
+    }
+    if let Some(value) = message.strip_prefix("failed to read file: ") {
+        return format!("не удалось прочитать файл: {value}");
+    }
+    if let Some(value) = message.strip_prefix("failed to write file: ") {
+        return format!("не удалось записать файл: {value}");
+    }
+    if let Some(value) = message.strip_prefix("copyright file is not configured or found: ") {
+        return format!("файл копирайта не настроен или не найден: {value}");
+    }
+    if let Some(value) = message.strip_prefix("copyright path must be repository-relative: ") {
+        return format!("путь к файлу копирайта должен быть относительным к репозиторию: {value}");
+    }
+    if let Some(value) = message.strip_prefix("base form element match is ambiguous: ") {
+        return format!("неоднозначное соответствие элемента базовой формы: {value}");
+    }
+    if let Some(value) = message.strip_prefix("configuration metadata case differs for ") {
+        return format!("регистр имени метаданных конфигурации отличается для {value}");
+    }
+    if let Some(value) = message.strip_prefix("failed to decode XML form text: ") {
+        return format!("не удалось декодировать текст XML-формы: {value}");
+    }
+    if let Some(value) = message.strip_prefix("failed to parse XML form: ") {
+        return format!("не удалось разобрать XML-форму: {value}");
+    }
+
+    match message {
+        "BSL syntax errors prevent unit test loader update" => {
+            "ошибки синтаксиса BSL мешают обновить загрузчик юнит-тестов".to_owned()
+        }
+        "base form files are processed through the owning Form.form" => {
+            "файлы базовой формы обрабатываются через основной Form.form".to_owned()
+        }
+        "configuration composition sorting is disabled by scenario settings" => {
+            "сортировка состава конфигурации отключена настройками сценария".to_owned()
+        }
+        "corrected duplicate XML form element ids" => {
+            "исправлены повторяющиеся или неположительные идентификаторы элементов XML-формы"
+                .to_owned()
+        }
+        "disabled form customization permission" => {
+            "отключено разрешение на настройку формы".to_owned()
+        }
+        "disabled full-text search metadata settings" => {
+            "отключены настройки полнотекстового поиска в метаданных".to_owned()
+        }
+        "dynamic local .os execution is not supported in v1" => {
+            "динамическое выполнение локальных .os-сценариев не поддерживается в v1".to_owned()
+        }
+        "file contained tabs" => "файл содержит табы".to_owned(),
+        "form element name and id must be plain XML text" => {
+            "имя и идентификатор элемента формы должны быть обычным XML-текстом".to_owned()
+        }
+        "full-text search metadata setting is already disabled" => {
+            "настройка полнотекстового поиска в метаданных уже отключена".to_owned()
+        }
+        "goto statement is forbidden" => "оператор Перейти запрещен".to_owned(),
+        "inserted or updated copyright header" => {
+            "вставлен или обновлен заголовок копирайта".to_owned()
+        }
+        "matched dictionary word" => "найдено слово из словаря".to_owned(),
+        "metadata file is excluded from full-text search disabling" => {
+            "файл метаданных исключен из отключения полнотекстового поиска".to_owned()
+        }
+        "metadata sync requires Configuration.mdo or Configuration.xml" => {
+            "синхронизация метаданных требует Configuration.mdo или Configuration.xml".to_owned()
+        }
+        "module contains configured copyright skip tag" => {
+            "модуль содержит настроенный тег пропуска копирайта".to_owned()
+        }
+        "removed duplicate metadata entries" => {
+            "удалены дублирующиеся записи метаданных".to_owned()
+        }
+        "removed excessive blank lines" => "удалены лишние пустые строки".to_owned(),
+        "removed trailing spaces or tabs" => {
+            "удалены лишние пробелы или табы в конце строк".to_owned()
+        }
+        "removed trailing whitespace" => "удалены лишние пробелы или табы в конце строк".to_owned(),
+        "scenario does not handle deleted files" => {
+            "сценарий не обрабатывает удаленные файлы".to_owned()
+        }
+        "scenario handles only BSL modules" => "сценарий обрабатывает только модули BSL".to_owned(),
+        "scenario handles only EDT Form.form files" => {
+            "сценарий обрабатывает только EDT-файлы Form.form".to_owned()
+        }
+        "scenario handles only XML/EDT metadata files" => {
+            "сценарий обрабатывает только XML/EDT-файлы метаданных".to_owned()
+        }
+        "sorted metadata composition" => "отсортирован состав метаданных".to_owned(),
+        "subsystem composition sorting is disabled by scenario settings" => {
+            "сортировка состава подсистемы отключена настройками сценария".to_owned()
+        }
+        _ => message.to_owned(),
+    }
+}
+
 fn display_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
@@ -199,6 +347,23 @@ fn mode_label(mode: PipelineMode) -> &'static str {
     match mode {
         PipelineMode::Hook => "hook",
         PipelineMode::ExecRules => "exec-rules",
+    }
+}
+
+fn text_mode_label(mode: PipelineMode) -> &'static str {
+    match mode {
+        PipelineMode::Hook => "хук",
+        PipelineMode::ExecRules => "exec-rules",
+    }
+}
+
+fn text_severity_label(status: ScenarioResultStatus) -> &'static str {
+    match status {
+        ScenarioResultStatus::Modified => "изменено",
+        ScenarioResultStatus::Warning => "предупреждение",
+        ScenarioResultStatus::HardFailure => "ошибка",
+        ScenarioResultStatus::Skipped => "пропущено",
+        ScenarioResultStatus::Unsupported => "не поддерживается",
     }
 }
 

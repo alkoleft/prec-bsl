@@ -149,7 +149,7 @@ fn resolve_config_for_run(
     match resolve_config(&config_request) {
         Ok(config) => Some(config),
         Err(error) => {
-            eprintln!("error: {error}");
+            eprintln!("ошибка: {error}");
             None
         }
     }
@@ -323,7 +323,7 @@ fn commit_reachable_from_remote_ref(repo_root: &Path, commit: &str) -> Result<bo
 
 fn skip_merge_commit(format: OutputFormat, mode: MergeCommitSkipMode) -> i32 {
     eprintln!(
-        "prec-bsl hook: skipped merge commit ({})",
+        "prec-bsl хук: пропущен merge commit ({})",
         merge_commit_skip_option(mode)
     );
     let report = PipelineReport {
@@ -344,6 +344,6 @@ fn merge_commit_skip_option(mode: MergeCommitSkipMode) -> &'static str {
 }
 
 fn print_error(message: String) -> i32 {
-    eprintln!("error: {message}");
+    eprintln!("ошибка: {message}");
     1
 }
