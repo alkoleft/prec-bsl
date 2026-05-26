@@ -304,10 +304,12 @@ fn read_v8project_manifest(repo_root: &Path) -> Option<Result<V8ProjectManifest,
 
 fn read_v8project_source_dirs(repo_root: &Path) -> Option<Result<Vec<PathBuf>, String>> {
     read_v8project_manifest(repo_root)
-        .map(|result| result.map(|manifest| manifest_source_dirs(&manifest)))
+        .map(|result| result.map(|manifest| manifest_source_dirs(repo_root, &manifest)))
 }
 
-fn manifest_source_dirs(manifest: &V8ProjectManifest) -> Vec<PathBuf> {
+fn manifest_source_dirs(repo_root: &Path, manifest: &V8ProjectManifest) -> Vec<PathBuf> {
+    let canonical_repo_root =
+        fs::canonicalize(repo_root).unwrap_or_else(|_| repo_root.to_path_buf());
     let base_path = manifest
         .base_path
         .as_deref()
@@ -322,11 +324,25 @@ fn manifest_source_dirs(manifest: &V8ProjectManifest) -> Vec<PathBuf> {
         if is_edt_manifest(manifest) {
             root.push("src");
         }
+        let root = manifest_source_dir_relative_to_repo(&canonical_repo_root, root);
         if !source_dirs.contains(&root) {
             source_dirs.push(root);
         }
     }
     source_dirs
+}
+
+fn manifest_source_dir_relative_to_repo(repo_root: &Path, path: PathBuf) -> PathBuf {
+    if !path.is_absolute() {
+        return normalize_repo_relative_path(&path);
+    }
+
+    let canonical_path = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+    canonical_path
+        .strip_prefix(repo_root)
+        .or_else(|_| path.strip_prefix(repo_root))
+        .map(normalize_repo_relative_path)
+        .unwrap_or(path)
 }
 
 fn is_supported_source_set_kind(kind: Option<&str>) -> bool {

@@ -331,6 +331,80 @@ fn source_root_discovery_prefers_v8project_source_sets_for_staged_files() {
 }
 
 #[test]
+fn source_root_discovery_normalizes_absolute_v8project_base_path_for_staged_files() {
+    let repo = temp_repo("normalizes_absolute_v8project_base_path");
+    let manifest = format!(
+        concat!(
+            "basePath: '{}'\n",
+            "format: EDT\n",
+            "source-set:\n",
+            "  - name: client_mcp\n",
+            "    type: EXTENSION\n",
+            "    path: 'exts/client-mcp'\n",
+            "  - name: configuration\n",
+            "    type: CONFIGURATION\n",
+            "    path: 'fixtures/configuration'\n",
+            "  - name: tests\n",
+            "    type: EXTENSION\n",
+            "    path: 'tests'\n",
+        ),
+        repo.display()
+    );
+    write_file(repo.join("v8project.yaml"), &manifest);
+    write_file(
+        repo.join("exts/client-mcp/src/Configuration/Configuration.mdo"),
+        "<mdclass:Configuration/>",
+    );
+    write_file(
+        repo.join("fixtures/configuration/src/DataProcessors/Обработка/Forms/Форма/Form.form"),
+        "<form:Form/>",
+    );
+    write_file(
+        repo.join("tests/src/CommonModules/ЮТКоллекции/Module.bsl"),
+        "Процедура Тест() Экспорт\nКонецПроцедуры\n",
+    );
+    let staged_files = vec![
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("exts/client-mcp/src/Configuration/Configuration.mdo"),
+            original_path: None,
+        },
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from(
+                "fixtures/configuration/src/DataProcessors/Обработка/Forms/Форма/Form.form",
+            ),
+            original_path: None,
+        },
+        StagedFile {
+            status: StagedStatus::Modified,
+            path: PathBuf::from("tests/src/CommonModules/ЮТКоллекции/Module.bsl"),
+            original_path: None,
+        },
+    ];
+
+    let resolution = discover_source_roots_from_staged_files(&repo, &staged_files);
+
+    assert!(
+        resolution.diagnostics.is_empty(),
+        "{:?}",
+        resolution.diagnostics
+    );
+    assert_eq!(
+        resolution
+            .roots
+            .iter()
+            .map(|root| root.repo_relative_path.clone())
+            .collect::<Vec<_>>(),
+        vec![
+            PathBuf::from("exts/client-mcp/src"),
+            PathBuf::from("fixtures/configuration/src"),
+            PathBuf::from("tests/src"),
+        ]
+    );
+}
+
+#[test]
 fn source_root_discovery_reads_all_v8project_source_sets_for_exec_rules() {
     let repo = temp_repo("discovers_all_v8project_source_sets");
     write_file(
