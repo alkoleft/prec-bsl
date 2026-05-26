@@ -110,7 +110,7 @@ fn rat_source_roots_copy_to_tempdir_without_mutating_checkout() {
 }
 
 #[test]
-fn rat_live_v8config_parses_without_enabled_repository_local_scenario_diagnostics() {
+fn rat_live_v8config_keeps_removed_unit_test_processing_disabled() {
     let Some(repo) = rat_repo() else {
         eprintln!("skipping RAT acceptance: /home/alko/develop/open-source/rat is not available");
         return;
@@ -150,6 +150,12 @@ fn rat_live_v8config_parses_without_enabled_repository_local_scenario_diagnostic
             .any(|scenario| *scenario == "РазборОбычныхФормНаИсходники"),
         "disabled unsupported built-in scenario must remain parse-compatible"
     );
+    assert!(
+        disabled
+            .iter()
+            .any(|scenario| normalize_scenario_id(scenario) == "ОбработкаЮнитТестов"),
+        "disabled removed unit-test scenario must remain parse-compatible"
+    );
 
     let diagnostics = enabled
         .iter()
@@ -158,7 +164,7 @@ fn rat_live_v8config_parses_without_enabled_repository_local_scenario_diagnostic
 
     assert!(
         diagnostics.is_empty(),
-        "RAT live enabled scenarios must be supported after compatibility aliases are registered: {diagnostics:?}"
+        "RAT live enabled scenarios must not report disabled unsupported scenarios: {diagnostics:?}"
     );
     assert!(
         diagnostics
@@ -188,6 +194,11 @@ fn rat_compatibility_config_with_sorting_aliases_parses_without_mutating_checkou
         .and_then(|scenarios| scenarios.get_mut("ГлобальныеСценарии"))
         .and_then(Value::as_array_mut)
         .expect("RAT compatibility config must have global scenarios");
+    global_scenarios.retain(|scenario| {
+        scenario
+            .as_str()
+            .is_none_or(|scenario| normalize_scenario_id(scenario) != "ОбработкаЮнитТестов")
+    });
     global_scenarios.push(Value::String("СортировкаДереваМетаданных.os".to_owned()));
     global_scenarios.push(Value::String("СортировкаСоставаПодсистем.os".to_owned()));
 

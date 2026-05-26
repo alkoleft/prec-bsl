@@ -159,7 +159,6 @@ Canonical JSON shape:
       "ЗапретИспользованияПерейти.os",
       "ИсправлениеНеКаноническогоНаписания.os",
       "КорректировкаXMLФорм.os",
-      "ОбработкаЮнитТестов.os",
       "ОтключениеПолнотекстовогоПоиска.os",
       "ОтключениеРазрешенияИзменятьФорму.os",
       "ПроверкаДублейПроцедурИФункций.os",
@@ -205,7 +204,6 @@ Required in v1:
 - `ЗапретИспользованияПерейти`
 - `ИсправлениеНеКаноническогоНаписания`
 - `КорректировкаXMLФорм`
-- `ОбработкаЮнитТестов`
 - `ОтключениеПолнотекстовогоПоиска`
 - `ОтключениеРазрешенияИзменятьФорму`
 - `ПроверкаДублейПроцедурИФункций`
@@ -246,8 +244,10 @@ the same reference scenario to EDT subsystem `.mdo` files and Designer subsystem
 Unsupported by product decision:
 
 - `РазборОбычныхФормНаИсходники`
+- `ОбработкаЮнитТестов`
 
-If `v8config.json` enables `РазборОбычныхФормНаИсходники`, `prec-bsl` must fail configuration validation with a clear message instead of silently ignoring it.
+If `v8config.json` enables either scenario, `prec-bsl` must fail configuration
+validation with a clear message instead of silently ignoring it.
 
 ## CLI Contract
 

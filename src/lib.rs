@@ -1,9 +1,7 @@
 pub mod app;
 pub mod cli;
 
-pub use prec_bsl_bsl::{
-    bsl_checkers, bsl_parser, text_checkers, text_fixers, unit_tests_processing,
-};
+pub use prec_bsl_bsl::{bsl_checkers, bsl_parser, text_checkers, text_fixers};
 pub use prec_bsl_git as git_index;
 pub use prec_bsl_output as output;
 pub use prec_bsl_pipeline as scenario_pipeline;
@@ -58,13 +56,15 @@ pub const UNSUPPORTED_ORDINARY_FORMS_METADATA: config::ScenarioMetadata =
         "РазборОбычныхФормНаИсходники.os",
     );
 
+pub const UNSUPPORTED_UNIT_TESTS_PROCESSING_METADATA: config::ScenarioMetadata =
+    config::ScenarioMetadata::unsupported("ОбработкаЮнитТестов", "ОбработкаЮнитТестов.os");
+
 pub const REFERENCE_SCENARIO_DEFINITIONS: &[scenario_pipeline::ScenarioDefinition] = &[
     text_fixers::COPYRIGHT_SCENARIO,
     text_fixers::KEYWORD_SPACING_SCENARIO,
     bsl_checkers::FORBID_GOTO_SCENARIO,
     text_fixers::CANONICAL_SPELLING_SCENARIO,
     xml_forms::XML_FORM_CORRECTION_SCENARIO,
-    unit_tests_processing::UNIT_TESTS_PROCESSING_SCENARIO,
     full_text_search::DISABLE_FULL_TEXT_SEARCH_SCENARIO,
     form_change_permission::DISABLE_FORM_CHANGE_SCENARIO,
     bsl_checkers::DUPLICATE_METHODS_SCENARIO,
@@ -87,7 +87,7 @@ pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
     bsl_checkers::FORBID_GOTO_SCENARIO.metadata,
     text_fixers::CANONICAL_SPELLING_SCENARIO.metadata,
     xml_forms::XML_FORM_CORRECTION_SCENARIO.metadata,
-    unit_tests_processing::UNIT_TESTS_PROCESSING_SCENARIO.metadata,
+    UNSUPPORTED_UNIT_TESTS_PROCESSING_METADATA,
     full_text_search::DISABLE_FULL_TEXT_SEARCH_SCENARIO.metadata,
     form_change_permission::DISABLE_FORM_CHANGE_SCENARIO.metadata,
     bsl_checkers::DUPLICATE_METHODS_SCENARIO.metadata,
@@ -127,7 +127,6 @@ mod tests {
         "ЗапретИспользованияПерейти",
         "ИсправлениеНеКаноническогоНаписания",
         "КорректировкаXMLФорм",
-        "ОбработкаЮнитТестов",
         "ОтключениеПолнотекстовогоПоиска",
         "ОтключениеРазрешенияИзменятьФорму",
         "ПроверкаДублейПроцедурИФункций",
@@ -179,6 +178,39 @@ mod tests {
 
         assert_eq!(scenario.id, crate::config::UNSUPPORTED_ORDINARY_FORMS);
         assert_eq!(scenario.support, ScenarioSupport::Unsupported);
+    }
+
+    #[test]
+    fn reference_scenario_inventory_keeps_removed_unit_test_processing_unsupported() {
+        let scenario = find_reference_scenario("ОбработкаЮнитТестов.os").unwrap();
+
+        assert_eq!(scenario.id, "ОбработкаЮнитТестов");
+        assert_eq!(scenario.support, ScenarioSupport::Unsupported);
+        assert!(
+            !crate::config::built_in_defaults()
+                .scenarios
+                .global_scenarios
+                .contains(&scenario.id.to_owned())
+        );
+    }
+
+    #[test]
+    fn removed_unit_test_processing_enabled_config_is_rejected() {
+        let error = crate::config::parse_config_str(
+            r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": ["ОбработкаЮнитТестов.os"]
+                }
+            }"#,
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains(
+                "unsupported built-in scenario in v1 enabled in global: ОбработкаЮнитТестов"
+            ),
+            "{error}"
+        );
     }
 
     #[test]

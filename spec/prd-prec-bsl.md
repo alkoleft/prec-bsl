@@ -25,7 +25,7 @@ The current reference implementation, `/usr/share/oscript/lib/precommit4onec`, i
 
 - `precommit4onec precommit` reads `git diff --name-status --staged --no-renames`, maps Git statuses to domain statuses, processes each staged file through configured scenarios, appends post-processing files to the processing queue, and restages modified paths.
 - `precommit4onec exec-rules` runs selected rules over one or more source directories, supports `-rules`, `-source-dir`, and `-cfg-file`, and aggregates critical errors at the end.
-- The default `v8config.json` enables 19 built-in scenarios and stores scenario settings under the historic key `Precommt4onecСценарии`.
+- The default `v8config.json` enables the supported built-in scenario set and stores scenario settings under the historic key `Precommt4onecСценарии`.
 - `prek` hook repositories use the upstream `.pre-commit-hooks.yaml` manifest, and Rust hooks are installed through `cargo install --bins --locked`.
 
 ## 3. Target Users & Personas
@@ -156,7 +156,6 @@ Acceptance criteria:
   - `ИсправлениеНеКаноническогоНаписания`
   - `ЗапретИспользованияПерейти`
   - `КорректировкаXMLФорм`
-  - `ОбработкаЮнитТестов`
   - `ОтключениеПолнотекстовогоПоиска`
   - `ОтключениеРазрешенияИзменятьФорму`
   - `ПроверкаДублейПроцедурИФункций`
@@ -189,6 +188,13 @@ Acceptance criteria:
 
 - Output groups messages by rule and file.
 - File modifications are listed separately from hard failures.
+- Human-readable text output suppresses non-actionable skip details when
+  modifications, warnings, hard failures or unsupported diagnostics are already
+  present; skipped messages remain visible when they are the only explanation
+  for a processed file.
+- Human-readable text output uses Russian labels, statuses and common
+  diagnostic messages; JSON keeps stable machine-readable English keys and
+  severity values.
 - Exit code is `0` only when no blocking diagnostics and no unreviewed modifications remain.
 - `--json` output is available for CI.
 
@@ -257,7 +263,6 @@ Required in v1:
 - `ЗапретИспользованияПерейти`
 - `ИсправлениеНеКаноническогоНаписания`
 - `КорректировкаXMLФорм`
-- `ОбработкаЮнитТестов`
 - `ОтключениеПолнотекстовогоПоиска`
 - `ОтключениеРазрешенияИзменятьФорму`
 - `ПроверкаДублейПроцедурИФункций`

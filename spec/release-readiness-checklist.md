@@ -15,7 +15,6 @@ It summarizes the implementation state tracked in
 | `ЗапретИспользованияПерейти` | Implemented | T18, `cargo test goto` |
 | `ИсправлениеНеКаноническогоНаписания` | Implemented | T14, `cargo test canonical_spelling` |
 | `КорректировкаXMLФорм` | Implemented | T24, `cargo test xml_forms` |
-| `ОбработкаЮнитТестов` | Implemented | T22, `cargo test unit_tests_processing` |
 | `ОтключениеПолнотекстовогоПоиска` | Implemented | T25, `cargo test disable_full_text_search` |
 | `ОтключениеРазрешенияИзменятьФорму` | Implemented | T26, `cargo test disable_form_change` |
 | `ПроверкаДублейПроцедурИФункций` | Implemented | T19, `cargo test duplicate_methods` |
@@ -33,6 +32,8 @@ Unsupported by product decision:
 
 - `РазборОбычныхФормНаИсходники` remains explicit in the scenario inventory and
   fails configuration validation when enabled.
+- `ОбработкаЮнитТестов` remains explicit in the scenario inventory and fails
+  configuration validation when enabled.
 - Repository-local or unknown `.os` scenarios are not executed in v1 and must
   produce unsupported diagnostics rather than silent skips.
 

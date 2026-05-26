@@ -37,7 +37,6 @@ order for parity tests. Scenario lookup must accept both `ИмяСценария
 - `ЗапретИспользованияПерейти`
 - `ИсправлениеНеКаноническогоНаписания`
 - `КорректировкаXMLФорм`
-- `ОбработкаЮнитТестов`
 - `ОтключениеПолнотекстовогоПоиска`
 - `ОтключениеРазрешенияИзменятьФорму`
 - `ПроверкаДублейПроцедурИФункций`
@@ -64,13 +63,14 @@ composition sorting is the subsystem branch. Lookup accepts both plain ids and
 `.os` suffixes, but the ids remain explicit supported entries rather than
 generic repository-local `.os` execution.
 
-## Explicit Unsupported Scenario
+## Explicit Unsupported Scenarios
 
 - `РазборОбычныхФормНаИсходники`
+- `ОбработкаЮнитТестов`
 
-This scenario exists in the reference installation and default config, but is
+These scenarios exist in the reference installation and default config, but are
 unsupported by `prec-bsl` v1 product decision. If enabled by configuration,
-validation must fail with a clear diagnostic instead of silently skipping it.
+validation must fail with a clear diagnostic instead of silently skipping them.
 
 ## Historic Config Key
 
