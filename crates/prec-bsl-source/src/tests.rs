@@ -135,6 +135,32 @@ fn source_root_preserves_multiple_exec_rules_roots_per_file() {
 }
 
 #[test]
+fn collect_source_files_skips_dot_files_and_directories() {
+    let repo = temp_repo("skips_dot_paths");
+    write_file(repo.join(".git/internal.bsl"), "");
+    write_file(repo.join(".hidden.bsl"), "");
+    write_file(repo.join("src/.generated/Generated.bsl"), "");
+    write_file(repo.join("src/Модуль.bsl"), "");
+
+    let resolution = resolve_source_roots(&repo, &[]);
+    let files = collect_source_files(&resolution.roots).unwrap();
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].repo_path, PathBuf::from("src/Модуль.bsl"));
+}
+
+#[test]
+fn collect_source_files_skips_explicit_dot_source_root() {
+    let repo = temp_repo("skips_explicit_dot_source_root");
+    write_file(repo.join(".generated/Generated.bsl"), "");
+
+    let resolution = resolve_source_roots(&repo, &[PathBuf::from(".generated")]);
+    let files = collect_source_files(&resolution.roots).unwrap();
+
+    assert!(files.is_empty());
+}
+
+#[test]
 fn file_classification_covers_bsl_edt_designer_xml_and_unsupported_files() {
     assert_eq!(
         classify_path(Path::new("src/Модуль.bsl")),

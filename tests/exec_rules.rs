@@ -191,6 +191,61 @@ fn exec_rules_without_source_dir_or_v8project_uses_repository_root() {
 }
 
 #[test]
+fn exec_rules_without_source_dir_skips_dot_files_and_directories() {
+    let repo = TempRepo::new("skips_dot_paths");
+    write_file(
+        repo.path().join(".git/internal.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join(".hidden.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("src/.generated/Generated.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("src/Модуль.bsl"),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+
+    let output = run_prec_bsl(
+        external_cwd(),
+        [
+            "exec-rules",
+            repo.path().to_str().unwrap(),
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert!(output.status.success(), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("prec-bsl exec-rules: processed 1 file(s)"));
+    assert!(stdout.contains("src/Модуль.bsl"));
+    assert!(!stdout.contains(".git/internal.bsl"));
+    assert!(!stdout.contains(".hidden.bsl"));
+    assert!(!stdout.contains("src/.generated/Generated.bsl"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".git/internal.bsl")).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".hidden.bsl")).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join("src/.generated/Generated.bsl")).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join("src/Модуль.bsl")).unwrap(),
+        "Процедура Тест()\nКонецПроцедуры\n"
+    );
+}
+
+#[test]
 fn exec_rules_missing_explicit_default_v8config_uses_defaults() {
     let repo = TempRepo::new("missing_explicit_default_v8config");
     write_file(

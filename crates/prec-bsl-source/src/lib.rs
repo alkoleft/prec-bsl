@@ -459,6 +459,9 @@ pub fn classify_repo_path(
 pub fn collect_source_files(roots: &[SourceRoot]) -> Result<Vec<SourceFile>, SourceFileError> {
     let mut files = Vec::new();
     for source_root in roots {
+        if has_dot_component(&source_root.repo_relative_path) {
+            continue;
+        }
         collect_source_files_into(source_root, &source_root.absolute_path, &mut files)?;
     }
     files.sort_by(|left, right| left.repo_path.cmp(&right.repo_path));
@@ -483,6 +486,9 @@ fn collect_source_files_into(
     entries.sort_by_key(|entry| entry.path());
 
     for entry in entries {
+        if is_dot_path(entry.file_name().as_ref()) {
+            continue;
+        }
         let file_type = entry
             .file_type()
             .map_err(|source| SourceFileError::ReadDir {
@@ -506,6 +512,15 @@ fn collect_source_files_into(
     }
 
     Ok(())
+}
+
+fn has_dot_component(path: &Path) -> bool {
+    path.components()
+        .any(|component| matches!(component, Component::Normal(name) if is_dot_path(name)))
+}
+
+fn is_dot_path(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().starts_with('.')
 }
 
 fn classify_repo_path_with_root(

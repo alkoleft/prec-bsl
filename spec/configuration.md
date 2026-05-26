@@ -301,6 +301,8 @@ Behavior:
   their `src` subdirectory.
 - If `--source-dir` is omitted and `v8project.yaml` is absent, uses the
   repository root as the default full-tree source root.
+- Files and directories whose names start with `.` are excluded from
+  full-tree traversal, including `.git` and other hidden working files.
 - Used for CI, migration checks, and manual validation.
 
 ## Configuration Precedence
