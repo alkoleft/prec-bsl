@@ -63,6 +63,24 @@ composition sorting is the subsystem branch. Lookup accepts both plain ids and
 `.os` suffixes, but the ids remain explicit supported entries rather than
 generic repository-local `.os` execution.
 
+## Extension Scenarios (beyond the v1 reference inventory)
+
+- `ПробелыВКомментариях`
+- `ПробелыПослеЗапятых`
+
+These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
+`SpaceAtStartComment` and `MissingSpace` (comma subset). They are NOT part of
+the required v1 `precommit4onec` inventory and are registered with
+`ScenarioSupport::Compatibility` so that:
+
+- the required v1 inventory list check in `src/lib.rs` stays unchanged;
+- `built_in_defaults` does not enable them implicitly (only `RequiredV1`
+  scenarios are enabled by default);
+- users opt in by listing the ids in `ГлобальныеСценарии`.
+
+Both are lexical text fixers with string/comment state tracking; see
+`crates/prec-bsl-bsl/src/text_fixers.rs`.
+
 ## Explicit Unsupported Scenarios
 
 - `РазборОбычныхФормНаИсходники`

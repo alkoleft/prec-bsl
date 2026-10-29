@@ -79,6 +79,8 @@ pub const REFERENCE_SCENARIO_DEFINITIONS: &[scenario_pipeline::ScenarioDefinitio
     duplicate_metadata::DUPLICATE_METADATA_SCENARIO,
     text_fixers::TRAILING_WHITESPACE_SCENARIO,
     text_fixers::EXTRA_BLANK_LINES_SCENARIO,
+    text_fixers::COMMENT_SPACING_SCENARIO,
+    text_fixers::COMMA_SPACING_SCENARIO,
 ];
 
 pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
@@ -103,6 +105,8 @@ pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
     duplicate_metadata::DUPLICATE_METADATA_SCENARIO.metadata,
     text_fixers::TRAILING_WHITESPACE_SCENARIO.metadata,
     text_fixers::EXTRA_BLANK_LINES_SCENARIO.metadata,
+    text_fixers::COMMENT_SPACING_SCENARIO.metadata,
+    text_fixers::COMMA_SPACING_SCENARIO.metadata,
 ];
 
 pub fn reference_scenario_catalog() -> config::ScenarioCatalog<'static> {
@@ -141,8 +145,12 @@ mod tests {
         "УдалениеЛишнихПустыхСтрок",
     ];
 
-    const EXPECTED_COMPATIBILITY: &[&str] =
-        &["СортировкаДереваМетаданных", "СортировкаСоставаПодсистем"];
+    const EXPECTED_COMPATIBILITY: &[&str] = &[
+        "СортировкаДереваМетаданных",
+        "СортировкаСоставаПодсистем",
+        "ПробелыВКомментариях",
+        "ПробелыПослеЗапятых",
+    ];
 
     #[test]
     fn reference_registry_binds_every_supported_reference_scenario_to_handler() {
