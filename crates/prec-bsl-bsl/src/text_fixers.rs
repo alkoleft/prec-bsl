@@ -13,6 +13,8 @@ pub const TRAILING_WHITESPACE_RULE: &str = "УдалениеЛишнихКонц
 pub const EXTRA_BLANK_LINES_RULE: &str = "УдалениеЛишнихПустыхСтрок";
 pub const KEYWORD_SPACING_RULE: &str = "ДобавлениеПробеловПередКлючевымиСловами";
 pub const CANONICAL_SPELLING_RULE: &str = "ИсправлениеНеКаноническогоНаписания";
+pub const COMMENT_SPACING_RULE: &str = "ПробелыВКомментариях";
+pub const COMMA_SPACING_RULE: &str = "ПробелыПослеЗапятых";
 
 pub const COPYRIGHT_SCENARIO: ScenarioDefinition =
     ScenarioDefinition::required_v1(COPYRIGHT_RULE, "ВставкаКопирайтов.os", copyright);
@@ -36,6 +38,13 @@ pub const CANONICAL_SPELLING_SCENARIO: ScenarioDefinition = ScenarioDefinition::
     "ИсправлениеНеКаноническогоНаписания.os",
     canonical_spelling,
 );
+pub const COMMENT_SPACING_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    COMMENT_SPACING_RULE,
+    "ПробелыВКомментариях.os",
+    comment_spacing,
+);
+pub const COMMA_SPACING_SCENARIO: ScenarioDefinition =
+    ScenarioDefinition::compatibility(COMMA_SPACING_RULE, "ПробелыПослеЗапятых.os", comma_spacing);
 
 const COPYRIGHT_PATH_SETTING: &str = "ПутьКФайлуКопирайта";
 const EXCLUDED_TAGS_SETTING: &str = "ИсключаемыеТеги";
@@ -154,6 +163,14 @@ pub fn canonical_spelling(context: &ScenarioExecutionContext<'_>) -> ScenarioRun
         "fixed non-canonical keyword spelling",
         should_skip_non_canonical_spelling,
     )
+}
+
+pub fn comment_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    run_bsl_text_fixer(context, fix_comment_spacing, "added spaces in comments")
+}
+
+pub fn comma_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    run_bsl_text_fixer(context, fix_comma_spacing, "added spaces after commas")
 }
 
 fn run_bsl_text_fixer(
@@ -554,6 +571,32 @@ pub fn fix_non_canonical_spelling(input: &str) -> String {
     output
 }
 
+pub fn fix_comment_spacing(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut state = CommentSpacingState::default();
+
+    for line in input.split_inclusive('\n') {
+        let (body, ending) = split_line_ending(line);
+        output.push_str(&fix_comment_spacing_in_line(body, &mut state));
+        output.push_str(ending);
+    }
+
+    output
+}
+
+pub fn fix_comma_spacing(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut state = CommaSpacingState::default();
+
+    for line in input.split_inclusive('\n') {
+        let (body, ending) = split_line_ending(line);
+        output.push_str(&fix_comma_spacing_in_line(body, &mut state));
+        output.push_str(ending);
+    }
+
+    output
+}
+
 #[derive(Debug, Default)]
 struct KeywordSpacingState {
     in_string: bool,
@@ -631,6 +674,173 @@ fn is_identifier_char(char: char) -> bool {
 struct CanonicalSpellingState {
     in_string: bool,
     skip_escaped_quote: bool,
+}
+
+#[derive(Debug, Default)]
+struct CommentSpacingState {
+    in_string: bool,
+    skip_escaped_quote: bool,
+}
+
+/// Пробел между `//` и текстом комментария: `//текст` → `// текст`.
+///
+/// Состояние `in_string` переносится между строками, поэтому `//` внутри
+/// многострочных строковых литералов с `|`-продолжением не считается комментарием.
+/// Не изменяет пустой комментарий `//`, разделители `/////`, `///`-док-комментарии,
+/// аннотации EDT и теги исключения копирайта.
+fn fix_comment_spacing_in_line(line: &str, state: &mut CommentSpacingState) -> String {
+    let mut output = String::with_capacity(line.len() + 1);
+    let mut index = 0;
+    let mut comment_start = None;
+
+    while index < line.len() {
+        let char = line[index..].chars().next().unwrap();
+
+        if char == '"' {
+            output.push(char);
+            if state.skip_escaped_quote {
+                state.skip_escaped_quote = false;
+            } else if state.in_string && line[index + char.len_utf8()..].starts_with('"') {
+                state.skip_escaped_quote = true;
+            } else {
+                state.in_string = !state.in_string;
+            }
+            index += char.len_utf8();
+            continue;
+        }
+
+        if state.in_string {
+            output.push(char);
+            index += char.len_utf8();
+            continue;
+        }
+
+        if char == '/' && line[index + char.len_utf8()..].starts_with('/') {
+            comment_start = Some(output.len());
+            output.push_str(&line[index..]);
+            break;
+        }
+
+        output.push(char);
+        index += char.len_utf8();
+    }
+
+    if let Some(comment_start) = comment_start
+        && comment_needs_space_after_marker(&output[comment_start..])
+    {
+        output.insert(comment_start + "//".len(), ' ');
+    }
+
+    output
+}
+
+/// Аннотации BSL LS/EDT (`//@`, `//(c)`, `//©`) распознаются по префиксу без пробела:
+/// вставка пробела ломает их семантику, поэтому они исключены как в SpaceAtStartComment.
+const COMMENT_ANNOTATION_PREFIXES: &[&str] = &["//@", "//(c)", "//©"];
+
+/// Тег исключения копирайта precommit4onec. Покрывает оба написания — `// IMPORT`
+/// и `//IMPORT`: вставка пробела в бесстрочном варианте активировала бы
+/// пропуск копирайта, который раньше не срабатывал.
+const COPYRIGHT_EXCLUDED_TAG: &str = "IMPORT";
+
+fn comment_needs_space_after_marker(comment: &str) -> bool {
+    // Комментарий без текста или уже начинается с пробела/таба.
+    if comment == "//" || comment[2..].starts_with([' ', '\t']) {
+        return false;
+    }
+
+    // Разделители `////...` и док-комментарии `///` остаются как есть.
+    if comment[2..].starts_with('/') {
+        return false;
+    }
+
+    if is_comment_annotation(comment) || is_copyright_excluded_tag(comment) {
+        return false;
+    }
+
+    true
+}
+
+fn is_comment_annotation(comment: &str) -> bool {
+    COMMENT_ANNOTATION_PREFIXES.iter().any(|prefix| {
+        comment
+            .get(..prefix.len())
+            .is_some_and(|candidate| candidate.to_lowercase() == *prefix)
+    })
+}
+
+fn is_copyright_excluded_tag(comment: &str) -> bool {
+    let text = comment[2..].trim_start();
+    let mut rest = text;
+    for expected in COPYRIGHT_EXCLUDED_TAG.chars() {
+        match rest.chars().next() {
+            Some(actual) if actual.to_lowercase().eq(expected.to_lowercase()) => {
+                rest = &rest[actual.len_utf8()..];
+            }
+            _ => return false,
+        }
+    }
+
+    rest.chars().next().is_none_or(|char| char.is_whitespace())
+}
+
+#[derive(Debug, Default)]
+struct CommaSpacingState {
+    in_string: bool,
+    skip_escaped_quote: bool,
+}
+
+/// Пробел после запятой между кодовыми токенами: `А,Б` → `А, Б`.
+///
+/// Запятая перед концом строки (перенос аргумента) — легальный код и не меняется.
+/// Содержимое строковых литералов и комментариев не затрагивается.
+fn fix_comma_spacing_in_line(line: &str, state: &mut CommaSpacingState) -> String {
+    let mut output = String::with_capacity(line.len() + 4);
+    let mut index = 0;
+
+    while index < line.len() {
+        let char = line[index..].chars().next().unwrap();
+
+        if char == '"' {
+            output.push(char);
+            if state.skip_escaped_quote {
+                state.skip_escaped_quote = false;
+            } else if state.in_string && line[index + char.len_utf8()..].starts_with('"') {
+                state.skip_escaped_quote = true;
+            } else {
+                state.in_string = !state.in_string;
+            }
+            index += char.len_utf8();
+            continue;
+        }
+
+        if state.in_string {
+            output.push(char);
+            index += char.len_utf8();
+            continue;
+        }
+
+        if char == '/' && line[index + char.len_utf8()..].starts_with('/') {
+            output.push_str(&line[index..]);
+            break;
+        }
+
+        if char == ',' {
+            output.push(char);
+            let rest = &line[index + char.len_utf8()..];
+            // Запятая перед переносом строки или уже с пробельным символом — корректный код.
+            if !rest.is_empty() && !rest.starts_with([' ', '\t']) {
+                output.push(' ');
+            }
+            index += char.len_utf8();
+            continue;
+        }
+
+        output.push(char);
+        index += char.len_utf8();
+    }
+
+    output
 }
 
 fn fix_non_canonical_spelling_in_line(line: &str, state: &mut CanonicalSpellingState) -> String {
@@ -1026,6 +1236,194 @@ mod tests {
         let output = fix_non_canonical_spelling(input);
 
         assert_eq!(output, input);
+    }
+
+    #[test]
+    fn comment_spacing_adds_space_between_marker_and_text() {
+        let input = concat!(
+            "//нужен пробел\n",
+            "Значение = 1;//и тут тоже\n",
+            "\t//отступ сохраняется\n",
+        );
+        let output = fix_comment_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "// нужен пробел\n",
+                "Значение = 1;// и тут тоже\n",
+                "\t// отступ сохраняется\n",
+            )
+        );
+    }
+
+    #[test]
+    fn comment_spacing_keeps_valid_comments_separators_and_import_tags() {
+        let input = concat!(
+            "// уже правильный комментарий\n",
+            "//\n",
+            "////// закомментированный разделитель\n",
+            "/// док-комментарий\n",
+            "// IMPORT\n",
+            "// IMPORT-стиль исключений копирайта\n",
+            "//IMPORT\n",
+            "//@skip-warning аннотация\n",
+            "//@unit-test\n",
+            "//(c) строка копирайта\n",
+            "//©/////////©//\n",
+        );
+        let output = fix_comment_spacing(input);
+
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn comment_spacing_ignores_comment_markers_inside_strings() {
+        let input = concat!(
+            "Строка = \"//не комментарий\";\n",
+            "Строка = \"текст \"\"//внутри\"\" кавычек\";\n",
+            "Значение = 1; //комментарий после строки\n",
+        );
+        let output = fix_comment_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Строка = \"//не комментарий\";\n",
+                "Строка = \"текст \"\"//внутри\"\" кавычек\";\n",
+                "Значение = 1; // комментарий после строки\n",
+            )
+        );
+    }
+
+    #[test]
+    fn comment_spacing_ignores_multiline_strings() {
+        let input = concat!(
+            "Текст = \"первая строка\n",
+            "|//не комментарий внутри литерала\n",
+            "|\";\n",
+            "//нужен пробел\n",
+        );
+        let output = fix_comment_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Текст = \"первая строка\n",
+                "|//не комментарий внутри литерала\n",
+                "|\";\n",
+                "// нужен пробел\n",
+            )
+        );
+    }
+
+    #[test]
+    fn comment_spacing_is_idempotent_and_preserves_line_endings() {
+        let input = concat!(
+            "//нужен пробел\r\n",
+            "// уже нормальный\r\n",
+            "Значение = 1;//и тут\r\n",
+        );
+
+        let first = fix_comment_spacing(input);
+        let second = fix_comment_spacing(&first);
+
+        assert_eq!(
+            first,
+            concat!(
+                "// нужен пробел\r\n",
+                "// уже нормальный\r\n",
+                "Значение = 1;// и тут\r\n",
+            )
+        );
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn comma_spacing_adds_space_after_comma_between_tokens() {
+        let input = concat!(
+            "Метод(Парам1,Парам2)\n",
+            "Массив = Новый Массив;\n",
+            "Значение = Функция(А,Б, В)\n",
+            "Список.Добавить(Первый,Второй)\n",
+        );
+        let output = fix_comma_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Метод(Парам1, Парам2)\n",
+                "Массив = Новый Массив;\n",
+                "Значение = Функция(А, Б, В)\n",
+                "Список.Добавить(Первый, Второй)\n",
+            )
+        );
+    }
+
+    #[test]
+    fn comma_spacing_keeps_line_break_and_existing_space_after_comma() {
+        let input = concat!(
+            "Метод1(24,\n",
+            "\t60,\n",
+            "\t60);\n",
+            "Метод(А, Б);\n",
+            "Метод(А,\n",
+            "\tБ);\n",
+        );
+        let output = fix_comma_spacing(input);
+
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn comma_spacing_ignores_strings_comments_and_multiline_literals() {
+        let input = concat!(
+            "Строка = \"запятая,внутри строки\";\n",
+            "Строка = \"текст \"\"а,б\"\" кавычки\";\n",
+            "// комментарий,без пробела\n",
+            "Текст = \"первая,строка\n",
+            "|вторая,строка литерала\n",
+            "|\";\n",
+            "Метод(А,Б);\n",
+        );
+        let output = fix_comma_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Строка = \"запятая,внутри строки\";\n",
+                "Строка = \"текст \"\"а,б\"\" кавычки\";\n",
+                "// комментарий,без пробела\n",
+                "Текст = \"первая,строка\n",
+                "|вторая,строка литерала\n",
+                "|\";\n",
+                "Метод(А, Б);\n",
+            )
+        );
+    }
+
+    #[test]
+    fn comma_spacing_is_idempotent_and_preserves_line_endings() {
+        let input = concat!(
+            "Метод(А,Б)\r\n",
+            "Метод2(В, Г)\r\n",
+            "Метод3(Д,\r\n",
+            "\tЕ);\r\n",
+        );
+
+        let first = fix_comma_spacing(input);
+        let second = fix_comma_spacing(&first);
+
+        assert_eq!(
+            first,
+            concat!(
+                "Метод(А, Б)\r\n",
+                "Метод2(В, Г)\r\n",
+                "Метод3(Д,\r\n",
+                "\tЕ);\r\n",
+            )
+        );
+        assert_eq!(second, first);
     }
 
     #[test]

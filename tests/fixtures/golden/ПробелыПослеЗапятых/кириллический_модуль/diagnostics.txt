@@ -1,0 +1,1 @@
+modified|ПробелыПослеЗапятых|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|added spaces after commas
