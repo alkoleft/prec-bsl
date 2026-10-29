@@ -203,6 +203,96 @@ fn scenario_pipeline_appends_post_processing_files_to_queue_once() {
 }
 
 #[test]
+fn report_diagnostics_flag_counts_warnings_and_blocking_results_only() {
+    let path = PathBuf::from("src/Модуль.bsl");
+    let report = |results: Vec<ScenarioResult>| PipelineReport {
+        mode: PipelineMode::Check,
+        processed_files: Vec::new(),
+        results,
+    };
+
+    // No results and skipped/modified-only reports have no diagnostics.
+    assert!(!report(Vec::new()).has_reported_diagnostics());
+    assert!(
+        !report(vec![ScenarioResult::skipped(
+            TRAILING_WHITESPACE_RULE,
+            path.clone(),
+            "skip",
+        )])
+        .has_reported_diagnostics()
+    );
+    assert!(
+        !report(vec![ScenarioResult::modified(
+            TRAILING_WHITESPACE_RULE,
+            path.clone(),
+            "modified",
+        )])
+        .has_reported_diagnostics()
+    );
+
+    // Warnings and blocking statuses do count.
+    assert!(
+        report(vec![ScenarioResult::warning(
+            TRAILING_WHITESPACE_RULE,
+            path.clone(),
+            "warning",
+        )])
+        .has_reported_diagnostics()
+    );
+    assert!(
+        report(vec![ScenarioResult::hard_failure(
+            TRAILING_WHITESPACE_RULE,
+            path.clone(),
+            "hard failure",
+        )])
+        .has_reported_diagnostics()
+    );
+    assert!(
+        report(vec![ScenarioResult::unsupported(
+            TRAILING_WHITESPACE_RULE,
+            path,
+            "unsupported",
+        )])
+        .has_reported_diagnostics()
+    );
+}
+
+#[test]
+fn check_and_fix_exit_codes_count_warnings_but_hook_does_not() {
+    let warning_only = PipelineReport {
+        mode: PipelineMode::Hook,
+        processed_files: Vec::new(),
+        results: vec![ScenarioResult::warning(
+            "ПроверкаНецензурныхСлов",
+            PathBuf::from("src/Плохой.bsl"),
+            "matched dictionary word 'плохоеСлово' at line 1",
+        )],
+    };
+
+    // Hook contract is unchanged: a warning never blocks the commit.
+    assert_eq!(warning_only.hook_exit_code(), 0);
+    // check/fix contract: a warning is a violation, exit 1.
+    assert_eq!(warning_only.check_exit_code(), 1);
+    assert_eq!(warning_only.fix_exit_code(), 1);
+    assert_eq!(
+        (PipelineReport {
+            mode: PipelineMode::Check,
+            ..warning_only.clone()
+        })
+        .exit_code(),
+        1
+    );
+    assert_eq!(
+        (PipelineReport {
+            mode: PipelineMode::Fix,
+            ..warning_only
+        })
+        .exit_code(),
+        1
+    );
+}
+
+#[test]
 fn scenario_pipeline_distinguishes_result_statuses_and_hook_exit() {
     let repo = temp_repo("statuses_and_exit");
     write_file(repo.join("src/Модуль.bsl"), "");

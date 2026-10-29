@@ -4,6 +4,7 @@ use std::path::Path;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
+use crate::write_policy::apply_text_modification;
 use crate::xml_edt::{parse_document, write_validated_xml};
 use prec_bsl_pipeline::{
     ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
@@ -43,20 +44,12 @@ pub fn disable_form_change_permission(context: &ScenarioExecutionContext<'_>) ->
 
     match disable_form_change_permission_text(&context.file.repo_path, context.file.kind, &input) {
         FormChangePermissionDisabling::Clean => ScenarioRun::clean(),
-        FormChangePermissionDisabling::Modified(output) => {
-            if let Err(error) = fs::write(&absolute_path, output) {
-                return ScenarioRun::single(ScenarioResult::hard_failure(
-                    context.rule_id,
-                    context.file.repo_path.clone(),
-                    format!("failed to write file: {error}"),
-                ));
-            }
-            ScenarioRun::single(ScenarioResult::modified(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                "disabled form customization permission",
-            ))
-        }
+        FormChangePermissionDisabling::Modified(output) => apply_text_modification(
+            context,
+            &absolute_path,
+            output,
+            "disabled form customization permission",
+        ),
         FormChangePermissionDisabling::Failed(message) => ScenarioRun::single(
             ScenarioResult::hard_failure(context.rule_id, context.file.repo_path.clone(), message),
         ),

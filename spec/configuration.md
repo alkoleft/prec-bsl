@@ -108,6 +108,9 @@ Allowed here:
 - `--source-dir <path>` for simple single-root repositories;
 - `--rules <rule1,rule2>` for explicit hook variants;
 - `--format text|json`;
+- `--mode all|changed|index|worktree` for the `check`/`fix` commands;
+- `--dry-run` for the `fix` command;
+- `--restage` for the `fix` command;
 - `--ignore-merge-commit` when a consuming repository wants merge commits to
   bypass `prec-bsl` hook processing;
 - `--ignore-remote-merge-commit` when only merge commits whose `MERGE_HEAD`
@@ -286,7 +289,7 @@ Behavior:
   source-root diagnostic instead of being processed relative to the repository
   root.
 
-`prec-bsl exec-rules`:
+`prec-bsl exec-rules` (deprecated):
 
 ```text
 prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]
@@ -294,6 +297,9 @@ prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <lis
 
 Behavior:
 
+- Deprecated alias for `fix --mode all`. Prints a deprecation warning to
+  stderr on every run, but keeps the historic behavior and exit codes
+  (including writing files) so existing consumers keep working.
 - Runs over configured source roots rather than only the staged index.
 - If `--source-dir` is provided, runs only over those explicit source roots.
 - If `--source-dir` is omitted and root `v8project.yaml` is present, resolves
@@ -304,6 +310,94 @@ Behavior:
 - Files and directories whose names start with `.` are excluded from
   full-tree traversal, including `.git` and other hidden working files.
 - Used for CI, migration checks, and manual validation.
+
+`prec-bsl check`:
+
+```text
+prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>]
+```
+
+Behavior:
+
+- Diagnostics only: never writes to files. Fixers run in memory and report
+  would-be modifications. In text format a per-file line diff (`+`/`-` lines
+  under «Предлагаемые изменения (не записаны)») is printed; in JSON format
+  the diff trailer is omitted because each result already carries
+  `proposed_content`.
+- "Violation" means a fixer would have changed the file or a checker scenario
+  produced a diagnostic result. Warnings count as violations: unlike the hook
+  contract (where warnings never block a commit), `check`/`fix` exit `1` on
+  any reported diagnostic, including warnings such as profanity matches.
+- Exit codes: `0` - no violations; `1` - violations found; `2` - execution
+  error (unresolvable repo path, invalid configuration, Git failure).
+- Uses the same config/source-root resolution as `exec-rules`/`fix`.
+
+`prec-bsl fix`:
+
+```text
+prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]
+```
+
+Behavior:
+
+- Applies fixers to files.
+- `--dry-run` shows what would change (per-file line diff in text format)
+  without writing. In JSON format the diff trailer is omitted: each result
+  already carries `proposed_content`.
+- `--restage` adds the fixed files back to the Git index after applying, the
+  same restaging step the `prek-hook` commit mode performs. It is the only
+  way to ask `prec-bsl` to update staged content; without the flag the Git
+  index is never touched by `fix`.
+- `--restage` is only accepted by `fix`. `check` rejects it as an unknown
+  option (CLI parse error).
+- `--restage` together with `--dry-run` is a warning printed to stderr, not an
+  error: restaging has no effect without writing, so the dry-run runs as
+  usual, and no file or index entry is modified. This keeps scripts that
+  always pass `--restage` working.
+- Warnings count as violations, same as `check`.
+- Exit codes: `0` - no fixes needed; `1` - fixes applied (in dry-run: there
+  is something to apply) or diagnostics (including warnings) reported;
+  `2` - execution error, including a failed restage.
+  Hook-compatible semantics.
+
+`--mode` file selection (both `check` and `fix`, default `all`):
+
+- `all` - every source file in the resolved source roots (equivalent to the
+  historic `exec-rules` traversal).
+- `changed` - everything changed relative to `HEAD`: staged, unstaged, and
+  untracked files. New files are included by product decision.
+- `index` - staged files only (the same Git layer the `prek-hook` commit mode
+  uses).
+- `worktree` - files changed outside the index: unstaged plus untracked.
+
+Mode file sets are intersected with the source roots and path classification
+(`classify_repo_path`): non-source files are filtered out as usual. Deleted
+files (Git status `D`) are skipped with the standard
+"scenario does not handle deleted files" message.
+
+### Staged-content semantics
+
+Every `check`/`fix` mode reads and fixes (in `fix`) the **working tree** copy
+of each selected file on disk. Staged (Git index) content is never
+overwritten silently.
+
+`--mode` values are file **selection** filters based on Git status, not a
+choice of which content version to process: `--mode index` selects staged
+files, but analyzes and fixes their current working-tree content, not the
+index version.
+
+`--restage` is the only way to request that fixed content is written back to
+the index (the manual-run equivalent of the `prek-hook` restaging wrapper).
+By default (no flag) `fix` only modifies the working tree and leaves the index
+untouched, which is backward compatible with existing scripts.
+
+Example for a file with combined `MM` status where both the staged version and
+the working tree contain a violation (for example, trailing whitespace):
+
+| Command | Working tree | Staged (index) | Status after |
+| --- | --- | --- | --- |
+| `fix --mode index` | fixed | untouched: violation remains | `MM` (the staged part still differs from `HEAD`, and the fixed working tree now differs from the index) |
+| `fix --mode index --restage` | fixed | fixed: fixed content lands in the index | clean vs `HEAD` |
 
 ## Configuration Precedence
 

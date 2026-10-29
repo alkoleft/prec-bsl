@@ -231,6 +231,45 @@ fn prek_hook_passes_deleted_files_only_to_deleted_file_capable_scenarios() {
     );
 }
 
+/// Hook contract regression: warning diagnostics (for example profanity
+/// matches) never block the commit, even though `check`/`fix` count them
+/// as violations and exit 1.
+#[test]
+fn prek_hook_exits_zero_on_warning_diagnostics() {
+    let repo = TempGitRepo::new("warning_does_not_block");
+    let staged_path = PathBuf::from("src/Плохой.bsl");
+    let clean_module = "Процедура Тест()\nКонецПроцедуры\n";
+    let dirty_module = "Процедура Тест()\n    Сообщить(\"плохоеСлово\");\nКонецПроцедуры\n";
+
+    write_file(repo.path().join(&staged_path), clean_module);
+    write_file(repo.path().join("НецензурныеСлова.txt"), "плохоеСлово\n");
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    // A staged edit that introduces a profanity warning.
+    write_file(repo.path().join(&staged_path), dirty_module);
+    run_git(repo.path(), ["add", "src/Плохой.bsl"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        ["prek-hook", "--rules", "ПроверкаНецензурныхСлов"],
+    );
+
+    assert!(
+        output.status.success(),
+        "hook must not block on warnings: {}",
+        output_text(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("предупреждение"));
+    assert!(stdout.contains("найдено слово из словаря 'плохоеСлово' в строке 2"));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&staged_path)).unwrap(),
+        dirty_module,
+        "warning scenario must not modify the file"
+    );
+}
+
 #[test]
 fn prek_hook_discovers_source_root_from_staged_configuration_metadata() {
     let repo = TempGitRepo::new("discovers_source_root");

@@ -109,21 +109,12 @@ pub fn copyright(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
             context.file.repo_path.clone(),
             "module contains configured copyright skip tag",
         )),
-        CopyrightFix::Modified(output) => {
-            if let Err(error) = fs::write(&path, output) {
-                return ScenarioRun::single(ScenarioResult::hard_failure(
-                    context.rule_id,
-                    context.file.repo_path.clone(),
-                    format!("failed to write file: {error}"),
-                ));
-            }
-
-            ScenarioRun::single(ScenarioResult::modified(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                "inserted or updated copyright header",
-            ))
-        }
+        CopyrightFix::Modified(output) => apply_text_modification(
+            context,
+            &path,
+            output,
+            "inserted or updated copyright header",
+        ),
         CopyrightFix::Failed(message) => ScenarioRun::single(ScenarioResult::hard_failure(
             context.rule_id,
             context.file.repo_path.clone(),
@@ -216,7 +207,27 @@ fn run_bsl_text_fixer_with_skip(
         return ScenarioRun::clean();
     }
 
-    if let Err(error) = fs::write(&path, output) {
+    apply_text_modification(context, &path, output, modified_message)
+}
+
+/// Shared write boundary of text fixers: honors [`WritePolicy`] so the `check`
+/// command reports would-be modifications without touching the working tree.
+pub(crate) fn apply_text_modification(
+    context: &ScenarioExecutionContext<'_>,
+    path: &Path,
+    output: String,
+    modified_message: &str,
+) -> ScenarioRun {
+    if context.write_policy == prec_bsl_pipeline::WritePolicy::DryRun {
+        return ScenarioRun::single(ScenarioResult::modified_dry_run(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            modified_message,
+            output,
+        ));
+    }
+
+    if let Err(error) = fs::write(path, output) {
         return ScenarioRun::single(ScenarioResult::hard_failure(
             context.rule_id,
             context.file.repo_path.clone(),

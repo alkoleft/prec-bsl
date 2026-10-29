@@ -6,6 +6,7 @@ use std::path::Path;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
+use crate::write_policy::apply_text_modification;
 use crate::xml_edt::parse_document;
 use prec_bsl_pipeline::{
     ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
@@ -51,18 +52,9 @@ pub fn duplicate_metadata(context: &ScenarioExecutionContext<'_>) -> ScenarioRun
             context.file.repo_path.clone(),
             message,
         )),
-        DuplicateMetadataRemoval::Modified(output) => match fs::write(&path, output) {
-            Ok(()) => ScenarioRun::single(ScenarioResult::modified(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                "removed duplicate metadata entries",
-            )),
-            Err(error) => ScenarioRun::single(ScenarioResult::hard_failure(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                format!("failed to write metadata composition file: {error}"),
-            )),
-        },
+        DuplicateMetadataRemoval::Modified(output) => {
+            apply_text_modification(context, &path, output, "removed duplicate metadata entries")
+        }
         DuplicateMetadataRemoval::Failed(message) => ScenarioRun::single(
             ScenarioResult::hard_failure(context.rule_id, context.file.repo_path.clone(), message),
         ),

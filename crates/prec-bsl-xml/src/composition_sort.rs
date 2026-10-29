@@ -6,6 +6,7 @@ use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 use serde_json::Value;
 
+use crate::write_policy::apply_text_modification;
 use crate::xml_edt::parse_document;
 use prec_bsl_pipeline::{
     ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
@@ -186,18 +187,9 @@ pub fn composition_sort(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
             context.file.repo_path.clone(),
             message,
         )),
-        CompositionSorting::Modified(output) => match fs::write(&path, output) {
-            Ok(()) => ScenarioRun::single(ScenarioResult::modified(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                "sorted metadata composition",
-            )),
-            Err(error) => ScenarioRun::single(ScenarioResult::hard_failure(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                format!("failed to write metadata composition file: {error}"),
-            )),
-        },
+        CompositionSorting::Modified(output) => {
+            apply_text_modification(context, &path, output, "sorted metadata composition")
+        }
         CompositionSorting::Failed(message) => ScenarioRun::single(ScenarioResult::hard_failure(
             context.rule_id,
             context.file.repo_path.clone(),

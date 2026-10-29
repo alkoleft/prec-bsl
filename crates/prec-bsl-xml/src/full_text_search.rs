@@ -6,6 +6,7 @@ use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use serde_json::Value;
 
+use crate::write_policy::apply_text_modification;
 use crate::xml_edt::{parse_document, write_validated_xml};
 use prec_bsl_pipeline::{
     ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
@@ -71,20 +72,12 @@ pub fn disable_full_text_search(context: &ScenarioExecutionContext<'_>) -> Scena
         &exclusions,
     ) {
         FullTextSearchDisabling::Clean => ScenarioRun::clean(),
-        FullTextSearchDisabling::Modified(output) => {
-            if let Err(error) = fs::write(&absolute_path, output) {
-                return ScenarioRun::single(ScenarioResult::hard_failure(
-                    context.rule_id,
-                    context.file.repo_path.clone(),
-                    format!("failed to write file: {error}"),
-                ));
-            }
-            ScenarioRun::single(ScenarioResult::modified(
-                context.rule_id,
-                context.file.repo_path.clone(),
-                "disabled full-text search metadata settings",
-            ))
-        }
+        FullTextSearchDisabling::Modified(output) => apply_text_modification(
+            context,
+            &absolute_path,
+            output,
+            "disabled full-text search metadata settings",
+        ),
         FullTextSearchDisabling::Failed(message) => ScenarioRun::single(
             ScenarioResult::hard_failure(context.rule_id, context.file.repo_path.clone(), message),
         ),

@@ -27,6 +27,166 @@ pub fn render_report(report: &PipelineReport, format: OutputFormat) -> String {
     }
 }
 
+/// Renders simple `+`/`-` line diffs for every dry-run result carrying
+/// `proposed_content`. The original file content is read from `repo_root`.
+///
+/// Returns an empty string when there is nothing to show.
+pub fn render_dry_run_diffs(report: &PipelineReport, repo_root: &Path) -> String {
+    let mut output = String::new();
+    for result in sorted_results(report.results.iter()) {
+        let Some(proposed) = result.proposed_content.as_deref() else {
+            continue;
+        };
+        if !result.status.is_modification() {
+            continue;
+        }
+
+        let absolute_path = repo_root.join(&result.path);
+        let original = std::fs::read_to_string(&absolute_path).unwrap_or_default();
+        writeln!(output, "{}", display_path(&result.path))
+            .expect("writing to a String must not fail");
+        for line in render_line_diff(&original, proposed) {
+            writeln!(output, "{line}").expect("writing to a String must not fail");
+        }
+        writeln!(output).expect("writing to a String must not fail");
+    }
+    output
+}
+
+/// Line diff used for dry-run previews: every removed line gets `-`, every
+/// added line gets `+`. Common lines are omitted. Unified hunks are
+/// deliberately out of scope.
+///
+/// Implemented with Hirschberg's linear-space LCS: the classic
+/// dynamic-programming table would need `O(n*m)` memory (a 10 000-line file
+/// pair would allocate hundreds of megabytes), while this implementation
+/// keeps only a few one-dimensional score rows (`O(n+m)` memory) at the cost
+/// of an extra pass per recursion level. The emitted diff is an LCS diff of
+/// the same quality as the quadratic version.
+fn render_line_diff(original: &str, proposed: &str) -> Vec<String> {
+    let original_lines: Vec<&str> = original.lines().collect();
+    let proposed_lines: Vec<&str> = proposed.lines().collect();
+
+    let mut diff_lines = Vec::new();
+    collect_lcs_diff(&original_lines, &proposed_lines, &mut diff_lines);
+    diff_lines
+}
+
+/// Hirschberg divide-and-conquer LCS diff over line slices: emits `-line` for
+/// every removed original line and `+line` for every added proposed line,
+/// skipping common lines.
+fn collect_lcs_diff(original: &[&str], proposed: &[&str], output: &mut Vec<String>) {
+    if original.is_empty() {
+        output.extend(proposed.iter().map(|line| format!("+{line}")));
+        return;
+    }
+    if proposed.is_empty() {
+        output.extend(original.iter().map(|line| format!("-{line}")));
+        return;
+    }
+
+    // Base case: one side is a single line. The LCS is 1 when the line occurs
+    // on the other side, 0 otherwise, so the diff is a straightforward
+    // add/remove of the unmatched lines.
+    if original.len() == 1 {
+        let original_line = original[0];
+        match proposed.iter().position(|line| *line == original_line) {
+            Some(match_index) => {
+                output.extend(
+                    proposed[..match_index]
+                        .iter()
+                        .map(|line| format!("+{line}")),
+                );
+                output.extend(
+                    proposed[match_index + 1..]
+                        .iter()
+                        .map(|line| format!("+{line}")),
+                );
+            }
+            None => {
+                output.push(format!("-{original_line}"));
+                output.extend(proposed.iter().map(|line| format!("+{line}")));
+            }
+        }
+        return;
+    }
+    if proposed.len() == 1 {
+        let proposed_line = proposed[0];
+        match original.iter().position(|line| *line == proposed_line) {
+            Some(match_index) => {
+                output.extend(
+                    original[..match_index]
+                        .iter()
+                        .map(|line| format!("-{line}")),
+                );
+                output.extend(
+                    original[match_index + 1..]
+                        .iter()
+                        .map(|line| format!("-{line}")),
+                );
+            }
+            None => {
+                output.extend(original.iter().map(|line| format!("-{line}")));
+                output.push(format!("+{proposed_line}"));
+            }
+        }
+        return;
+    }
+
+    // Split the original lines in half and pick the proposed split index that
+    // maximizes LCS(left half, proposed prefix) + LCS(right half, proposed
+    // suffix), then recurse into both halves.
+    let mid = original.len() / 2;
+    let left_scores = lcs_scores(&original[..mid], proposed);
+    let right_scores = lcs_suffix_scores(&original[mid..], proposed);
+
+    let mut best_split = 0;
+    let mut best_total = 0;
+    for split in 0..=proposed.len() {
+        let total = left_scores[split] + right_scores[proposed.len() - split];
+        if total > best_total {
+            best_total = total;
+            best_split = split;
+        }
+    }
+
+    collect_lcs_diff(&original[..mid], &proposed[..best_split], output);
+    collect_lcs_diff(&original[mid..], &proposed[best_split..], output);
+}
+
+/// LCS score row of `original` against every prefix of `proposed`:
+/// `scores[j]` is the LCS length of `original` and `proposed[..j]`.
+/// Two rolling rows, `O(len(proposed))` memory.
+fn lcs_scores(original: &[&str], proposed: &[&str]) -> Vec<usize> {
+    let mut previous = vec![0usize; proposed.len() + 1];
+    let mut current = vec![0usize; proposed.len() + 1];
+    for original_line in original {
+        for (j, proposed_line) in proposed.iter().enumerate() {
+            current[j + 1] = if original_line == proposed_line {
+                previous[j] + 1
+            } else {
+                previous[j + 1].max(current[j])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+        current.fill(0);
+    }
+    previous
+}
+
+/// LCS score row of `original` against every suffix of `proposed`:
+/// `scores[j]` is the LCS length of `original` and the last `j` lines of
+/// `proposed`. Computed by running the same rolling-row DP on reversed
+/// slices; the split search then pairs `left[split]` with
+/// `right[len - split]` under one indexing scheme.
+fn lcs_suffix_scores(original: &[&str], proposed: &[&str]) -> Vec<usize> {
+    let mut reversed_original: Vec<&str> = original.to_vec();
+    reversed_original.reverse();
+    let mut reversed_proposed: Vec<&str> = proposed.to_vec();
+    reversed_proposed.reverse();
+    lcs_scores(&reversed_original, &reversed_proposed)
+}
+
 pub fn render_text_report(report: &PipelineReport) -> String {
     let mut output = String::new();
 
@@ -172,6 +332,7 @@ fn sorted_json_results(results: &[ScenarioResult]) -> Vec<JsonResult> {
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
+            proposed_content: result.proposed_content.clone(),
         })
         .collect()
 }
@@ -349,6 +510,8 @@ fn mode_label(mode: PipelineMode) -> &'static str {
     match mode {
         PipelineMode::Hook => "hook",
         PipelineMode::ExecRules => "exec-rules",
+        PipelineMode::Check => "check",
+        PipelineMode::Fix => "fix",
     }
 }
 
@@ -356,6 +519,8 @@ fn text_mode_label(mode: PipelineMode) -> &'static str {
     match mode {
         PipelineMode::Hook => "хук",
         PipelineMode::ExecRules => "exec-rules",
+        PipelineMode::Check => "check",
+        PipelineMode::Fix => "fix",
     }
 }
 
@@ -399,6 +564,8 @@ struct JsonResult {
     source_span: Option<JsonSourceSpan>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     modified_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proposed_content: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

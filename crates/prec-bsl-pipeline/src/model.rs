@@ -11,6 +11,19 @@ pub struct ScenarioExecutionContext<'a> {
     pub rule_id: &'a str,
     pub file: &'a SourceFile,
     pub settings: Option<&'a Value>,
+    pub write_policy: WritePolicy,
+}
+
+/// Controls whether scenario fixers may write modified files back to disk.
+///
+/// `Apply` keeps the historic hook/exec-rules behavior. `DryRun` makes fixers
+/// report would-be modifications (`ScenarioResultStatus::Modified` plus
+/// `proposed_content`) without touching the working tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WritePolicy {
+    #[default]
+    Apply,
+    DryRun,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +61,7 @@ pub struct ScenarioResult {
     pub message: String,
     pub modified_paths: Vec<PathBuf>,
     pub source_span: Option<SourceSpan>,
+    pub proposed_content: Option<String>,
 }
 
 impl ScenarioResult {
@@ -64,6 +78,7 @@ impl ScenarioResult {
             message: message.into(),
             modified_paths: Vec::new(),
             source_span: None,
+            proposed_content: None,
         }
     }
 
@@ -80,6 +95,7 @@ impl ScenarioResult {
             message: message.into(),
             modified_paths: vec![path],
             source_span: None,
+            proposed_content: None,
         }
     }
 
@@ -124,6 +140,22 @@ impl ScenarioResult {
         self.source_span = Some(source_span);
         self
     }
+
+    pub fn with_proposed_content(mut self, proposed_content: impl Into<String>) -> Self {
+        self.proposed_content = Some(proposed_content.into());
+        self
+    }
+
+    /// Dry-run counterpart of [`Self::modified`]: the fixer would rewrite the
+    /// file, but the working tree must stay untouched.
+    pub fn modified_dry_run(
+        rule_id: impl Into<String>,
+        path: impl Into<PathBuf>,
+        message: impl Into<String>,
+        proposed_content: impl Into<String>,
+    ) -> Self {
+        Self::modified(rule_id, path, message).with_proposed_content(proposed_content)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +196,14 @@ impl ScenarioResultStatus {
 pub enum PipelineMode {
     Hook,
     ExecRules,
+    Check,
+    Fix,
+}
+
+impl PipelineMode {
+    pub fn is_dry_run(self) -> bool {
+        matches!(self, Self::Check)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +247,18 @@ impl PipelineReport {
             .any(|result| result.status.is_blocking())
     }
 
+    /// Whether any scenario produced a reportable diagnostic: a blocking
+    /// failure (hard failure or unsupported) or a warning. Used by the
+    /// `check`/`fix` exit codes, where warnings are violations of the
+    /// "exit 1 when violations found" contract. The hook contract is
+    /// deliberately different: `hook_exit_code` stays warning-free so
+    /// precommit warnings never block a commit.
+    pub fn has_reported_diagnostics(&self) -> bool {
+        self.results.iter().any(|result| {
+            result.status.is_blocking() || result.status == ScenarioResultStatus::Warning
+        })
+    }
+
     pub fn has_unreviewed_modifications(&self) -> bool {
         !self.modified_paths().is_empty()
     }
@@ -227,10 +279,36 @@ impl PipelineReport {
         }
     }
 
+    /// Exit code of the `check` command: `1` when any scenario reported a
+    /// would-be modification, a blocking diagnostic, or a warning, `0`
+    /// otherwise. Unlike the hook contract, warnings count as violations
+    /// here: `check` is a diagnostics command and "exit 1 when violations
+    /// found" must cover checker warnings such as profanity matches.
+    pub fn check_exit_code(&self) -> i32 {
+        if self.has_reported_diagnostics() || self.has_unreviewed_modifications() {
+            1
+        } else {
+            0
+        }
+    }
+
+    /// Exit code of the `fix` command: `1` when fixers applied changes (or
+    /// would apply them in dry-run), or a diagnostic (including a warning)
+    /// was reported, `0` otherwise.
+    pub fn fix_exit_code(&self) -> i32 {
+        if self.has_reported_diagnostics() || self.has_unreviewed_modifications() {
+            1
+        } else {
+            0
+        }
+    }
+
     pub fn exit_code(&self) -> i32 {
         match self.mode {
             PipelineMode::Hook => self.hook_exit_code(),
             PipelineMode::ExecRules => self.exec_rules_exit_code(),
+            PipelineMode::Check => self.check_exit_code(),
+            PipelineMode::Fix => self.fix_exit_code(),
         }
     }
 }

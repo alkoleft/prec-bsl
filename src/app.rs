@@ -1,10 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::cli::{ExecRulesArgs, MergeCommitSkipMode, PrekHookArgs};
+use crate::cli::{
+    CheckArgs, ExecRulesArgs, FileSelectionMode, FixArgs, MergeCommitSkipMode, PrekHookArgs,
+};
 use crate::config::{ConfigResolveRequest, resolve_config};
-use crate::git_index::{collect_staged_files, restage_paths};
-use crate::output::{OutputFormat, render_report};
+use crate::git_index::{
+    collect_changed_files, collect_staged_files, collect_worktree_files, restage_paths,
+};
+use crate::output::{OutputFormat, render_dry_run_diffs, render_report};
 use crate::reference_registry;
 use crate::scenario_pipeline::{
     PipelineMode, PipelineReport, PipelineRequest, ScenarioResult, run_pipeline,
@@ -77,6 +81,7 @@ pub fn run_prek_hook(args: &PrekHookArgs) -> i32 {
 }
 
 pub fn run_exec_rules(args: &ExecRulesArgs) -> i32 {
+    eprintln!("предупреждение: exec-rules устарела, используйте prec-bsl fix --mode all");
     let repo_root = match canonical_repo_root(&args.repo) {
         Ok(repo_root) => repo_root,
         Err(message) => return print_error(message),
@@ -113,6 +118,148 @@ pub fn run_exec_rules(args: &ExecRulesArgs) -> i32 {
 
     print!("{}", render_report(&report, args.format));
     report.exit_code()
+}
+
+/// `prec-bsl check`: diagnostics only, never writes files.
+pub fn run_check(args: &CheckArgs) -> i32 {
+    run_check_or_fix(
+        &args.repo,
+        CheckFixRun::Check,
+        args.config.clone(),
+        args.source_dirs.as_ref().map(|dirs| dirs.0.clone()),
+        args.rules.as_ref().map(|rules| rules.0.clone()),
+        args.format,
+        args.mode,
+    )
+}
+
+/// `prec-bsl fix`: applies fixers, or previews them with `--dry-run`.
+/// With `--restage`, applied fixes are added back to the Git index.
+pub fn run_fix(args: &FixArgs) -> i32 {
+    run_check_or_fix(
+        &args.repo,
+        CheckFixRun::Fix {
+            dry_run: args.dry_run,
+            restage: args.restage,
+        },
+        args.config.clone(),
+        args.source_dirs.as_ref().map(|dirs| dirs.0.clone()),
+        args.rules.as_ref().map(|rules| rules.0.clone()),
+        args.format,
+        args.mode,
+    )
+}
+
+/// Kind of `check`/`fix` run. `Fix` carries the two fix-only flags: preview
+/// without writing (`dry_run`) and restaging fixed files into the Git index
+/// (`restage`, ignored in `dry_run`).
+enum CheckFixRun {
+    Check,
+    Fix { dry_run: bool, restage: bool },
+}
+
+fn run_check_or_fix(
+    repo: &Path,
+    run: CheckFixRun,
+    config_path: Option<PathBuf>,
+    source_dirs_value: Option<String>,
+    rules_value: Option<String>,
+    format: OutputFormat,
+    mode: FileSelectionMode,
+) -> i32 {
+    let repo_root = match canonical_repo_root(repo) {
+        Ok(repo_root) => repo_root,
+        Err(message) => return print_execution_error(message),
+    };
+    let explicit_source_dirs = source_dirs_value.as_deref().map(parse_source_dir_list);
+    let pipeline_mode = match run {
+        CheckFixRun::Check | CheckFixRun::Fix { dry_run: true, .. } => PipelineMode::Check,
+        CheckFixRun::Fix { dry_run: false, .. } => PipelineMode::Fix,
+    };
+    let Some((config, roots)) = resolve_config_and_roots(
+        &repo_root,
+        config_path,
+        rules_value,
+        explicit_source_dirs.as_deref(),
+        pipeline_mode,
+        format,
+    ) else {
+        // Configuration and source-root failures are execution errors for
+        // check/fix: contract exit code is 2, not the "violations found" 1.
+        return 2;
+    };
+
+    let files = match select_mode_files(&repo_root, mode, &roots) {
+        Ok(files) => files,
+        Err(error) => return print_execution_error(error),
+    };
+    let report = run_pipeline(
+        &reference_registry(),
+        PipelineRequest {
+            repo_root: &repo_root,
+            source_roots: &roots,
+            config: &config,
+            files,
+            mode: pipeline_mode,
+        },
+    );
+
+    // Dry-run kinds: `check` itself and `fix --dry-run`.
+    let (dry_run, restage) = match run {
+        CheckFixRun::Check => (true, false),
+        CheckFixRun::Fix { dry_run, restage } => (dry_run, restage),
+    };
+    if restage && dry_run {
+        // `--restage` has no effect without writing: warn, but keep the run
+        // valid so scripts that always pass the flag do not break.
+        eprintln!(
+            "предупреждение: --restage не действует вместе с --dry-run: изменения не записаны"
+        );
+    }
+    print!("{}", render_report(&report, format));
+    if dry_run {
+        // The per-file line diff is a text-only preview: appending it after
+        // a JSON report would make stdout unparseable, and JSON already
+        // carries `proposed_content` per result.
+        if format == OutputFormat::Text {
+            let diffs = render_dry_run_diffs(&report, &repo_root);
+            if !diffs.is_empty() {
+                println!("Предлагаемые изменения (не записаны):");
+                print!("{diffs}");
+            }
+        }
+    } else if restage {
+        // Real fix run only: put the fixed working-tree files back into the
+        // Git index, the same restaging step `prek-hook` performs.
+        if let Err(error) = restage_paths(&repo_root, &report.modified_paths()) {
+            return print_execution_error(error.to_string());
+        }
+    }
+    report.exit_code()
+}
+
+/// Selects the file set for `--mode all|changed|index|worktree` and filters it
+/// through the source roots and path classification.
+fn select_mode_files(
+    repo_root: &Path,
+    mode: FileSelectionMode,
+    roots: &[crate::source_files::SourceRoot],
+) -> Result<Vec<crate::source_files::SourceFile>, String> {
+    match mode {
+        FileSelectionMode::All => collect_source_files(roots).map_err(|error| error.to_string()),
+        FileSelectionMode::Index => {
+            let staged = collect_staged_files(repo_root).map_err(|error| error.to_string())?;
+            Ok(classify_staged_files(roots, &staged))
+        }
+        FileSelectionMode::Changed => {
+            let changed = collect_changed_files(repo_root).map_err(|error| error.to_string())?;
+            Ok(classify_staged_files(roots, &changed))
+        }
+        FileSelectionMode::Worktree => {
+            let worktree = collect_worktree_files(repo_root).map_err(|error| error.to_string())?;
+            Ok(classify_staged_files(roots, &worktree))
+        }
+    }
 }
 
 fn resolve_config_and_roots(
@@ -346,4 +493,11 @@ fn merge_commit_skip_option(mode: MergeCommitSkipMode) -> &'static str {
 fn print_error(message: String) -> i32 {
     eprintln!("ошибка: {message}");
     1
+}
+
+/// `check`/`fix` contract: execution errors exit with `2`, keeping `1` for
+/// "violations found" / "fixes applied".
+fn print_execution_error(message: String) -> i32 {
+    eprintln!("ошибка: {message}");
+    2
 }

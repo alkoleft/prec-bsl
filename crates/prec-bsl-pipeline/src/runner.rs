@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use crate::model::{PipelineReport, PipelineRequest, ScenarioExecutionContext, ScenarioResult};
+use crate::model::{
+    PipelineReport, PipelineRequest, ScenarioExecutionContext, ScenarioResult, WritePolicy,
+};
 use crate::registry::ScenarioRegistry;
 use prec_bsl_config::normalize_scenario_id;
 use prec_bsl_git::StagedStatus;
@@ -46,6 +48,11 @@ pub fn run_pipeline(registry: &ScenarioRegistry, request: PipelineRequest<'_>) -
                 rule_id: &scenario.id,
                 file: &file,
                 settings,
+                write_policy: if request.mode.is_dry_run() {
+                    WritePolicy::DryRun
+                } else {
+                    WritePolicy::Apply
+                },
             };
             let run = (scenario.handler)(&context);
             for path in run.post_processing_paths {
