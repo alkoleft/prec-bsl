@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixtureSeverity {
     Modified,
+    // Used only by `assert_checker_fixture`, whose consumer is the
+    // `fixture_harness` test binary; other binaries including this module
+    // do not construct it.
+    #[allow(dead_code)]
     Warning,
 }
 
@@ -125,6 +129,9 @@ where
     );
 }
 
+// Consumed only by the `fixture_harness` test binary; other binaries
+// including this module do not call it.
+#[allow(dead_code)]
 pub fn assert_checker_fixture<F>(fixture: &GoldenFixture, run: F)
 where
     F: Fn(&str, &Path) -> FixtureRun,

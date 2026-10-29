@@ -50,6 +50,18 @@ order for parity tests. Scenario lookup must accept both `ИмяСценария
 - `УдалениеЛишнихКонцевыхПробелов`
 - `УдалениеЛишнихПустыхСтрок`
 
+### `УдалениеЛишнихПустыхСтрок` blank-run contract
+
+`prec-bsl` issue #11 (bsl-ls parity). Inside a file, a run of 2 or more
+blank lines collapses to a single blank line (reference
+`precommit4onec` behavior; runs of exactly 1 blank line stay). At end of
+file, a trailing blank run of ANY size (including 1) is dropped entirely:
+the file must end with exactly one line ending — the one already written by
+the last non-blank line (`\n` or `\r\n` respectively). A file consisting only of blank
+lines becomes an empty output with no bytes. A final line without a line
+ending is not a blank line and is left untouched. No scenario setting
+controls this; it is the default v1 behavior.
+
 ## Supported Compatibility Scenarios
 
 - `СортировкаДереваМетаданных`
