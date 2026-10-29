@@ -145,6 +145,100 @@ fn git_index_failures_are_available_as_blocking_diagnostics() {
     );
 }
 
+#[test]
+fn git_worktree_files_collect_unstaged_and_untracked_but_not_staged_only() {
+    let repo = TempGitRepo::new("worktree_unstaged_untracked");
+    write_file(repo.path().join("src/Измененный.bsl"), "Исходный\n");
+    write_file(repo.path().join("src/Чистый.bsl"), "Чистый\n");
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    // staged modification
+    write_file(repo.path().join("src/Чистый.bsl"), "Измененный в индексе\n");
+    run_git(repo.path(), ["add", "src/Чистый.bsl"]);
+    // unstaged modification
+    write_file(
+        repo.path().join("src/Измененный.bsl"),
+        "Измененный вне индекса\n",
+    );
+    // untracked file
+    write_file(repo.path().join("src/Новый.bsl"), "Новый\n");
+
+    let files = collect_worktree_files(repo.path()).unwrap();
+
+    let paths = files
+        .iter()
+        .map(|file| file.path.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    assert!(paths.contains(&"src/Измененный.bsl".to_owned()));
+    assert!(paths.contains(&"src/Новый.bsl".to_owned()));
+    assert!(
+        !paths.contains(&"src/Чистый.bsl".to_owned()),
+        "staged-only changes must not appear in worktree mode: {files:#?}"
+    );
+    assert_staged(&files, StagedStatus::Modified, "src/Измененный.bsl");
+    assert_staged(&files, StagedStatus::Added, "src/Новый.bsl");
+}
+
+#[test]
+fn git_changed_files_collect_staged_unstaged_and_untracked() {
+    let repo = TempGitRepo::new("changed_all_states");
+    write_file(repo.path().join("src/Файл.bsl"), "Исходный\n");
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    // staged modification
+    write_file(repo.path().join("src/Файл.bsl"), "Индекс\n");
+    run_git(repo.path(), ["add", "src/Файл.bsl"]);
+    // further unstaged modification
+    write_file(
+        repo.path().join("src/Файл.bsl"),
+        "Индекс и рабочее дерево\n",
+    );
+    // untracked file
+    write_file(repo.path().join("src/Новый.bsl"), "Новый\n");
+
+    let files = collect_changed_files(repo.path()).unwrap();
+
+    assert_staged(&files, StagedStatus::Modified, "src/Файл.bsl");
+    assert_staged(&files, StagedStatus::Added, "src/Новый.bsl");
+}
+
+#[test]
+fn git_changed_files_report_deleted_files() {
+    let repo = TempGitRepo::new("changed_deleted");
+    write_file(repo.path().join("src/Удаляемый.bsl"), "Удалить\n");
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    fs::remove_file(repo.path().join("src/Удаляемый.bsl")).unwrap();
+    let files = collect_changed_files(repo.path()).unwrap();
+
+    let deleted = assert_staged(&files, StagedStatus::Deleted, "src/Удаляемый.bsl");
+    assert!(
+        !repo.path().join(&deleted.path).exists(),
+        "deleted worktree files must not require working-tree contents"
+    );
+}
+
+#[test]
+fn git_porcelain_parser_handles_rename_and_unknown_statuses() {
+    let files = parse_porcelain_output(
+        "R  old/Модуль.bsl -> new/Модуль.bsl\n?? untracked.bsl\n M modified.bsl\nM  staged.bsl\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        files,
+        vec![
+            StagedFile::new(StagedStatus::Unknown("R".to_owned()), "new/Модуль.bsl"),
+            StagedFile::new(StagedStatus::Added, "untracked.bsl"),
+            StagedFile::new(StagedStatus::Modified, "modified.bsl"),
+            StagedFile::new(StagedStatus::Modified, "staged.bsl"),
+        ]
+    );
+}
+
 fn assert_staged<'a>(files: &'a [StagedFile], status: StagedStatus, path: &str) -> &'a StagedFile {
     files
         .iter()

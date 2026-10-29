@@ -108,6 +108,8 @@ Allowed here:
 - `--source-dir <path>` for simple single-root repositories;
 - `--rules <rule1,rule2>` for explicit hook variants;
 - `--format text|json`;
+- `--mode all|changed|index|worktree` for the `check`/`fix` commands;
+- `--dry-run` for the `fix` command;
 - `--ignore-merge-commit` when a consuming repository wants merge commits to
   bypass `prec-bsl` hook processing;
 - `--ignore-remote-merge-commit` when only merge commits whose `MERGE_HEAD`
@@ -286,7 +288,7 @@ Behavior:
   source-root diagnostic instead of being processed relative to the repository
   root.
 
-`prec-bsl exec-rules`:
+`prec-bsl exec-rules` (deprecated):
 
 ```text
 prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]
@@ -294,6 +296,9 @@ prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <lis
 
 Behavior:
 
+- Deprecated alias for `fix --mode all`. Prints a deprecation warning to
+  stderr on every run, but keeps the historic behavior and exit codes
+  (including writing files) so existing consumers keep working.
 - Runs over configured source roots rather than only the staged index.
 - If `--source-dir` is provided, runs only over those explicit source roots.
 - If `--source-dir` is omitted and root `v8project.yaml` is present, resolves
@@ -304,6 +309,51 @@ Behavior:
 - Files and directories whose names start with `.` are excluded from
   full-tree traversal, including `.git` and other hidden working files.
 - Used for CI, migration checks, and manual validation.
+
+`prec-bsl check`:
+
+```text
+prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>]
+```
+
+Behavior:
+
+- Diagnostics only: never writes to files. Fixers run in memory and report
+  would-be modifications with a per-file line diff (`+`/`-` lines under
+  «Предлагаемые изменения (не записаны)»).
+- "Violation" means a fixer would have changed the file or a checker scenario
+  produced a diagnostic result.
+- Exit codes: `0` - no violations; `1` - violations found; `2` - execution
+  error (unresolvable repo path, invalid configuration, Git failure).
+- Uses the same config/source-root resolution as `exec-rules`/`fix`.
+
+`prec-bsl fix`:
+
+```text
+prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run]
+```
+
+Behavior:
+
+- Applies fixers to files.
+- `--dry-run` shows what would change (per-file line diff) without writing.
+- Exit codes: `0` - no fixes needed; `1` - fixes applied (in dry-run: there
+  is something to apply); `2` - execution error. Hook-compatible semantics.
+
+`--mode` file selection (both `check` and `fix`, default `all`):
+
+- `all` - every source file in the resolved source roots (equivalent to the
+  historic `exec-rules` traversal).
+- `changed` - everything changed relative to `HEAD`: staged, unstaged, and
+  untracked files. New files are included by product decision.
+- `index` - staged files only (the same Git layer the `prek-hook` commit mode
+  uses).
+- `worktree` - files changed outside the index: unstaged plus untracked.
+
+Mode file sets are intersected with the source roots and path classification
+(`classify_repo_path`): non-source files are filtered out as usual. Deleted
+files (Git status `D`) are skipped with the standard
+"scenario does not handle deleted files" message.
 
 ## Configuration Precedence
 

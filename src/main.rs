@@ -8,6 +8,8 @@ fn main() {
         }
         Ok(CliCommand::PrekHook(args)) => prec_bsl::app::run_prek_hook(&args),
         Ok(CliCommand::ExecRules(args)) => prec_bsl::app::run_exec_rules(&args),
+        Ok(CliCommand::Check(args)) => prec_bsl::app::run_check(&args),
+        Ok(CliCommand::Fix(args)) => prec_bsl::app::run_fix(&args),
         Err(error) => {
             eprintln!("ошибка: {}", error.message());
             eprintln!();

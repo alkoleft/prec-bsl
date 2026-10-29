@@ -7,7 +7,7 @@ use quick_xml::reader::Reader;
 
 use crate::xml_edt::{parse_document, write_validated_xml};
 use prec_bsl_pipeline::{
-    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun, WritePolicy,
 };
 use prec_bsl_source::SourceFileKind;
 
@@ -38,19 +38,22 @@ pub fn xml_form_correction(context: &ScenarioExecutionContext<'_>) -> ScenarioRu
         ));
     }
 
+    let write_policy = context.write_policy;
     let mut results = Vec::new();
+    let mut proposed_content = Vec::new();
     let base_repo_path = base_form_repo_path(&context.file.repo_path);
     let base_absolute_path = context.repo_root.join(&base_repo_path);
 
     let base_elements = if base_absolute_path.is_file() {
-        match correct_form_file(context.repo_root, &base_repo_path, None) {
+        match correct_form_file(context.repo_root, &base_repo_path, None, write_policy) {
             FormCorrection::Clean(elements) => Some(elements),
-            FormCorrection::Modified { elements } => {
+            FormCorrection::Modified { elements, output } => {
                 results.push(ScenarioResult::modified(
                     context.rule_id,
                     base_repo_path.clone(),
                     "corrected duplicate XML form element ids",
                 ));
+                proposed_content.push((base_repo_path.clone(), output));
                 Some(elements)
             }
             FormCorrection::Failed(message) => {
@@ -69,18 +72,33 @@ pub fn xml_form_correction(context: &ScenarioExecutionContext<'_>) -> ScenarioRu
         context.repo_root,
         &context.file.repo_path,
         base_elements.as_deref(),
+        write_policy,
     ) {
         FormCorrection::Clean(_) => {}
-        FormCorrection::Modified { .. } => results.push(ScenarioResult::modified(
-            context.rule_id,
-            context.file.repo_path.clone(),
-            "corrected duplicate XML form element ids",
-        )),
+        FormCorrection::Modified { output, .. } => {
+            results.push(ScenarioResult::modified(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                "corrected duplicate XML form element ids",
+            ));
+            proposed_content.push((context.file.repo_path.clone(), output));
+        }
         FormCorrection::Failed(message) => results.push(ScenarioResult::hard_failure(
             context.rule_id,
             context.file.repo_path.clone(),
             message,
         )),
+    }
+
+    if write_policy == WritePolicy::DryRun {
+        for result in &mut results {
+            if let Some((_, output)) = proposed_content
+                .iter()
+                .find(|(path, _)| *path == result.path)
+            {
+                result.proposed_content = Some(output.clone());
+            }
+        }
     }
 
     ScenarioRun {
@@ -130,7 +148,10 @@ struct TextSpan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FormCorrection {
     Clean(Vec<FormElement>),
-    Modified { elements: Vec<FormElement> },
+    Modified {
+        elements: Vec<FormElement>,
+        output: String,
+    },
     Failed(String),
 }
 
@@ -138,6 +159,7 @@ fn correct_form_file(
     repo_root: &Path,
     repo_path: &Path,
     base_elements: Option<&[FormElement]>,
+    write_policy: WritePolicy,
 ) -> FormCorrection {
     let absolute_path = repo_root.join(repo_path);
     let input = match fs::read_to_string(&absolute_path) {
@@ -153,12 +175,15 @@ fn correct_form_file(
             Err(message) => return FormCorrection::Failed(message),
         }),
         XmlFormCorrection::Modified(output) => {
-            if let Err(error) = fs::write(&absolute_path, &output) {
+            if write_policy != WritePolicy::DryRun
+                && let Err(error) = fs::write(&absolute_path, &output)
+            {
                 return FormCorrection::Failed(format!("failed to write file: {error}"));
             }
             match collect_form_elements(&output) {
                 Ok(elements) => FormCorrection::Modified {
                     elements: elements.into_iter().map(FormElement::from).collect(),
+                    output,
                 },
                 Err(message) => FormCorrection::Failed(message),
             }

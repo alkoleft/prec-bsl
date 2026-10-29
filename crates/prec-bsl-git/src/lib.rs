@@ -163,6 +163,134 @@ pub fn collect_staged_files(repo_root: &Path) -> Result<Vec<StagedFile>, GitInde
     })
 }
 
+/// Working-tree changes that are not staged: unstaged modifications plus
+/// untracked files, both compared through `git status --porcelain`.
+pub fn collect_worktree_files(repo_root: &Path) -> Result<Vec<StagedFile>, GitIndexError> {
+    let staged = staged_status_map(repo_root)?;
+    let mut files = Vec::new();
+    for entry in collect_status_files(repo_root, "status --porcelain --untracked-files=all")? {
+        if staged.contains_key(&entry.path) {
+            continue;
+        }
+        files.push(entry);
+    }
+    Ok(files)
+}
+
+/// Everything changed relative to `HEAD`: staged, unstaged, and untracked
+/// files. Deleted files are reported with [`StagedStatus::Deleted`] so the
+/// pipeline can apply its usual deleted-file handling.
+pub fn collect_changed_files(repo_root: &Path) -> Result<Vec<StagedFile>, GitIndexError> {
+    collect_status_files(repo_root, "status --porcelain --untracked-files=all")
+}
+
+fn staged_status_map(
+    repo_root: &Path,
+) -> Result<std::collections::BTreeMap<PathBuf, ()>, GitIndexError> {
+    let staged = collect_staged_files(repo_root)?;
+    Ok(staged.into_iter().map(|file| (file.path, ())).collect())
+}
+
+fn collect_status_files(
+    repo_root: &Path,
+    operation: &'static str,
+) -> Result<Vec<StagedFile>, GitIndexError> {
+    let output = git_command(repo_root)
+        .args([
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--no-renames",
+        ])
+        .output()
+        .map_err(|source| GitIndexError::Io {
+            operation,
+            repo_root: repo_root.to_path_buf(),
+            source,
+        })?;
+
+    if !output.status.success() {
+        return Err(GitIndexError::CommandFailed {
+            operation,
+            repo_root: repo_root.to_path_buf(),
+            status: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+
+    let stdout =
+        String::from_utf8(output.stdout).map_err(|error| GitIndexError::InvalidOutput {
+            operation,
+            repo_root: repo_root.to_path_buf(),
+            message: format!("stdout is not valid UTF-8: {error}"),
+        })?;
+
+    parse_porcelain_output(&stdout).map_err(|message| GitIndexError::InvalidOutput {
+        operation,
+        repo_root: repo_root.to_path_buf(),
+        message,
+    })
+}
+
+fn parse_porcelain_output(output: &str) -> Result<Vec<StagedFile>, String> {
+    let mut files = Vec::new();
+    for line in output.lines().filter(|line| !line.is_empty()) {
+        let Some(staged_status) = porcelain_status(line) else {
+            continue;
+        };
+        let path_field = &line[3..];
+        let path = strip_porcelain_rename(path_field)?;
+        files.push(StagedFile::new(staged_status, decode_git_path(&path)?));
+    }
+    Ok(files)
+}
+
+/// Maps a `git status --porcelain` line to the resulting file entry.
+///
+/// Line shape is `XY <path>` (or `XY ORIG -> <path>` for renames with renames
+/// enabled). `X` is the index status, `Y` the worktree status. The function
+/// returns the worktree-facing status used by the `changed`/`worktree` modes.
+fn porcelain_status(line: &str) -> Option<StagedStatus> {
+    let bytes = line.as_bytes();
+    if bytes.len() < 3 {
+        return None;
+    }
+    let index_status = bytes[0];
+    let worktree_status = bytes[1];
+
+    if index_status == b'?' && worktree_status == b'?' {
+        return Some(StagedStatus::Added);
+    }
+    if index_status == b'!' || worktree_status == b'!' {
+        return None;
+    }
+    if worktree_status != b' ' {
+        return match worktree_status {
+            b'M' => Some(StagedStatus::Modified),
+            b'D' => Some(StagedStatus::Deleted),
+            b'A' => Some(StagedStatus::Added),
+            other => Some(StagedStatus::Unknown(char::from(other).to_string())),
+        };
+    }
+    match index_status {
+        b'A' => Some(StagedStatus::Added),
+        b'M' => Some(StagedStatus::Modified),
+        b'D' => Some(StagedStatus::Deleted),
+        b' ' => None,
+        other => Some(StagedStatus::Unknown(char::from(other).to_string())),
+    }
+}
+
+fn strip_porcelain_rename(path_field: &str) -> Result<String, String> {
+    match path_field.split_once(" -> ") {
+        Some((_original, path)) if !path.is_empty() => Ok(path.to_owned()),
+        Some(_) => Err(format!(
+            "missing rename target in porcelain line: {path_field}"
+        )),
+        None => Ok(path_field.to_owned()),
+    }
+}
+
 pub fn restage_paths(repo_root: &Path, paths: &[PathBuf]) -> Result<(), GitIndexError> {
     if paths.is_empty() {
         return Ok(());

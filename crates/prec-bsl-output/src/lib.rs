@@ -27,6 +27,78 @@ pub fn render_report(report: &PipelineReport, format: OutputFormat) -> String {
     }
 }
 
+/// Renders simple `+`/`-` line diffs for every dry-run result carrying
+/// `proposed_content`. The original file content is read from `repo_root`.
+///
+/// Returns an empty string when there is nothing to show.
+pub fn render_dry_run_diffs(report: &PipelineReport, repo_root: &Path) -> String {
+    let mut output = String::new();
+    for result in sorted_results(report.results.iter()) {
+        let Some(proposed) = result.proposed_content.as_deref() else {
+            continue;
+        };
+        if !result.status.is_modification() {
+            continue;
+        }
+
+        let absolute_path = repo_root.join(&result.path);
+        let original = std::fs::read_to_string(&absolute_path).unwrap_or_default();
+        writeln!(output, "{}", display_path(&result.path))
+            .expect("writing to a String must not fail");
+        for line in render_line_diff(&original, proposed) {
+            writeln!(output, "{line}").expect("writing to a String must not fail");
+        }
+        writeln!(output).expect("writing to a String must not fail");
+    }
+    output
+}
+
+/// Naive line diff used for dry-run previews: every removed line gets `-`,
+/// every added line gets `+`. Common lines are omitted. Unified hunks are
+/// deliberately out of scope.
+fn render_line_diff(original: &str, proposed: &str) -> Vec<String> {
+    let original_lines: Vec<&str> = original.lines().collect();
+    let proposed_lines: Vec<&str> = proposed.lines().collect();
+
+    // Longest common subsequence over lines; O(n*m) is fine for BSL modules.
+    let mut table = vec![vec![0usize; proposed_lines.len() + 1]; original_lines.len() + 1];
+    for (i, i_value) in (1..=original_lines.len()).enumerate() {
+        for (j, j_value) in (1..=proposed_lines.len()).enumerate() {
+            table[i_value][j_value] = if original_lines[i] == proposed_lines[j] {
+                table[i_value - 1][j_value - 1] + 1
+            } else {
+                table[i_value - 1][j_value].max(table[i_value][j_value - 1])
+            };
+        }
+    }
+
+    let mut diff_lines = Vec::new();
+    let mut i = original_lines.len();
+    let mut j = proposed_lines.len();
+    while i > 0 && j > 0 {
+        if original_lines[i - 1] == proposed_lines[j - 1] {
+            i -= 1;
+            j -= 1;
+        } else if table[i][j - 1] >= table[i - 1][j] {
+            diff_lines.push(format!("+{}", proposed_lines[j - 1]));
+            j -= 1;
+        } else {
+            diff_lines.push(format!("-{}", original_lines[i - 1]));
+            i -= 1;
+        }
+    }
+    while i > 0 {
+        diff_lines.push(format!("-{}", original_lines[i - 1]));
+        i -= 1;
+    }
+    while j > 0 {
+        diff_lines.push(format!("+{}", proposed_lines[j - 1]));
+        j -= 1;
+    }
+    diff_lines.reverse();
+    diff_lines
+}
+
 pub fn render_text_report(report: &PipelineReport) -> String {
     let mut output = String::new();
 
@@ -172,6 +244,7 @@ fn sorted_json_results(results: &[ScenarioResult]) -> Vec<JsonResult> {
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
+            proposed_content: result.proposed_content.clone(),
         })
         .collect()
 }
@@ -349,6 +422,8 @@ fn mode_label(mode: PipelineMode) -> &'static str {
     match mode {
         PipelineMode::Hook => "hook",
         PipelineMode::ExecRules => "exec-rules",
+        PipelineMode::Check => "check",
+        PipelineMode::Fix => "fix",
     }
 }
 
@@ -356,6 +431,8 @@ fn text_mode_label(mode: PipelineMode) -> &'static str {
     match mode {
         PipelineMode::Hook => "хук",
         PipelineMode::ExecRules => "exec-rules",
+        PipelineMode::Check => "check",
+        PipelineMode::Fix => "fix",
     }
 }
 
@@ -399,6 +476,8 @@ struct JsonResult {
     source_span: Option<JsonSourceSpan>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     modified_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proposed_content: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
