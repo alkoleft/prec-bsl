@@ -10,7 +10,7 @@ use crate::model::{
     ResolvedConfig, ScenarioConfig,
 };
 use crate::path::{empty_string_as_none, normalize_project_path};
-use crate::scenario::normalize_scenario_id;
+use crate::scenario::{ScenarioCatalog, normalize_scenario_id};
 use crate::validation::credential_key_paths;
 
 fn normalize_setting_map(settings: BTreeMap<String, Value>) -> BTreeMap<String, Value> {
@@ -72,7 +72,11 @@ pub(crate) struct RawConfig {
 }
 
 impl RawConfig {
-    pub(crate) fn into_resolved(self, source: ConfigSource) -> ResolvedConfig {
+    pub(crate) fn into_resolved(
+        self,
+        source: ConfigSource,
+        catalog: ScenarioCatalog<'_>,
+    ) -> ResolvedConfig {
         let warnings = self
             .unknown_top_level
             .into_keys()
@@ -84,7 +88,7 @@ impl RawConfig {
         ResolvedConfig {
             source,
             global: self.global.into_domain(),
-            scenarios: self.scenarios.into_domain(),
+            scenarios: self.scenarios.into_domain(catalog),
             warnings,
         }
     }
@@ -115,8 +119,12 @@ struct RawScenarioConfig {
     use_repository_scenarios: bool,
     #[serde(rename = "КаталогЛокальныхСценариев", default)]
     local_scenarios_dir: String,
-    #[serde(rename = "ГлобальныеСценарии", default)]
-    global_scenarios: Vec<String>,
+    /// Missing `ГлобальныеСценарии` key (`None`) resolves to the default
+    /// scenario set (same list as built-in defaults, required v1 only);
+    /// `Some(vec![])` is the explicit "all scenarios off" opt-out, so the
+    /// two states must stay distinct through deserialization.
+    #[serde(rename = "ГлобальныеСценарии")]
+    global_scenarios: Option<Vec<String>>,
     #[serde(rename = "ОтключенныеСценарии", default)]
     disabled_scenarios: Vec<String>,
     #[serde(rename = "НастройкиСценариев", default)]
@@ -126,13 +134,23 @@ struct RawScenarioConfig {
 }
 
 impl RawScenarioConfig {
-    fn into_domain(self) -> ScenarioConfig {
+    fn into_domain(self, catalog: ScenarioCatalog<'_>) -> ScenarioConfig {
+        let global_scenarios = match self.global_scenarios {
+            // An explicit list, including the deliberate empty `[]` array
+            // that turns every scenario off.
+            Some(scenarios) => normalize_scenario_vec(scenarios),
+            // The key is absent: use the default scenario set, the same list
+            // as built-in defaults (required v1 scenarios only). This keeps
+            // a config that only tunes `GLOBAL` or `ОтключенныеСценарии`
+            // from silently resolving to zero enabled scenarios.
+            None => default_global_scenarios(catalog),
+        };
         ScenarioConfig {
             repository_scenarios: RepositoryScenarioSettings {
                 use_repository_scenarios: self.use_repository_scenarios,
                 local_scenarios_dir: empty_string_as_none(self.local_scenarios_dir),
             },
-            global_scenarios: normalize_scenario_vec(self.global_scenarios),
+            global_scenarios,
             disabled_scenarios: normalize_scenario_vec(self.disabled_scenarios),
             settings: normalize_setting_map(self.settings),
             projects: self
@@ -147,6 +165,16 @@ impl RawScenarioConfig {
                 .collect(),
         }
     }
+}
+
+/// The default enabled scenario set for a config file without the
+/// `ГлобальныеСценарии` key. Mirrors the built-in defaults: required v1
+/// scenarios only, without compatibility scenarios.
+fn default_global_scenarios(catalog: ScenarioCatalog<'_>) -> Vec<String> {
+    catalog
+        .required_v1()
+        .map(|scenario| scenario.id.to_owned())
+        .collect()
 }
 
 #[derive(Debug, Default, Deserialize)]

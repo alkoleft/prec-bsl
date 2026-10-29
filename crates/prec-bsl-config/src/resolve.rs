@@ -41,7 +41,7 @@ pub fn resolve_config_with_catalog(
             if path.is_file() {
                 (
                     ConfigSource::Explicit(path.clone()),
-                    load_config_from_path(&path)?,
+                    load_config_from_path(&path, catalog)?,
                 )
             } else if is_repo_default_config_path(&request.repo_root, config_path, &path) {
                 (
@@ -51,7 +51,7 @@ pub fn resolve_config_with_catalog(
             } else {
                 (
                     ConfigSource::Explicit(path.clone()),
-                    load_config_from_path(&path)?,
+                    load_config_from_path(&path, catalog)?,
                 )
             }
         }
@@ -60,7 +60,7 @@ pub fn resolve_config_with_catalog(
             if path.is_file() {
                 (
                     ConfigSource::RepositoryDefault(path.clone()),
-                    load_config_from_path(&path)?,
+                    load_config_from_path(&path, catalog)?,
                 )
             } else {
                 (
@@ -93,12 +93,17 @@ pub fn parse_config_str_with_catalog(
     catalog: ScenarioCatalog<'_>,
 ) -> Result<ResolvedConfig, ConfigError> {
     let raw = parse_raw_config(source, None)?;
-    let mut config = raw.into_resolved(ConfigSource::BuiltInDefaults);
+    let mut config = raw.into_resolved(ConfigSource::BuiltInDefaults, catalog);
     add_validation_warnings(&mut config, catalog);
     validate_config(&config, catalog)?;
     Ok(config)
 }
 
+/// Built-in defaults used when no `v8config.json` is discovered: the
+/// required v1 scenario set is enabled. The same list is applied inside
+/// `RawScenarioConfig::into_domain` when a present config file omits the
+/// `ГлобальныеСценарии` key, so "no file" and "file without the key"
+/// resolve to the same default scenario set.
 pub fn built_in_defaults_with_catalog(catalog: ScenarioCatalog<'_>) -> ResolvedConfig {
     ResolvedConfig {
         source: ConfigSource::BuiltInDefaults,
@@ -124,14 +129,17 @@ pub fn built_in_defaults_with_catalog(catalog: ScenarioCatalog<'_>) -> ResolvedC
     }
 }
 
-fn load_config_from_path(path: &Path) -> Result<ResolvedConfig, ConfigError> {
+fn load_config_from_path(
+    path: &Path,
+    catalog: ScenarioCatalog<'_>,
+) -> Result<ResolvedConfig, ConfigError> {
     let source = fs::read_to_string(path).map_err(|source| ConfigError::Io {
         path: path.to_path_buf(),
         source,
     })?;
     let raw = parse_raw_config(&source, Some(path))?;
 
-    Ok(raw.into_resolved(ConfigSource::RepositoryDefault(path.to_path_buf())))
+    Ok(raw.into_resolved(ConfigSource::RepositoryDefault(path.to_path_buf()), catalog))
 }
 
 fn is_repo_default_config_path(

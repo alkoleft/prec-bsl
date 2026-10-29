@@ -648,6 +648,208 @@ fn config_disabled_scenarios_can_disable_entire_global_list() {
 }
 
 #[test]
+fn config_missing_global_scenarios_key_falls_back_to_default_scenario_set() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ОтключенныеСценарии": []
+                }
+            }"#,
+    )
+    .unwrap();
+
+    // Missing key must resolve to the built-in default set: all required_v1
+    // scenarios, without compatibility scenarios.
+    let expected: Vec<String> = test_catalog()
+        .required_v1()
+        .map(|scenario| scenario.id.to_owned())
+        .collect();
+    assert_eq!(config.scenarios.global_scenarios, expected);
+}
+
+#[test]
+fn config_missing_global_scenarios_key_still_applies_disabled_scenarios() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ОтключенныеСценарии": ["УдалениеЛишнихКонцевыхПробелов.os"]
+                }
+            }"#,
+    )
+    .unwrap();
+
+    // The default set is the base; disabled scenarios are still subtracted.
+    let enabled = config.scenarios.enabled_scenarios();
+    assert!(enabled.contains(&"УдалениеЛишнихПустыхСтрок"));
+    assert!(!enabled.contains(&"УдалениеЛишнихКонцевыхПробелов"));
+}
+
+#[test]
+fn config_empty_global_scenarios_array_disables_all_scenarios() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": []
+                }
+            }"#,
+    )
+    .unwrap();
+
+    assert_eq!(config.scenarios.global_scenarios, Vec::<String>::new());
+    assert_eq!(config.scenarios.enabled_scenarios(), Vec::<&str>::new());
+}
+
+#[test]
+fn config_missing_global_scenarios_key_without_scenario_section_uses_defaults() {
+    let config = parse_config_str(r#"{"GLOBAL": {"version": "2.0"}}"#).unwrap();
+
+    let expected: Vec<String> = test_catalog()
+        .required_v1()
+        .map(|scenario| scenario.id.to_owned())
+        .collect();
+    assert_eq!(config.scenarios.global_scenarios, expected);
+}
+
+#[test]
+fn config_project_section_without_global_scenarios_key_inherits_defaults() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "Проекты": {
+                        "configuration": {
+                            "ИспользоватьСценарииРепозитория": false
+                        }
+                    }
+                }
+            }"#,
+    )
+    .unwrap();
+
+    let project = config
+        .scenarios
+        .projects
+        .get("configuration")
+        .expect("project section must parse");
+    // None in the project section means "inherit the base scenario set",
+    // which for a missing top-level key is the default set.
+    assert_eq!(project.global_scenarios, None);
+    let expected: Vec<String> = test_catalog()
+        .required_v1()
+        .map(|scenario| scenario.id.to_owned())
+        .collect();
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        expected
+    );
+}
+
+#[test]
+fn config_project_section_with_empty_global_scenarios_disables_all_for_project() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "Проекты": {
+                        "configuration": {
+                            "ГлобальныеСценарии": []
+                        }
+                    }
+                }
+            }"#,
+    )
+    .unwrap();
+
+    let project = config
+        .scenarios
+        .projects
+        .get("configuration")
+        .expect("project section must parse");
+    assert_eq!(project.global_scenarios, Some(Vec::new()));
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn config_project_section_with_explicit_scenarios_overrides_defaults() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "Проекты": {
+                        "configuration": {
+                            "ГлобальныеСценарии": ["УдалениеЛишнихПустыхСтрок.os"]
+                        }
+                    }
+                }
+            }"#,
+    )
+    .unwrap();
+
+    let project = config
+        .scenarios
+        .projects
+        .get("configuration")
+        .expect("project section must parse");
+    assert_eq!(
+        project.global_scenarios,
+        Some(vec!["УдалениеЛишнихПустыхСтрок".to_owned()])
+    );
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        vec!["УдалениеЛишнихПустыхСтрок"]
+    );
+}
+
+#[test]
+fn config_project_section_without_key_falls_back_to_explicit_base_list() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": ["УдалениеЛишнихКонцевыхПробелов.os"],
+                    "Проекты": {
+                        "configuration": {
+                            "ИспользоватьСценарииРепозитория": false
+                        }
+                    }
+                }
+            }"#,
+    )
+    .unwrap();
+
+    // None project section + explicit base list: project inherits the base.
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        vec!["УдалениеЛишнихКонцевыхПробелов"]
+    );
+}
+
+#[test]
+fn config_missing_global_scenarios_key_excludes_compatibility_scenarios() {
+    let config = parse_config_str(
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ОтключенныеСценарии": []
+                }
+            }"#,
+    )
+    .unwrap();
+
+    // The default set mirrors built_in_defaults: required_v1 only.
+    assert!(
+        !config
+            .scenarios
+            .global_scenarios
+            .contains(&"СортировкаДереваМетаданных".to_owned())
+    );
+    assert!(
+        !config
+            .scenarios
+            .global_scenarios
+            .contains(&"СортировкаСоставаПодсистем".to_owned())
+    );
+}
+
+#[test]
 fn config_unknown_top_level_keys_are_warnings_in_zero_x() {
     let config = parse_config_str(
         r#"{

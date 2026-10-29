@@ -741,6 +741,156 @@ fn fix_counts_warning_diagnostics_as_violations() {
     );
 }
 
+/// The user-visible regression from the yaxunit repository: a `v8config.json`
+/// without the `ГлобальныеСценарии` key used to resolve to an empty scenario
+/// set, so `fix`/`check` silently processed files with zero rules and exited
+/// `0`. The missing key must fall back to the built-in default scenario set,
+/// so a file with trailing-whitespace violations gets fixed.
+#[test]
+fn fix_applies_default_scenarios_when_config_omits_global_scenarios_key() {
+    let repo = TempGitRepo::new("fix_default_scenarios");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(
+        repo.path().join(&module),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("v8config.json"),
+        concat!(
+            "{\n",
+            "  \"GLOBAL\": {\"version\": \"2.1\"},\n",
+            "  \"Precommt4onecСценарии\": {\n",
+            "    \"ИспользоватьСценарииРепозитория\": false\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "fix",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+        ],
+    );
+
+    // Before the fix this exited 0 with zero executed rules; now the default
+    // scenario set runs, the fixer applies, and the contract exit code is 1.
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        "Процедура Тест()\nКонецПроцедуры\n",
+        "fix must apply the default trailing-whitespace fixer"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "the default scenario set must include the trailing-whitespace rule:\n{stdout}"
+    );
+}
+
+/// The same config shape must make `check` report violations instead of a
+/// clean exit: diagnostics over zero rules hid problems before.
+#[test]
+fn check_reports_violations_with_default_scenarios_when_key_omitted() {
+    let repo = TempGitRepo::new("check_default_scenarios");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(
+        repo.path().join(&module),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("v8config.json"),
+        concat!(
+            "{\n",
+            "  \"Precommt4onecСценарии\": {\n",
+            "    \"ИспользоватьСценарииРепозитория\": false\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+        "check must not modify files"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "check must run the default scenario set:\n{stdout}"
+    );
+}
+
+/// The explicit empty array stays the deliberate "all scenarios off" switch:
+/// no rules run, files are untouched, and the exit code is 0.
+#[test]
+fn check_respects_explicit_empty_global_scenarios_array() {
+    let repo = TempGitRepo::new("empty_global_scenarios");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(
+        repo.path().join(&module),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+    );
+    write_file(
+        repo.path().join("v8config.json"),
+        concat!(
+            "{\n",
+            "  \"Precommt4onecСценарии\": {\n",
+            "    \"ГлобальныеСценарии\": []\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(0), "{}", output_text(&output));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        "Процедура Тест()   \nКонецПроцедуры\n",
+        "the explicit empty array must disable every scenario"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "no rule must run for the explicit empty array:\n{stdout}"
+    );
+}
+
 const DIRTY_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\n";
 const DIRTYER_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\t\n";
 const DIRTYEST_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры \t \n";
