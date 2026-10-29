@@ -4,7 +4,8 @@ use std::process::{Command, Output};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Matrix of `--mode` file selection: staged change, unstaged change,
-/// untracked file, and clean file. Each mode must process the correct set.
+/// combined staged+unstaged change (`MM`/`AM`), untracked file, and clean
+/// file. Each mode must process the correct set.
 #[test]
 fn check_fix_modes_select_expected_file_sets() {
     for mode in ["all", "changed", "index", "worktree"] {
@@ -13,10 +14,13 @@ fn check_fix_modes_select_expected_file_sets() {
         let unstaged = PathBuf::from("src/Нестадированный.bsl");
         let untracked = PathBuf::from("src/Новый.bsl");
         let clean = PathBuf::from("src/Чистый.bsl");
+        let combined = PathBuf::from("src/Комбинированный.bsl");
+        let combined_new = PathBuf::from("src/КомбинированныйНовый.bsl");
 
         write_file(repo.path().join(&staged), DIRTY_MODULE);
         write_file(repo.path().join(&unstaged), DIRTY_MODULE);
         write_file(repo.path().join(&clean), CLEAN_MODULE);
+        write_file(repo.path().join(&combined), DIRTY_MODULE);
         run_git(repo.path(), ["add", "."]);
         run_git(repo.path(), ["commit", "-m", "baseline"]);
 
@@ -27,6 +31,14 @@ fn check_fix_modes_select_expected_file_sets() {
         write_file(repo.path().join(&unstaged), DIRTYER_MODULE);
         // untracked file
         write_file(repo.path().join(&untracked), DIRTYER_MODULE);
+        // combined modification (staged edit + further unstaged edit): MM
+        write_file(repo.path().join(&combined), DIRTYER_MODULE);
+        run_git(repo.path(), ["add", "src/Комбинированный.bsl"]);
+        write_file(repo.path().join(&combined), DIRTYEST_MODULE);
+        // combined addition (staged new file + further unstaged edit): AM
+        write_file(repo.path().join(&combined_new), DIRTYER_MODULE);
+        run_git(repo.path(), ["add", "src/КомбинированныйНовый.bsl"]);
+        write_file(repo.path().join(&combined_new), DIRTYEST_MODULE);
 
         let output = run_prec_bsl(
             repo.path(),
@@ -50,10 +62,17 @@ fn check_fix_modes_select_expected_file_sets() {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         let expected_files = match mode {
-            "all" => vec![&staged, &unstaged, &untracked, &clean],
-            "changed" => vec![&staged, &unstaged, &untracked],
-            "index" => vec![&staged],
-            "worktree" => vec![&unstaged, &untracked],
+            "all" => vec![
+                &staged,
+                &unstaged,
+                &untracked,
+                &clean,
+                &combined,
+                &combined_new,
+            ],
+            "changed" => vec![&staged, &unstaged, &untracked, &combined, &combined_new],
+            "index" => vec![&staged, &combined, &combined_new],
+            "worktree" => vec![&unstaged, &untracked, &combined, &combined_new],
             _ => unreachable!(),
         };
         let expected_count = expected_files.len();
@@ -63,13 +82,8 @@ fn check_fix_modes_select_expected_file_sets() {
             )),
             "mode {mode}: unexpected stdout:\n{stdout}"
         );
-        for path in [&staged, &unstaged, &untracked] {
-            let must_appear = match mode {
-                "all" | "changed" => true,
-                "index" => *path == staged,
-                "worktree" => *path != staged,
-                _ => unreachable!(),
-            };
+        for path in &[&staged, &unstaged, &untracked, &combined, &combined_new] {
+            let must_appear = expected_files.contains(path);
             if must_appear {
                 assert!(
                     stdout.contains(path.to_string_lossy().as_ref()),
@@ -85,11 +99,20 @@ fn check_fix_modes_select_expected_file_sets() {
         );
 
         // check must never write
-        for path in [&staged, &unstaged, &untracked, &clean] {
+        for path in [
+            &staged,
+            &unstaged,
+            &untracked,
+            &clean,
+            &combined,
+            &combined_new,
+        ] {
             assert_eq!(
                 fs::read_to_string(repo.path().join(path)).unwrap(),
                 if path == &clean {
                     CLEAN_MODULE
+                } else if path == &combined || path == &combined_new {
+                    DIRTYEST_MODULE
                 } else {
                     DIRTYER_MODULE
                 },
@@ -447,6 +470,7 @@ fn fix_json_output_includes_proposed_content_for_dry_run() {
 
 const DIRTY_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\n";
 const DIRTYER_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\t\n";
+const DIRTYEST_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры \t \n";
 const CLEAN_MODULE: &str = "Процедура Тест()\nКонецПроцедуры\n";
 
 struct TempGitRepo {
