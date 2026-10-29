@@ -464,8 +464,24 @@ fn fix_json_output_includes_proposed_content_for_dry_run() {
     assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
     let stdout = String::from_utf8_lossy(&output.stdout);
     // fix --dry-run runs the pipeline in check mode: diagnostics only.
-    assert!(stdout.contains("\"mode\": \"check\""));
-    assert!(stdout.contains("proposed_content"));
+    // The whole stdout must be a single valid JSON document: the text diff
+    // trailer must not be appended after the JSON report.
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("stdout must parse as JSON: {error}\n{stdout}"));
+    assert_eq!(json["mode"], "check");
+    let results = json["results"].as_array().unwrap();
+    let modified = results
+        .iter()
+        .find(|result| result["severity"] == "modified")
+        .expect("dry-run JSON must include the would-be modification");
+    assert_eq!(
+        modified["proposed_content"],
+        "Процедура Тест()\nКонецПроцедуры\n"
+    );
+    assert!(
+        !stdout.contains("Предлагаемые"),
+        "JSON output must not be followed by the text diff trailer:\n{stdout}"
+    );
 }
 
 /// `fix --restage` on a file with a combined `MM` status: the fixed working
@@ -645,6 +661,83 @@ fn check_rejects_restage_as_cli_error() {
         fs::read_to_string(repo.path().join(&module)).unwrap(),
         DIRTY_MODULE,
         "rejected check run must not modify files"
+    );
+}
+
+/// Warning diagnostics from checker scenarios are violations for `check`:
+/// exit code must be 1, unlike the hook contract where warnings never block.
+#[test]
+fn check_counts_warning_diagnostics_as_violations() {
+    let repo = TempGitRepo::new("check_warning_violation");
+    let module = PathBuf::from("src/Плохой.bsl");
+    write_file(
+        repo.path().join(&module),
+        "Процедура Тест()\n    Сообщить(\"плохоеСлово\");\nКонецПроцедуры\n",
+    );
+    write_file(repo.path().join("НецензурныеСлова.txt"), "плохоеСлово\n");
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "ПроверкаНецензурныхСлов",
+            "--mode",
+            "all",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("найдено слово из словаря 'плохоеСлово' в строке 2"),
+        "check must report the profanity warning:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        "Процедура Тест()\n    Сообщить(\"плохоеСлово\");\nКонецПроцедуры\n",
+        "check must not modify files for warning scenarios"
+    );
+}
+
+/// Warning diagnostics from checker scenarios are violations for `fix` too.
+#[test]
+fn fix_counts_warning_diagnostics_as_violations() {
+    let repo = TempGitRepo::new("fix_warning_violation");
+    let module = PathBuf::from("src/Плохой.bsl");
+    write_file(
+        repo.path().join(&module),
+        "Процедура Тест()\n    Сообщить(\"плохоеСлово\");\nКонецПроцедуры\n",
+    );
+    write_file(repo.path().join("НецензурныеСлова.txt"), "плохоеСлово\n");
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "fix",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "ПроверкаНецензурныхСлов",
+            "--mode",
+            "all",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    // A pure checker scenario has nothing to apply: the file stays intact.
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        "Процедура Тест()\n    Сообщить(\"плохоеСлово\");\nКонецПроцедуры\n",
+        "fix must not modify files for warning-only scenarios"
     );
 }
 

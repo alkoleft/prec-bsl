@@ -247,6 +247,18 @@ impl PipelineReport {
             .any(|result| result.status.is_blocking())
     }
 
+    /// Whether any scenario produced a reportable diagnostic: a blocking
+    /// failure (hard failure or unsupported) or a warning. Used by the
+    /// `check`/`fix` exit codes, where warnings are violations of the
+    /// "exit 1 when violations found" contract. The hook contract is
+    /// deliberately different: `hook_exit_code` stays warning-free so
+    /// precommit warnings never block a commit.
+    pub fn has_reported_diagnostics(&self) -> bool {
+        self.results.iter().any(|result| {
+            result.status.is_blocking() || result.status == ScenarioResultStatus::Warning
+        })
+    }
+
     pub fn has_unreviewed_modifications(&self) -> bool {
         !self.modified_paths().is_empty()
     }
@@ -268,9 +280,12 @@ impl PipelineReport {
     }
 
     /// Exit code of the `check` command: `1` when any scenario reported a
-    /// would-be modification or a blocking diagnostic, `0` otherwise.
+    /// would-be modification, a blocking diagnostic, or a warning, `0`
+    /// otherwise. Unlike the hook contract, warnings count as violations
+    /// here: `check` is a diagnostics command and "exit 1 when violations
+    /// found" must cover checker warnings such as profanity matches.
     pub fn check_exit_code(&self) -> i32 {
-        if self.has_blocking_diagnostics() || self.has_unreviewed_modifications() {
+        if self.has_reported_diagnostics() || self.has_unreviewed_modifications() {
             1
         } else {
             0
@@ -278,9 +293,10 @@ impl PipelineReport {
     }
 
     /// Exit code of the `fix` command: `1` when fixers applied changes (or
-    /// would apply them in dry-run), `0` otherwise.
+    /// would apply them in dry-run), or a diagnostic (including a warning)
+    /// was reported, `0` otherwise.
     pub fn fix_exit_code(&self) -> i32 {
-        if self.has_blocking_diagnostics() || self.has_unreviewed_modifications() {
+        if self.has_reported_diagnostics() || self.has_unreviewed_modifications() {
             1
         } else {
             0

@@ -218,10 +218,15 @@ fn run_check_or_fix(
     }
     print!("{}", render_report(&report, format));
     if dry_run {
-        let diffs = render_dry_run_diffs(&report, &repo_root);
-        if !diffs.is_empty() {
-            println!("Предлагаемые изменения (не записаны):");
-            print!("{diffs}");
+        // The per-file line diff is a text-only preview: appending it after
+        // a JSON report would make stdout unparseable, and JSON already
+        // carries `proposed_content` per result.
+        if format == OutputFormat::Text {
+            let diffs = render_dry_run_diffs(&report, &repo_root);
+            if !diffs.is_empty() {
+                println!("Предлагаемые изменения (не записаны):");
+                print!("{diffs}");
+            }
         }
     } else if restage {
         // Real fix run only: put the fixed working-tree files back into the

@@ -5,6 +5,85 @@ use serde_json::Value;
 use super::*;
 
 #[test]
+fn line_diff_matches_naive_lcs_on_small_inputs() {
+    // Reference cases that exercise every branch of the Hirschberg base
+    // cases and splits.
+    let cases: &[(&str, &str, Vec<&str>)] = &[
+        // identical content: no lines
+        ("a\nb\n", "a\nb\n", vec![]),
+        // pure addition
+        ("a\n", "a\nb\n", vec!["+b"]),
+        // pure removal
+        ("a\nb\n", "a\n", vec!["-b"]),
+        // modification of a middle line
+        ("a\nb\nc\n", "a\nB\nc\n", vec!["-b", "+B"]),
+        // single original line matched later
+        ("x\n", "a\nx\n", vec!["+a"]),
+        // single proposed line matched earlier
+        ("a\nb\nx\n", "x\n", vec!["-a", "-b"]),
+        // full rewrite
+        ("a\nb\n", "c\nd\n", vec!["-a", "-b", "+c", "+d"]),
+        // empty sides
+        ("", "a\n", vec!["+a"]),
+        ("a\n", "", vec!["-a"]),
+        ("", "", vec![]),
+        // interleaved: repeated lines keep the LCS alignment stable
+        ("a\nb\na\nb\n", "b\na\nb\n", vec!["-a"]),
+    ];
+
+    for (original, proposed, expected) in cases {
+        assert_eq!(
+            render_line_diff(original, proposed),
+            *expected,
+            "diff of {original:?} -> {proposed:?}"
+        );
+    }
+}
+
+#[test]
+fn line_diff_handles_large_files_in_linear_memory() {
+    // 20 000 lines on both sides: the quadratic table would be
+    // 20 001 * 20 001 usize cells (~3.2 GB); the linear implementation must
+    // handle it, and a single-line edit in the middle must stay a small
+    // diff instead of rewriting the whole file.
+    let line = "Процедура ОдинаковаяСтрока";
+    let mut original = String::new();
+    for index in 0..20_000 {
+        use std::fmt::Write as _;
+        writeln!(original, "{line} {index}").unwrap();
+    }
+    let mut proposed = original.clone();
+    let target = line_count_offset(&proposed, 9_999);
+    proposed.replace_range(
+        target..target + "Процедура ОдинаковаяСтрока 9999".len(),
+        "Процедура ИзменённаяСтрока 9999",
+    );
+
+    let diff = render_line_diff(&original, &proposed);
+
+    // The LCS diff must contain only the edited line pair, not the whole
+    // file: 20 000 unchanged lines are skipped.
+    assert_eq!(diff.len(), 2, "expected a 2-line diff, got: {diff:?}");
+    assert!(diff.contains(&"-Процедура ОдинаковаяСтрока 9999".to_owned()));
+    assert!(diff.contains(&"+Процедура ИзменённаяСтрока 9999".to_owned()));
+}
+
+/// Byte offset of the start of the 0-based `target` line in `text`.
+fn line_count_offset(text: &str, target: usize) -> usize {
+    let mut offset = 0;
+    for (index, line) in text.split_inclusive('\n').enumerate() {
+        if index == target {
+            return offset;
+        }
+        offset += line.len();
+    }
+    panic!(
+        "line {target} not found in text of {} lines",
+        text.lines().count()
+    );
+}
+
+#[test]
 fn output_text_groups_messages_and_separates_modified_files_and_failures() {
     let report = sample_report();
 

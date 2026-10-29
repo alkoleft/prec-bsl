@@ -320,10 +320,14 @@ prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [
 Behavior:
 
 - Diagnostics only: never writes to files. Fixers run in memory and report
-  would-be modifications with a per-file line diff (`+`/`-` lines under
-  «Предлагаемые изменения (не записаны)»).
+  would-be modifications. In text format a per-file line diff (`+`/`-` lines
+  under «Предлагаемые изменения (не записаны)») is printed; in JSON format
+  the diff trailer is omitted because each result already carries
+  `proposed_content`.
 - "Violation" means a fixer would have changed the file or a checker scenario
-  produced a diagnostic result.
+  produced a diagnostic result. Warnings count as violations: unlike the hook
+  contract (where warnings never block a commit), `check`/`fix` exit `1` on
+  any reported diagnostic, including warnings such as profanity matches.
 - Exit codes: `0` - no violations; `1` - violations found; `2` - execution
   error (unresolvable repo path, invalid configuration, Git failure).
 - Uses the same config/source-root resolution as `exec-rules`/`fix`.
@@ -337,7 +341,9 @@ prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--
 Behavior:
 
 - Applies fixers to files.
-- `--dry-run` shows what would change (per-file line diff) without writing.
+- `--dry-run` shows what would change (per-file line diff in text format)
+  without writing. In JSON format the diff trailer is omitted: each result
+  already carries `proposed_content`.
 - `--restage` adds the fixed files back to the Git index after applying, the
   same restaging step the `prek-hook` commit mode performs. It is the only
   way to ask `prec-bsl` to update staged content; without the flag the Git
@@ -348,8 +354,10 @@ Behavior:
   error: restaging has no effect without writing, so the dry-run runs as
   usual, and no file or index entry is modified. This keeps scripts that
   always pass `--restage` working.
+- Warnings count as violations, same as `check`.
 - Exit codes: `0` - no fixes needed; `1` - fixes applied (in dry-run: there
-  is something to apply); `2` - execution error, including a failed restage.
+  is something to apply) or diagnostics (including warnings) reported;
+  `2` - execution error, including a failed restage.
   Hook-compatible semantics.
 
 `--mode` file selection (both `check` and `fix`, default `all`):
