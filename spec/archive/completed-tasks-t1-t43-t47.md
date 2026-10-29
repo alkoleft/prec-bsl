@@ -1928,3 +1928,43 @@ Completion evidence:
 Dependencies:
 
 - T48.
+
+### T50. DONE: `УдалениеЛишнихПустыхСтрок` trailing blank run at EOF
+
+prec-bsl issue: `alkoleft/prec-bsl` #11 (bsl-ls parity divergence).
+
+Current finding:
+
+- `remove_extra_blank_lines` kept a trailing blank run of exactly 1 blank line
+  at end of file: the final `flush_blank_run` only collapsed runs of 2 or more.
+- Files ending with `\n\n` or `\r\n\r\n` were not fixed, diverging from
+  `bsl-language-server` behavior where the file ends with exactly one line
+  ending.
+
+Resolution:
+
+- Inside a file, runs of 2+ blank lines still collapse to one blank line;
+  runs of exactly 1 blank line still stay.
+- At end of file, a trailing blank run of any size (including 1) is dropped:
+  the file ends with exactly one `\n` or `\r\n`.
+- A file consisting only of blank lines becomes empty output `""`.
+- A final line without a line ending is not a blank line and is left untouched.
+- No scenario setting was added (KISS/YAGNI); this is the default v1
+  behavior, captured in `spec/reference-scenario-inventory.md`.
+
+Validation:
+
+- `cargo test --workspace` (343 passed)
+- `cargo fmt --check`
+- `cargo clippy --workspace`: no new warnings in the changed files
+  (`-D warnings` has pre-existing failures on master, unchanged by this task)
+- CLI end-to-end: LF/CRLF trailing runs of size 1/2/3 collapse to one line
+  ending; a second run reports no changes.
+
+Completion evidence:
+
+- 2026-10-29: Dropped the trailing blank run in
+  `crates/prec-bsl-bsl/src/text_fixers.rs`, captured the blank-run contract
+  in `spec/reference-scenario-inventory.md`, and added unit, integration and
+  golden-fixture coverage in `tests/empty_lines.rs` and
+  `tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/хвостовой_пробельный_блок/`.

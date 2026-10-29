@@ -553,7 +553,8 @@ pub fn remove_extra_blank_lines(input: &str) -> String {
         output.push_str(ending);
     }
 
-    flush_blank_run(&mut output, &blank_run);
+    // A trailing blank run is dropped entirely so the file ends with exactly
+    // one line ending (see spec/reference-scenario-inventory.md, issue #11).
     output
 }
 
@@ -1141,6 +1142,60 @@ mod tests {
         assert_eq!(
             output,
             "Процедура A()\r\n\r\n\tСообщить();\r\n \t\r\nКонецПроцедуры()"
+        );
+    }
+
+    #[test]
+    fn extra_blank_line_removal_drops_trailing_blank_run_of_any_size() {
+        for (name, run) in [
+            ("single", "\n"),
+            ("double", "\n\n"),
+            ("triple", "\n\n\n"),
+            ("spaced", " \t\n"),
+        ] {
+            let input = format!("Процедура A()\n\tСообщить();\nКонецПроцедуры\n{run}");
+            let output = remove_extra_blank_lines(&input);
+
+            assert_eq!(
+                output, "Процедура A()\n\tСообщить();\nКонецПроцедуры\n",
+                "{name} trailing blank run must collapse to a single line ending"
+            );
+            assert_eq!(
+                remove_extra_blank_lines(&output),
+                output,
+                "{name} trailing blank run removal must be idempotent"
+            );
+        }
+
+        let crlf = "Процедура A()\r\n\tСообщить();\r\nКонецПроцедуры\r\n\r\n\r\n";
+        let output = remove_extra_blank_lines(crlf);
+        assert_eq!(
+            output, "Процедура A()\r\n\tСообщить();\r\nКонецПроцедуры\r\n",
+            "CRLF trailing blank run must collapse to a single CRLF"
+        );
+        assert_eq!(
+            remove_extra_blank_lines(&output),
+            output,
+            "CRLF trailing blank run removal must be idempotent"
+        );
+    }
+
+    #[test]
+    fn extra_blank_line_removal_empties_all_blank_file_and_keeps_final_stub() {
+        assert_eq!(
+            remove_extra_blank_lines("\n \t\n\n"),
+            "",
+            "a file made only of blank lines must become empty"
+        );
+        assert_eq!(
+            remove_extra_blank_lines("КонецПроцедуры"),
+            "КонецПроцедуры",
+            "a final line without a line ending must stay untouched"
+        );
+        assert_eq!(
+            remove_extra_blank_lines("КонецПроцедуры\n\nогрызок"),
+            "КонецПроцедуры\n\nогрызок",
+            "a trailing stub line without a line ending blocks blank-run dropping"
         );
     }
 

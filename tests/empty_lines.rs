@@ -71,6 +71,64 @@ fn empty_lines_matches_golden_fixture_and_is_idempotent() {
 }
 
 #[test]
+fn empty_lines_matches_trailing_blank_run_golden_fixture_and_is_idempotent() {
+    let repo = temp_repo("golden-trailing");
+    let repo_path = PathBuf::from("src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl");
+    let fixture_root = "tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/хвостовой_пробельный_блок";
+    let input = read_fixture_text(format!("{fixture_root}/input.bsl"));
+    let expected = read_fixture_text(format!("{fixture_root}/expected.bsl"));
+    write_file(repo.join(&repo_path), &input);
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
+    let config = empty_lines_config();
+
+    let first_report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file.clone()],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
+    assert_eq!(first_report.results.len(), 1);
+    assert_eq!(first_report.results[0].rule_id, EXTRA_BLANK_LINES_RULE);
+    assert_eq!(
+        first_report.results[0].status,
+        ScenarioResultStatus::Modified
+    );
+    assert_eq!(
+        first_report.results[0].message,
+        "removed excessive blank lines"
+    );
+    assert_eq!(first_report.modified_paths(), vec![repo_path.clone()]);
+    assert_eq!(
+        first_report.hook_exit_code(),
+        1,
+        "hook mode must block after unreviewed fixer modifications"
+    );
+
+    let second_report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert!(second_report.results.is_empty());
+    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
+    assert_eq!(second_report.hook_exit_code(), 0);
+}
+
+#[test]
 fn empty_lines_preserves_meaningful_spacing_and_line_endings() {
     let input = "Процедура A()\r\n\r\n\r\n\tСообщить();\r\n \t\r\nКонецПроцедуры()";
     let output = remove_extra_blank_lines(input);
@@ -97,6 +155,74 @@ fn empty_lines_line_ending_matrix_is_idempotent() {
         assert_eq!(first, expected, "{name} rewrite must preserve line endings");
         assert_eq!(second, expected, "{name} second rewrite must be clean");
     }
+}
+
+#[test]
+fn empty_lines_trailing_blank_run_of_any_size_collapses_to_single_line_ending() {
+    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
+        for run_size in 1..=3 {
+            let trailing_run = line_ending.repeat(run_size);
+            let input = format!(
+                "Процедура A(){line_ending}{line_ending}{line_ending}\tСообщить();{line_ending}КонецПроцедуры{trailing_run}"
+            );
+            let expected = format!(
+                "Процедура A(){line_ending}{line_ending}\tСообщить();{line_ending}КонецПроцедуры{line_ending}"
+            );
+
+            let first = remove_extra_blank_lines(&input);
+            let second = remove_extra_blank_lines(&first);
+
+            assert_eq!(
+                first, expected,
+                "{name} trailing blank run of {run_size} must leave exactly one line ending"
+            );
+            assert_eq!(
+                second, expected,
+                "{name} trailing blank run removal of {run_size} must be idempotent"
+            );
+        }
+
+        let spaced_trailing =
+            format!("Процедура A(){line_ending}КонецПроцедуры{line_ending} \t{line_ending}");
+        let expected = format!("Процедура A(){line_ending}КонецПроцедуры{line_ending}");
+        let first = remove_extra_blank_lines(&spaced_trailing);
+        assert_eq!(
+            first, expected,
+            "{name} whitespace-only trailing blank line must be dropped"
+        );
+        assert_eq!(
+            remove_extra_blank_lines(&first),
+            expected,
+            "{name} whitespace-only trailing blank line removal must be idempotent"
+        );
+    }
+}
+
+#[test]
+fn empty_lines_file_of_only_blank_lines_becomes_empty() {
+    for input in ["\n", "\n\n\n", " \t\n\n", "\r\n\r\n"] {
+        let output = remove_extra_blank_lines(input);
+        assert_eq!(
+            output, "",
+            "a file consisting only of blank lines must become empty"
+        );
+        assert_eq!(
+            remove_extra_blank_lines(&output),
+            "",
+            "empty output must stay empty"
+        );
+    }
+}
+
+#[test]
+fn empty_lines_file_without_final_newline_is_untouched() {
+    let input = "Процедура A()\n\nКонецПроцедуры";
+    let output = remove_extra_blank_lines(input);
+
+    assert_eq!(
+        output, input,
+        "a final line without a line ending must not gain or lose blank lines"
+    );
 }
 
 fn empty_lines_config() -> prec_bsl::config::ResolvedConfig {

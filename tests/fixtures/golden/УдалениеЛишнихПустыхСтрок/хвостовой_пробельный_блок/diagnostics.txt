@@ -1,0 +1,1 @@
+modified|УдалениеЛишнихПустыхСтрок|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|removed excessive blank lines
