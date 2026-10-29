@@ -1,6 +1,4 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+mod support;
 
 use prec_bsl::config::parse_config_str;
 use prec_bsl::scenario_pipeline::{
@@ -8,111 +6,46 @@ use prec_bsl::scenario_pipeline::{
 };
 use prec_bsl::source_files::{classify_repo_path, resolve_source_roots};
 use prec_bsl::text_fixers::{EXTRA_BLANK_LINES_RULE, remove_extra_blank_lines};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use support::fixtures::{
+    FixtureDiagnostic, FixtureRun, FixtureSeverity, GoldenFixture, assert_fixer_fixture,
+};
 
 #[test]
 fn empty_lines_matches_golden_fixture_and_is_idempotent() {
-    let repo = temp_repo("golden");
-    let repo_path = PathBuf::from("src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl");
-    let input = read_fixture_text(
-        "tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/кириллический_модуль/input.bsl",
-    );
-    let expected = read_fixture_text(
-        "tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/кириллический_модуль/expected.bsl",
-    );
-    write_file(repo.join(&repo_path), &input);
-
-    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
-    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
-    let config = empty_lines_config();
-
-    let first_report = run_pipeline(
-        &prec_bsl::reference_registry(),
-        PipelineRequest {
-            repo_root: &repo,
-            source_roots: &roots,
-            config: &config,
-            files: vec![file.clone()],
-            mode: PipelineMode::Hook,
-        },
+    let fixture = GoldenFixture::new(
+        "tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/кириллический_модуль",
+        PathBuf::from("src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl"),
     );
 
-    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
-    assert_eq!(first_report.results.len(), 1);
-    assert_eq!(first_report.results[0].rule_id, EXTRA_BLANK_LINES_RULE);
-    assert_eq!(
-        first_report.results[0].status,
-        ScenarioResultStatus::Modified
-    );
-    assert_eq!(
-        first_report.results[0].message,
-        "removed excessive blank lines"
-    );
-    assert_eq!(first_report.modified_paths(), vec![repo_path.clone()]);
-    assert_eq!(
-        first_report.hook_exit_code(),
-        1,
-        "hook mode must block after unreviewed fixer modifications"
-    );
-
-    let second_report = run_pipeline(
-        &prec_bsl::reference_registry(),
-        PipelineRequest {
-            repo_root: &repo,
-            source_roots: &roots,
-            config: &config,
-            files: vec![file],
-            mode: PipelineMode::Hook,
-        },
-    );
-
-    assert!(second_report.results.is_empty());
-    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
-    assert_eq!(second_report.hook_exit_code(), 0);
+    assert_fixer_fixture(&fixture, |input, path| {
+        empty_lines_pipeline_run("cyrillic", input, path)
+    });
 }
 
 #[test]
 fn empty_lines_matches_trailing_blank_run_golden_fixture_and_is_idempotent() {
-    let repo = temp_repo("golden-trailing");
-    let repo_path = PathBuf::from("src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl");
-    let fixture_root = "tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/хвостовой_пробельный_блок";
-    let input = read_fixture_text(format!("{fixture_root}/input.bsl"));
-    let expected = read_fixture_text(format!("{fixture_root}/expected.bsl"));
-    write_file(repo.join(&repo_path), &input);
+    let fixture = GoldenFixture::new(
+        "tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/хвостовой_пробельный_блок",
+        PathBuf::from("src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl"),
+    );
+
+    assert_fixer_fixture(&fixture, |input, path| {
+        empty_lines_pipeline_run("trailing", input, path)
+    });
+}
+
+fn empty_lines_pipeline_run(test_name: &str, input: &str, path: &Path) -> FixtureRun {
+    let repo = temp_repo(test_name);
+    write_file(repo.join(path), input);
 
     let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
-    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
+    let file = classify_repo_path(&roots, path.to_path_buf(), None).unwrap();
     let config = empty_lines_config();
 
-    let first_report = run_pipeline(
-        &prec_bsl::reference_registry(),
-        PipelineRequest {
-            repo_root: &repo,
-            source_roots: &roots,
-            config: &config,
-            files: vec![file.clone()],
-            mode: PipelineMode::Hook,
-        },
-    );
-
-    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
-    assert_eq!(first_report.results.len(), 1);
-    assert_eq!(first_report.results[0].rule_id, EXTRA_BLANK_LINES_RULE);
-    assert_eq!(
-        first_report.results[0].status,
-        ScenarioResultStatus::Modified
-    );
-    assert_eq!(
-        first_report.results[0].message,
-        "removed excessive blank lines"
-    );
-    assert_eq!(first_report.modified_paths(), vec![repo_path.clone()]);
-    assert_eq!(
-        first_report.hook_exit_code(),
-        1,
-        "hook mode must block after unreviewed fixer modifications"
-    );
-
-    let second_report = run_pipeline(
+    let report = run_pipeline(
         &prec_bsl::reference_registry(),
         PipelineRequest {
             repo_root: &repo,
@@ -123,9 +56,41 @@ fn empty_lines_matches_trailing_blank_run_golden_fixture_and_is_idempotent() {
         },
     );
 
-    assert!(second_report.results.is_empty());
-    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
-    assert_eq!(second_report.hook_exit_code(), 0);
+    let output = fs::read_to_string(repo.join(path)).unwrap();
+    let diagnostics: Vec<FixtureDiagnostic> = report
+        .results
+        .iter()
+        .map(|result| {
+            assert_eq!(result.status, ScenarioResultStatus::Modified);
+            assert_eq!(result.rule_id, EXTRA_BLANK_LINES_RULE);
+            FixtureDiagnostic::new(
+                FixtureSeverity::Modified,
+                result.rule_id.clone(),
+                path,
+                result.message.clone(),
+            )
+        })
+        .collect();
+
+    // AGENTS.md modeling rule: hook mode exits 0 only when no blocking
+    // diagnostics and no unreviewed modifications remain.
+    let expected_exit_code = if diagnostics.is_empty() { 0 } else { 1 };
+    assert_eq!(
+        report.hook_exit_code(),
+        expected_exit_code,
+        "hook exit code must block on unreviewed fixer modifications"
+    );
+    assert_eq!(
+        report.modified_paths(),
+        if diagnostics.is_empty() {
+            Vec::new()
+        } else {
+            vec![path.to_path_buf()]
+        },
+        "modified paths must report every silently changed file"
+    );
+
+    FixtureRun::new(output, diagnostics)
 }
 
 #[test]
@@ -154,47 +119,6 @@ fn empty_lines_line_ending_matrix_is_idempotent() {
 
         assert_eq!(first, expected, "{name} rewrite must preserve line endings");
         assert_eq!(second, expected, "{name} second rewrite must be clean");
-    }
-}
-
-#[test]
-fn empty_lines_trailing_blank_run_of_any_size_collapses_to_single_line_ending() {
-    for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
-        for run_size in 1..=3 {
-            let trailing_run = line_ending.repeat(run_size);
-            let input = format!(
-                "Процедура A(){line_ending}{line_ending}{line_ending}\tСообщить();{line_ending}КонецПроцедуры{trailing_run}"
-            );
-            let expected = format!(
-                "Процедура A(){line_ending}{line_ending}\tСообщить();{line_ending}КонецПроцедуры{line_ending}"
-            );
-
-            let first = remove_extra_blank_lines(&input);
-            let second = remove_extra_blank_lines(&first);
-
-            assert_eq!(
-                first, expected,
-                "{name} trailing blank run of {run_size} must leave exactly one line ending"
-            );
-            assert_eq!(
-                second, expected,
-                "{name} trailing blank run removal of {run_size} must be idempotent"
-            );
-        }
-
-        let spaced_trailing =
-            format!("Процедура A(){line_ending}КонецПроцедуры{line_ending} \t{line_ending}");
-        let expected = format!("Процедура A(){line_ending}КонецПроцедуры{line_ending}");
-        let first = remove_extra_blank_lines(&spaced_trailing);
-        assert_eq!(
-            first, expected,
-            "{name} whitespace-only trailing blank line must be dropped"
-        );
-        assert_eq!(
-            remove_extra_blank_lines(&first),
-            expected,
-            "{name} whitespace-only trailing blank line removal must be idempotent"
-        );
     }
 }
 
@@ -234,13 +158,6 @@ fn empty_lines_config() -> prec_bsl::config::ResolvedConfig {
         }"#,
     )
     .unwrap()
-}
-
-fn read_fixture_text(path: impl AsRef<Path>) -> String {
-    fs::read_to_string(path)
-        .unwrap()
-        .replace("<SP>", " ")
-        .replace("<TAB>", "\t")
 }
 
 fn temp_repo(test_name: &str) -> PathBuf {

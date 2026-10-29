@@ -1167,6 +1167,31 @@ mod tests {
             );
         }
 
+        let mixed_endings = "Процедура A()\r\n\tСообщить();\r\nКонецПроцедуры\n\r\n\r\n";
+        let output = remove_extra_blank_lines(mixed_endings);
+        assert_eq!(
+            output, "Процедура A()\r\n\tСообщить();\r\nКонецПроцедуры\n",
+            "the file must end with the last non-blank line's own ending, \
+             not the dropped run's ending"
+        );
+        assert_eq!(
+            remove_extra_blank_lines(&output),
+            output,
+            "mixed-ending trailing blank run removal must be idempotent"
+        );
+
+        let mirror_endings = "Процедура A()\n\tСообщить();\nКонецПроцедуры\r\n\n\n";
+        let output = remove_extra_blank_lines(mirror_endings);
+        assert_eq!(
+            output, "Процедура A()\n\tСообщить();\nКонецПроцедуры\r\n",
+            "the mirror mixed-ending case must keep the last non-blank line's CRLF"
+        );
+        assert_eq!(
+            remove_extra_blank_lines(&output),
+            output,
+            "mirror mixed-ending trailing blank run removal must be idempotent"
+        );
+
         let crlf = "Процедура A()\r\n\tСообщить();\r\nКонецПроцедуры\r\n\r\n\r\n";
         let output = remove_extra_blank_lines(crlf);
         assert_eq!(
