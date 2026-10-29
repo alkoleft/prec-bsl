@@ -50,6 +50,9 @@ pub struct GlobalConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScenarioConfig {
     pub repository_scenarios: RepositoryScenarioSettings,
+    /// Enabled scenario ids. A config file without the `ГлобальныеСценарии`
+    /// key resolves this to the built-in default set; the explicit empty
+    /// array keeps the list empty as the deliberate opt-out.
     pub global_scenarios: Vec<String>,
     pub disabled_scenarios: Vec<String>,
     pub settings: BTreeMap<String, Value>,
@@ -75,11 +78,14 @@ impl ScenarioConfig {
     fn for_source_path<'a>(&'a self, source_path: &Path) -> ScenarioView<'a> {
         self.matching_project(source_path)
             .map(|project| ScenarioView {
+                // A project section without `ГлобальныеСценарии` inherits the
+                // base enabled list (which is the default scenario set when
+                // the top-level key is absent too). Only the explicit empty
+                // array turns every scenario off for the project.
                 global_scenarios: project
                     .global_scenarios
-                    .as_ref()
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
+                    .as_deref()
+                    .unwrap_or(&self.global_scenarios),
                 disabled_scenarios: project
                     .disabled_scenarios
                     .as_ref()
@@ -115,6 +121,9 @@ pub struct RepositoryScenarioSettings {
 pub struct ProjectScenarioConfig {
     pub configured_path: String,
     pub repository_scenarios: RepositoryScenarioSettings,
+    /// `None` (key absent) inherits the base enabled list for matching
+    /// files; `Some(vec![])` is the explicit per-project opt-out that
+    /// disables every scenario for the project.
     pub global_scenarios: Option<Vec<String>>,
     pub disabled_scenarios: Option<Vec<String>>,
     pub settings: Option<BTreeMap<String, Value>>,
