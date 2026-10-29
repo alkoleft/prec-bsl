@@ -134,13 +134,13 @@ pub fn run_check(args: &CheckArgs) -> i32 {
 }
 
 /// `prec-bsl fix`: applies fixers, or previews them with `--dry-run`.
+/// With `--restage`, applied fixes are added back to the Git index.
 pub fn run_fix(args: &FixArgs) -> i32 {
     run_check_or_fix(
         &args.repo,
-        if args.dry_run {
-            CheckFixRun::FixDryRun
-        } else {
-            CheckFixRun::FixApply
+        CheckFixRun::Fix {
+            dry_run: args.dry_run,
+            restage: args.restage,
         },
         args.config.clone(),
         args.source_dirs.as_ref().map(|dirs| dirs.0.clone()),
@@ -150,10 +150,12 @@ pub fn run_fix(args: &FixArgs) -> i32 {
     )
 }
 
+/// Kind of `check`/`fix` run. `Fix` carries the two fix-only flags: preview
+/// without writing (`dry_run`) and restaging fixed files into the Git index
+/// (`restage`, ignored in `dry_run`).
 enum CheckFixRun {
     Check,
-    FixApply,
-    FixDryRun,
+    Fix { dry_run: bool, restage: bool },
 }
 
 fn run_check_or_fix(
@@ -171,8 +173,8 @@ fn run_check_or_fix(
     };
     let explicit_source_dirs = source_dirs_value.as_deref().map(parse_source_dir_list);
     let pipeline_mode = match run {
-        CheckFixRun::Check | CheckFixRun::FixDryRun => PipelineMode::Check,
-        CheckFixRun::FixApply => PipelineMode::Fix,
+        CheckFixRun::Check | CheckFixRun::Fix { dry_run: true, .. } => PipelineMode::Check,
+        CheckFixRun::Fix { dry_run: false, .. } => PipelineMode::Fix,
     };
     let Some((config, roots)) = resolve_config_and_roots(
         &repo_root,
@@ -202,13 +204,30 @@ fn run_check_or_fix(
         },
     );
 
-    let dry_run = matches!(run, CheckFixRun::Check | CheckFixRun::FixDryRun);
+    // Dry-run kinds: `check` itself and `fix --dry-run`.
+    let (dry_run, restage) = match run {
+        CheckFixRun::Check => (true, false),
+        CheckFixRun::Fix { dry_run, restage } => (dry_run, restage),
+    };
+    if restage && dry_run {
+        // `--restage` has no effect without writing: warn, but keep the run
+        // valid so scripts that always pass the flag do not break.
+        eprintln!(
+            "предупреждение: --restage не действует вместе с --dry-run: изменения не записаны"
+        );
+    }
     print!("{}", render_report(&report, format));
     if dry_run {
         let diffs = render_dry_run_diffs(&report, &repo_root);
         if !diffs.is_empty() {
             println!("Предлагаемые изменения (не записаны):");
             print!("{diffs}");
+        }
+    } else if restage {
+        // Real fix run only: put the fixed working-tree files back into the
+        // Git index, the same restaging step `prek-hook` performs.
+        if let Err(error) = restage_paths(&repo_root, &report.modified_paths()) {
+            return print_execution_error(error.to_string());
         }
     }
     report.exit_code()

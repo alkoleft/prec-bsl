@@ -65,6 +65,9 @@ pub struct FixArgs {
     pub format: OutputFormat,
     pub mode: FileSelectionMode,
     pub dry_run: bool,
+    /// `fix --restage`: restage the fixed working-tree files back into the
+    /// Git index, like the `prek-hook` restaging step.
+    pub restage: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -154,7 +157,7 @@ pub fn help(topic: HelpTopic) -> &'static str {
             "Использование: prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n\nКоманда только диагностирует нарушения и никогда не изменяет файлы.\nКод выхода: 0 — нарушений нет, 1 — есть нарушения, 2 — ошибка выполнения."
         }
         HelpTopic::Fix => {
-            "Использование: prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n  --dry-run             Показать изменения (дифф), не записывая их в файлы\n\nКод выхода: 0 — правок не потребовалось, 1 — правки применены (в dry-run: есть что применять), 2 — ошибка."
+            "Использование: prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n  --dry-run             Показать изменения (дифф), не записывая их в файлы\n  --restage             После применения правок добавить исправленные файлы в Git index (не влияет на dry-run)\n\nКод выхода: 0 — правок не потребовалось, 1 — правки применены (в dry-run: есть что применять), 2 — ошибка."
         }
     }
 }
@@ -310,6 +313,8 @@ fn parse_fix(args: &[OsString]) -> Result<CliCommand, CliError> {
         let argument = flag(args[index].as_os_str())?;
         if argument == "--dry-run" {
             parsed.dry_run = true;
+        } else if argument == "--restage" {
+            parsed.restage = true;
         } else if let Some(topic) =
             parse_common_argument("fix", argument, args, &mut index, &mut parsed)?
         {
@@ -326,6 +331,7 @@ fn parse_fix(args: &[OsString]) -> Result<CliCommand, CliError> {
         format: parsed.format,
         mode: parsed.mode,
         dry_run: parsed.dry_run,
+        restage: parsed.restage,
     }))
 }
 
@@ -338,6 +344,7 @@ struct CommonCommandArgs {
     format: OutputFormat,
     mode: FileSelectionMode,
     dry_run: bool,
+    restage: bool,
 }
 
 fn parse_common_command_args(
@@ -754,6 +761,7 @@ mod tests {
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::Worktree,
                 dry_run: true,
+                restage: false,
             })
         );
     }
@@ -772,8 +780,54 @@ mod tests {
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::Index,
                 dry_run: false,
+                restage: false,
             })
         );
+    }
+
+    #[test]
+    fn fix_accepts_restage_flag() {
+        let command = parse_args(["fix", "/tmp/repo", "--mode", "index", "--restage"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::Fix(FixArgs {
+                repo: PathBuf::from("/tmp/repo"),
+                config: None,
+                source_dirs: None,
+                rules: None,
+                format: OutputFormat::Text,
+                mode: FileSelectionMode::Index,
+                dry_run: false,
+                restage: true,
+            })
+        );
+    }
+
+    #[test]
+    fn fix_restage_with_dry_run_is_valid_parse() {
+        let command = parse_args(["fix", ".", "--dry-run", "--restage"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::Fix(FixArgs {
+                repo: PathBuf::from("."),
+                config: None,
+                source_dirs: None,
+                rules: None,
+                format: OutputFormat::Text,
+                mode: FileSelectionMode::All,
+                dry_run: true,
+                restage: true,
+            })
+        );
+    }
+
+    #[test]
+    fn check_rejects_restage_flag() {
+        let error = parse_args(["check", ".", "--restage"]).unwrap_err();
+
+        assert_eq!(error.message(), "неизвестный параметр для check: --restage");
     }
 
     #[test]
@@ -827,6 +881,7 @@ mod tests {
     fn check_help_mentions_exit_codes() {
         assert!(help(HelpTopic::Check).contains("Код выхода"));
         assert!(help(HelpTopic::Fix).contains("--dry-run"));
+        assert!(help(HelpTopic::Fix).contains("--restage"));
         assert!(help(HelpTopic::General).contains("check"));
         assert!(help(HelpTopic::General).contains("fix"));
         assert!(help(HelpTopic::ExecRules).contains("устарела"));

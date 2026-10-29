@@ -468,6 +468,186 @@ fn fix_json_output_includes_proposed_content_for_dry_run() {
     assert!(stdout.contains("proposed_content"));
 }
 
+/// `fix --restage` on a file with a combined `MM` status: the fixed working
+/// tree must land in the Git index too, exactly like the hook restaging step.
+#[test]
+fn fix_restage_updates_index_of_combined_status_file() {
+    let repo = TempGitRepo::new("fix_restage_mm");
+    let module = PathBuf::from("src/Комбинированный.bsl");
+    write_file(repo.path().join(&module), DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    // staged edit, then a further unstaged edit: status becomes MM
+    write_file(repo.path().join(&module), DIRTYER_MODULE);
+    run_git(repo.path(), ["add", "src/Комбинированный.bsl"]);
+    write_file(repo.path().join(&module), DIRTYEST_MODULE);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "fix",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+            "--mode",
+            "index",
+            "--restage",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        CLEAN_MODULE,
+        "fix --restage must fix the working-tree copy"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["show", ":src/Комбинированный.bsl"]),
+        CLEAN_MODULE,
+        "fix --restage must put the fixed content into the index"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["diff", "--name-only"]),
+        "",
+        "after --restage the working tree must match the index"
+    );
+}
+
+/// Default `fix` without `--restage` keeps the staged content untouched:
+/// only the working copy is fixed (backward-compatible contract).
+#[test]
+fn fix_without_restage_leaves_index_untouched() {
+    let repo = TempGitRepo::new("fix_no_restage_mm");
+    let module = PathBuf::from("src/Комбинированный.bsl");
+    write_file(repo.path().join(&module), DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    write_file(repo.path().join(&module), DIRTYER_MODULE);
+    run_git(repo.path(), ["add", "src/Комбинированный.bsl"]);
+    write_file(repo.path().join(&module), DIRTYEST_MODULE);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "fix",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+            "--mode",
+            "index",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        CLEAN_MODULE,
+        "fix must fix the working-tree copy"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["show", ":src/Комбинированный.bsl"]),
+        DIRTYER_MODULE,
+        "fix without --restage must not touch the staged content"
+    );
+}
+
+/// `--restage` together with `--dry-run` is a warning, not an error: the
+/// dry-run still runs and no file is written or staged.
+#[test]
+fn fix_dry_run_with_restage_warns_and_keeps_files_untouched() {
+    let repo = TempGitRepo::new("fix_dry_run_restage");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+    write_file(repo.path().join(&module), DIRTYER_MODULE);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "fix",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+            "--mode",
+            "changed",
+            "--dry-run",
+            "--restage",
+        ],
+    );
+
+    // dry-run semantics are unchanged: exit 1 means "there is something to
+    // apply", not an error.
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--restage"),
+        "fix --dry-run --restage must warn about the useless flag: {stderr}"
+    );
+    assert!(
+        stderr.contains("предупреждение"),
+        "fix --dry-run --restage warning must be marked as a warning: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        DIRTYER_MODULE,
+        "fix --dry-run --restage must not modify the file"
+    );
+    assert_eq!(
+        run_git_stdout(repo.path(), ["show", ":src/Модуль.bsl"]),
+        DIRTY_MODULE,
+        "fix --dry-run --restage must not touch the index"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Предлагаемые изменения (не записаны):"));
+}
+
+/// `check` does not accept `--restage`: it is a parse error like any other
+/// foreign flag, exiting with the CLI error code.
+#[test]
+fn check_rejects_restage_as_cli_error() {
+    let repo = TempGitRepo::new("check_restage_rejected");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+            "--mode",
+            "changed",
+            "--restage",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(2), "{}", output_text(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("неизвестный параметр для check: --restage"),
+        "check must reject --restage with a clear parse error: {stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        DIRTY_MODULE,
+        "rejected check run must not modify files"
+    );
+}
+
 const DIRTY_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\n";
 const DIRTYER_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\t\n";
 const DIRTYEST_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры \t \n";
@@ -537,6 +717,26 @@ fn run_git<const N: usize>(repo: &Path, args: [&str; N]) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn run_git_stdout<const N: usize>(repo: &Path, args: [&str; N]) -> String {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .arg("-c")
+        .arg("core.quotePath=false")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git command failed in {}: {}\nstdout: {}\nstderr: {}",
+        repo.display(),
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
 }
 
 fn output_text(output: &Output) -> String {
