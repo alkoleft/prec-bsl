@@ -144,6 +144,26 @@ defaults: the supported v1 scenario set is enabled and scenario settings are
 empty/default. A missing explicit custom config path, for example
 `--config custom-v8config.json`, remains a configuration error.
 
+Inside a present `v8config.json`, the `ГлобальныеСценарии` key distinguishes
+three states:
+
+- key absent — the built-in default scenario set is enabled (the same list as
+  when the whole file is absent: required v1 scenarios);
+- key present with an empty array `[]` — the deliberate opt-out that enables
+  no scenarios;
+- key present with a non-empty list — exactly those scenarios are enabled.
+
+The same contract applies to each `Проекты` section: a project without its own
+`ГлобальныеСценарии` key inherits the base list of the root
+`Precommt4onecСценарии` section (which is the built-in default set when the
+top-level key is absent too), while `[]` inside the project section disables
+all scenarios for that project only. `ОтключенныеСценарии` entries are
+subtracted from the resulting set at every level.
+
+This removes the historic trap where a config file that only tuned `GLOBAL` or
+`ОтключенныеСценарии` silently resolved to zero enabled scenarios, so `check`
+and `fix` processed files without a single rule and exited `0`.
+
 Canonical JSON shape:
 
 ```json
@@ -412,13 +432,16 @@ Within domain config:
 1. Matching project settings fully override base scenario settings for that project path.
 2. `disabled` has priority over `enabled`.
 3. Scenario names are normalized by trimming optional `.os`.
+4. A missing `ГлобальныеСценарии` key resolves to the built-in default scenario
+   set at every level; only the explicit empty array `[]` enables no scenarios.
 
 There is no separate v1 compatibility flag named
 `ИспользоватьГлобальныеСценарии`. Local `precommit4onec` reference code and
 fixtures use `ГлобальныеСценарии` as the enabled scenario list and
 `ОтключенныеСценарии` as the exclusion list. To disable all global scenarios,
-list the enabled scenarios under `ОтключенныеСценарии` or provide an empty
-project-specific `ГлобальныеСценарии` override. Adding another boolean switch
+provide an empty `ГлобальныеСценарии` array (`[]`) or list the enabled
+scenarios under `ОтключенныеСценарии`, or use an empty project-specific
+`ГлобальныеСценарии` override. Adding another boolean switch
 for this behavior is outside the supported v1 surface.
 
 ## Validation Rules
