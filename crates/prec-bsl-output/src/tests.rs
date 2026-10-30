@@ -241,9 +241,9 @@ fn output_text_localizes_line_length_messages() {
         "предупреждение: длина строки 160 превышает максимально допустимую 150 (строка 3)"
     ));
     assert!(!output.contains("String length 160"));
-    assert!(output.contains(
-        "настройка МаксимальнаяДлинаСтроки должна быть целым положительным числом"
-    ));
+    assert!(
+        output.contains("настройка МаксимальнаяДлинаСтроки должна быть целым положительным числом")
+    );
     assert!(!output.contains("must be a positive integer"));
 }
 

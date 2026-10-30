@@ -198,11 +198,8 @@ fn is_repository_relative_path(path: &Path) -> bool {
 }
 
 pub const LINE_LENGTH_RULE: &str = "ПроверкаДлиныСтрок";
-pub const LINE_LENGTH_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
-    LINE_LENGTH_RULE,
-    "ПроверкаДлиныСтрок.os",
-    line_length,
-);
+pub const LINE_LENGTH_SCENARIO: ScenarioDefinition =
+    ScenarioDefinition::compatibility(LINE_LENGTH_RULE, "ПроверкаДлиныСтрок.os", line_length);
 
 const MAX_LINE_LENGTH_SETTING: &str = "МаксимальнаяДлинаСтроки";
 pub const DEFAULT_MAX_LINE_LENGTH: usize = 150;
@@ -346,9 +343,7 @@ fn string_tail_remainder(stripped: &str) -> Option<&str> {
 /// Whether the code after a closing quote is anything but `;` and whitespace.
 /// A `;` directly following a string part is excluded, mirroring bsl-ls.
 fn has_code(remainder: &str) -> bool {
-    remainder
-        .chars()
-        .any(|ch| ch != ';' && !ch.is_whitespace())
+    remainder.chars().any(|ch| ch != ';' && !ch.is_whitespace())
 }
 
 /// Whether the line ends inside an unclosed string literal. Quotes after a
@@ -389,7 +384,10 @@ mod tests {
         let line = "А".repeat(151);
         assert_eq!(
             find_long_lines(&line, 150),
-            vec![LongLineMatch { line: 1, length: 151 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 151
+            }]
         );
     }
 
@@ -406,7 +404,10 @@ mod tests {
         let line = "Ы".repeat(151);
         assert_eq!(
             find_long_lines(&line, 150),
-            vec![LongLineMatch { line: 1, length: 151 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 151
+            }]
         );
     }
 
@@ -419,7 +420,10 @@ mod tests {
         let input = format!("{opening}\n{continuation}");
         assert_eq!(
             find_long_lines(&input, 150),
-            vec![LongLineMatch { line: 1, length: 151 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 151
+            }]
         );
     }
 
@@ -433,7 +437,10 @@ mod tests {
         let input = format!("{opening}\n{continuation}\n{continuation}\n{normal_long}");
         assert_eq!(
             find_long_lines(&input, 150),
-            vec![LongLineMatch { line: 4, length: 151 }]
+            vec![LongLineMatch {
+                line: 4,
+                length: 151
+            }]
         );
     }
 
@@ -445,7 +452,10 @@ mod tests {
         let input = format!("Текст = \"\n{tail}");
         assert_eq!(
             find_long_lines(&input, 150),
-            vec![LongLineMatch { line: 2, length: 177 }]
+            vec![LongLineMatch {
+                line: 2,
+                length: 177
+            }]
         );
 
         // `;` сразу после `"`-хвоста без кода — строка не флагается (bsl-ls исключает
@@ -472,7 +482,10 @@ mod tests {
         let input = format!("{opening}\n{continuation}\n{normal_long}");
         assert_eq!(
             find_long_lines(&input, 150),
-            vec![LongLineMatch { line: 3, length: 151 }]
+            vec![LongLineMatch {
+                line: 3,
+                length: 151
+            }]
         );
     }
 
@@ -485,7 +498,10 @@ mod tests {
         let with_bom_over = format!("\u{feff}{}", "А".repeat(151));
         assert_eq!(
             find_long_lines(&with_bom_over, 150),
-            vec![LongLineMatch { line: 1, length: 151 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 151
+            }]
         );
     }
 
@@ -496,7 +512,10 @@ mod tests {
         let input = format!("{line}\r\n");
         assert_eq!(
             find_long_lines(&input, 150),
-            vec![LongLineMatch { line: 1, length: 151 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 151
+            }]
         );
     }
 
@@ -506,7 +525,10 @@ mod tests {
         let comment = format!("// {}", "А".repeat(151));
         assert_eq!(
             find_long_lines(&comment, 150),
-            vec![LongLineMatch { line: 1, length: 154 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 154
+            }]
         );
     }
 
@@ -516,7 +538,10 @@ mod tests {
         let comment_pipe = format!("// | {}", "А".repeat(150));
         assert_eq!(
             find_long_lines(&comment_pipe, 150),
-            vec![LongLineMatch { line: 1, length: 155 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 155
+            }]
         );
     }
 
@@ -540,7 +565,10 @@ mod tests {
         let input = format!("{comment}\n{normal_long}");
         assert_eq!(
             find_long_lines(&input, 150),
-            vec![LongLineMatch { line: 2, length: 151 }]
+            vec![LongLineMatch {
+                line: 2,
+                length: 151
+            }]
         );
     }
 
@@ -555,7 +583,10 @@ mod tests {
         let tabs_mid_over = format!("А{}Б", "\t".repeat(149));
         assert_eq!(
             find_long_lines(&tabs_mid_over, 150),
-            vec![LongLineMatch { line: 1, length: 151 }]
+            vec![LongLineMatch {
+                line: 1,
+                length: 151
+            }]
         );
     }
 
