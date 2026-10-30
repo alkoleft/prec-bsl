@@ -499,7 +499,12 @@ OneStatementPerLineDiagnostic):
   (`А=1; А=2; А=3;` flags `А=2;` and `А=3;`).
 - Preprocessor statements, exception-equivalent ERROR regions and bare `;`
   reset the row tracking and are never flagged themselves (bsl-ls
-  `ctx.preprocessor() != null` / `ctx.exception != null` semantics). The
+  `ctx.preprocessor() != null` / `ctx.exception != null` semantics). Reset
+  semantics are an exact transliteration of the bsl-ls `visitStatement`
+  exception branch (`statementsPerLine.clear()`): a reset clears any pending
+  violations of the tracked row without emitting them, so e.g.
+  `А = 1; Б = 2; )` yields no diagnostics in bsl-ls either (parity, not a
+  gap). The
   grammar 0.1.x has no `_empty_statement` node: a bare `;` is an ERROR node
   in three forms — a top-level ERROR-`;` resets the tracking; an EOF-swallowed
   ERROR-`;` child of a statement resets at the statement's end row; a
@@ -550,6 +555,16 @@ themselves contain `;;` and must stay clean of warnings. Any other parse
 error intersecting the row of a detected violation makes the result
 unreliable: the scenario returns a Warning and leaves the file unchanged
 instead of silently modifying unreliable input.
+
+Files with lone `\r` line endings (CR-only files, or mixed endings with a
+`\r` not followed by `\n` anywhere) are out of contract for this scenario:
+detection rows are LF-based (tree-sitter rows advance only on `\n`), so
+detection would produce false violations and the fix would corrupt the
+text. The scenario reports a single Warning ("файл использует
+неканонические переводы строк (CR); сценарий ОдинОператорНаСтроку
+пропущен") and makes no changes; such files are never normalized or fixed
+here. Pure CRLF and LF files remain fully in contract. A UTF-8 BOM
+survives the fix byte-for-byte and the fixed output stays idempotent.
 
 Check mode (`WritePolicy::DryRun`) yields a single dry-run result with the
 proposed fixed content and one message enumerating the 1-based violating

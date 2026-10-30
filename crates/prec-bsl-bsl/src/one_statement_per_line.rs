@@ -374,6 +374,20 @@ fn has_embedded_error_semi(node: tree_sitter::Node<'_>, source: &str) -> bool {
     false
 }
 
+/// True when the input contains a lone `\r` — a `\r` NOT followed by
+/// `\n` (CR-only or mixed line endings). tree-sitter rows advance only
+/// on `\n`, so detection on such files yields false violations and the
+/// fixer would corrupt the text (inserting `\n` next to surviving `\r`,
+/// wrong `line_indent` via `rfind('\n')`). Such files are out of
+/// contract for this scenario: it warns and makes no changes.
+fn has_lone_cr(input: &str) -> bool {
+    input
+        .as_bytes()
+        .windows(2)
+        .any(|pair| pair[0] == b'\r' && pair[1] != b'\n')
+        || input.ends_with('\r')
+}
+
 /// Find all one-statement-per-line violations (bsl-ls parity).
 pub fn find_violations(input: &str) -> Result<Vec<StatementViolation>, BslParserError> {
     let mut parser = BslParser::new()?;
@@ -516,6 +530,13 @@ fn apply_move_edits(input: &str, edits: Vec<MoveEdit>, line_ending: &str) -> Str
 /// one tab). Pure function: no violations (or relevant parse errors) →
 /// the input is returned unchanged, byte-for-byte.
 pub fn fix_one_statement_per_line(input: &str) -> Result<String, BslParserError> {
+    // Lone-`\r` line endings are out of contract (see `has_lone_cr`):
+    // tree-sitter's row model is LF-based, so detection rows — and any
+    // fix built on them — would be wrong. Never normalize or fix such
+    // files here; the handler reports a Warning instead.
+    if has_lone_cr(input) {
+        return Ok(input.to_owned());
+    }
     let violations = find_violations(input)?;
     if violations.is_empty() {
         return Ok(input.to_owned());
@@ -571,6 +592,19 @@ pub fn one_statement_per_line(context: &ScenarioExecutionContext<'_>) -> Scenari
             ));
         }
     };
+
+    // Lone-`\r` line endings (CR-only or mixed) are out of contract:
+    // tree-sitter rows advance only on `\n`, so detection would yield
+    // false violations and the fix would corrupt the text. Warn and
+    // leave the file untouched (checked before `find_violations`, so
+    // check mode produces no false diagnostics either).
+    if has_lone_cr(&input) {
+        return ScenarioRun::single(ScenarioResult::warning(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "файл использует неканонические переводы строк (CR); сценарий ОдинОператорНаСтроку пропущен",
+        ));
+    }
 
     let violations = match find_violations(&input) {
         Ok(violations) => violations,
@@ -1075,6 +1109,34 @@ mod tests {
             let twice = fix_one_statement_per_line(&once).unwrap();
             assert_eq!(once, twice, "not idempotent for {input:?}");
         }
+    }
+
+    #[test]
+    fn fix_lone_cr_input_is_returned_unchanged_byte_for_byte() {
+        // CR-only (or mixed with lone `\r`) line endings are out of
+        // contract: tree-sitter rows advance only on `\n`, so detection
+        // would produce false violations and the fix would corrupt the
+        // text (inserting `\n` next to surviving `\r`). The fixer must
+        // return the input unchanged.
+        let input = "А = 1; Б = 2;\rВ = 3; Г = 4;";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, input, "lone-CR input must stay unchanged");
+        // Mixed: a lone `\r` anywhere disables the fixer even when the
+        // file also contains CRLF/LF endings.
+        let mixed = "А = 1; Б = 2;\r\nВ = 3;\rГ = 4;";
+        let output = fix_one_statement_per_line(mixed).unwrap();
+        assert_eq!(output, mixed, "mixed lone-CR input must stay unchanged");
+    }
+
+    #[test]
+    fn fix_bom_prefixed_file_preserves_bom_and_stays_idempotent() {
+        // A UTF-8 BOM must survive the fix byte-for-byte and the fixed
+        // output must stay idempotent (pins previously untested behavior).
+        let input = "\u{feff}А = 1; Б = 2;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(once, "\u{feff}А = 1;\nБ = 2;");
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
     }
 
     #[test]

@@ -315,7 +315,7 @@ Completion evidence:
   git) confirmed the 0.1.6 tree shapes and proved the algorithm parity by
   simulation before implementation. Finder and unit tests landed in commit
   `063ad96` (test rename follow-up `5a8a3ac`); fixer in commit `4c3959f`;
-  handler, registration and integration/golden tests in commit `3c4eccd`;
+  handler, registration and integration/golden tests in commit `2746317` (reworded from `3c4eccd`);
   specs in this commit (branch `issue-6-one-statement-per-line`).
 
 Dependencies:

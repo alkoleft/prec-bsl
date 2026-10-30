@@ -138,6 +138,38 @@ fn one_statement_per_line_parse_error_yields_warning_and_leaves_file_unchanged()
     assert_eq!(report.hook_exit_code(), 0, "warnings never block the hook");
 }
 
+/// Files with lone `\r` line endings (CR-only or mixed) are out of
+/// contract: the scenario reports a Warning and leaves the file
+/// byte-for-byte unchanged, in both Hook and Check modes.
+#[test]
+fn one_statement_per_line_lone_cr_file_yields_warning_and_leaves_file_unchanged() {
+    for mode in [PipelineMode::Hook, PipelineMode::Check] {
+        let repo = temp_repo("lone_cr");
+        let repo_path = PathBuf::from(REPO_PATH);
+        let input = "А = 1; Б = 2;\rВ = 3; Г = 4;";
+        write_file(repo.join(&repo_path), input);
+
+        let report = run_one_statement_pipeline(&repo, &repo_path, one_statement_config(), mode);
+
+        assert_eq!(report.results.len(), 1, "{mode:?}");
+        assert_eq!(report.results[0].rule_id, ONE_STATEMENT_PER_LINE_RULE);
+        assert_eq!(report.results[0].status, ScenarioResultStatus::Warning);
+        assert!(
+            report.results[0]
+                .message
+                .contains("файл использует неканонические переводы строк (CR); сценарий ОдинОператорНаСтроку пропущен"),
+            "unexpected message: {}",
+            report.results[0].message
+        );
+        assert_eq!(
+            fs::read_to_string(repo.join(&repo_path)).unwrap(),
+            input,
+            "{mode:?}: lone-CR file must stay unchanged"
+        );
+        assert_eq!(report.hook_exit_code(), 0, "warnings never block the hook");
+    }
+}
+
 /// The scenario is opt-in: without `ГлобальныеСценарии` listing it, no
 /// results are produced for this rule.
 #[test]
