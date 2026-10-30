@@ -172,3 +172,67 @@ Validation:
 Dependencies:
 
 - T6.
+
+## Milestone 14: prec-bsl Issue Scenarios
+
+Implementation work triggered by `alkoleft/prec-bsl` GitHub issues that extend
+the scenario set beyond the v1 reference inventory.
+
+### T51. DONE: Implement `ПроверкаДлиныСтрок` (LineLength) check-only scenario
+
+prec-bsl issue: `alkoleft/prec-bsl` #4 (part of the Sonar/bsl-ls scenario
+tracking issue #3).
+
+Current finding:
+
+- The scenario set lacked a line-length diagnostic equivalent to the
+  `bsl-language-server` LineLength check, and the issue also required the
+  line-break semantics for authors to be captured in spec.
+
+Resolution (implemented per the contract in `spec/parser-strategy.md`,
+section "LineLength checker contract"):
+
+- Lexical check-only scenario in `crates/prec-bsl-bsl/src/text_checkers.rs`:
+  pure detector `find_long_lines` counting Unicode scalars after
+  `trim_end()`, strictly `>` limit, BOM stripped on line 1, `\r` excluded,
+  multiline literal `|`-continuations skipped, code after a closing quote on
+  a continuation line counted (lone `;` excluded).
+- Setting `НастройкиСценариев.ПроверкаДлиныСтрок.МаксимальнаяДлинаСтроки`
+  (`serde_json` positive integer, default 150, validated in the handler).
+- Stable EN message `String length {len} exceeded maximum {limit} at line
+  {n}` with Russian translation in `text_message`; Warning severity
+  (check exit 1, hook not blocked).
+- Registered with `ScenarioSupport::Compatibility` (opt-in through
+  `ГлобальныеСценарии`), captured in `spec/reference-scenario-inventory.md`.
+- Line-break rules for authors documented in `spec/line-break-rules.md`
+  (advisory, canon yaxunit PR #708 / commit `79d950ae`); enforcement is the
+  prospective issue #5 (`IncorrectLineBreak`) work, not part of this task.
+
+Acceptance criteria:
+
+- Long lines produce Warning diagnostics with length, limit, and 1-based
+  line number; check exits 1; files (including CRLF) are never modified.
+- The scenario is opt-in and absent from default configuration.
+- Unit tests cover the counting semantics; integration tests cover
+  pipeline/CLI contracts and setting validation.
+- Line-break rules are captured in `spec/line-break-rules.md`.
+
+Validation:
+
+- `cargo test -p prec-bsl-bsl --lib`
+- `cargo test --test line_length`
+- `cargo test --workspace`
+
+Completion evidence:
+
+- 2026-10-30: Detector, handler, and unit tests landed in commit `b4b28f0`;
+  registry registration and message translations in commit `36a37a5`;
+  integration/CLI tests in commit `1f25c43`; rustfmt pass in commit
+  `d65ff99` (branch `issue-4-line-length`). Implementation plan (kept in the
+  main checkout outside version control, `docs/superpowers/plans/`):
+  `2026-10-30-issue-4-line-length.md`.
+- bsl-ls parity snapshot validation is tracked separately (plan Task 5).
+
+Dependencies:
+
+- T38, T39 (crate layout and scenario definition binding).

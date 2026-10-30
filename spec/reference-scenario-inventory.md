@@ -79,10 +79,11 @@ generic repository-local `.os` execution.
 
 - `ПробелыВКомментариях`
 - `ПробелыПослеЗапятых`
+- `ПроверкаДлиныСтрок`
 
 These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
-`SpaceAtStartComment` and `MissingSpace` (comma subset). They are NOT part of
-the required v1 `precommit4onec` inventory and are registered with
+`SpaceAtStartComment`, `MissingSpace` (comma subset), and `LineLength`. They are
+NOT part of the required v1 `precommit4onec` inventory and are registered with
 `ScenarioSupport::Compatibility` so that:
 
 - the required v1 inventory list check in `src/lib.rs` stays unchanged;
@@ -90,8 +91,16 @@ the required v1 `precommit4onec` inventory and are registered with
   scenarios are enabled by default);
 - users opt in by listing the ids in `ГлобальныеСценарии`.
 
-Both are lexical text fixers with string/comment state tracking; see
-`crates/prec-bsl-bsl/src/text_fixers.rs`.
+`ПробелыВКомментариях` and `ПробелыПослеЗапятых` are lexical text fixers with
+string/comment state tracking; see `crates/prec-bsl-bsl/src/text_fixers.rs`.
+
+`ПроверкаДлиныСтрок` (prec-bsl issue #4) is a lexical check-only scenario
+modeled on the `bsl-language-server` LineLength diagnostic: it reports source
+lines longer than the `МаксимальнаяДлинаСтроки` setting (default 150) as
+Warning-severity diagnostics, never modifies files, and never blocks hook
+mode. Line-break guidance for authors lives in `spec/line-break-rules.md`;
+the counting semantics contract lives in `spec/parser-strategy.md`. The
+lexical detector is implemented in `crates/prec-bsl-bsl/src/text_checkers.rs`.
 
 ## Explicit Unsupported Scenarios
 

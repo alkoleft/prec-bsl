@@ -65,6 +65,7 @@ Use text/lexical processing instead of tree-sitter when preserving exact textual
 - `ИсправлениеНеКаноническогоНаписания`
 - `ПроверкаНецензурныхСлов`
 - `ВставкаКопирайтов`
+- `ПроверкаДлиныСтрок` (check-only, see the scenario contract below)
 
 ### Canonical spelling fixture scope
 
@@ -372,6 +373,84 @@ description compositions belongs to a later explicit task. The fixer must
 preserve unrelated XML text, report modified files, and prove idempotence
 through focused tests. XML parse errors are hard failures for the processed
 file.
+
+### LineLength checker contract (`ПроверкаДлиныСтрок`)
+
+`ПроверкаДлиныСтрок` is a lexical, check-only scenario: it never modifies,
+reformats, or restages source files. Line breaking itself is author work
+guided by `spec/line-break-rules.md`; no fixer exists because line breaking
+changes code structure.
+
+Length semantics (per source line, mirroring `bsl-language-server` LineLength):
+
+- The length is counted in Unicode scalar values (`chars().count()`), not
+  bytes and not grapheme clusters. A Cyrillic character is 1; a tab is 1.
+- Trailing whitespace is excluded: the line is `trim_end()`-ed before
+  counting. Leading whitespace (indentation) is counted.
+- The line is flagged when its length is strictly greater than the limit
+  (`length > limit`); a line of exactly the limit length is clean.
+- A line-1 BOM (`\u{feff}`) is stripped and not counted; `\r` of a CRLF
+  ending never enters the counted text (iteration over `lines()`).
+- Comment lines (`//` ...) and preprocessor directive lines are counted as
+  ordinary lines; quotes inside a `//` comment never open a string literal.
+- Multiline string literal continuations: while a string literal stays open
+  (unclosed `"` on an earlier line), a line starting with `|` is a
+  continuation and is skipped entirely, at any length. The opening line of
+  the literal is an ordinary line and is flagged when too long. Code after
+  the closing `"` on a continuation line is counted: the whole line is
+  flagged when over the limit, except when the remainder after the quote is
+  only `;` and/or whitespace, which is excluded. `""` escape sequences do
+  not close the literal.
+- Non-BSL files are skipped by the scenario.
+
+The optional scenario setting
+`НастройкиСценариев.ПроверкаДлиныСтрок.МаксимальнаяДлинаСтроки` is a
+`serde_json` number that must be a positive integer (`as_u64()` plus
+`usize::try_from`; a float like `150.0` or a non-number is invalid). Any
+invalid shape is a hard failure for the processed file with the message
+`max line length setting МаксимальнаяДлинаСтроки must be a positive integer`.
+When the setting is absent, the default limit is `150` (constant
+`DEFAULT_MAX_LINE_LENGTH`). The setting is validated in the scenario handler,
+not in the config layer: the config crate stores arbitrary JSON for scenario
+settings and does not type-check them, and a registry of setting types has no
+second consumer yet.
+
+The stable EN message contract (used by `text_message` and fingerprints) is:
+
+```text
+String length {len} exceeded maximum {limit} at line {n}
+```
+
+with the Russian presentation translation
+`длина строки {len} превышает максимально допустимую {limit} (строка {n})`.
+Severity is Warning: `prec-bsl check` exits 1 when violations are present,
+hook mode is not blocked by this scenario.
+
+Deliberate non-parity with `bsl-language-server` LineLength:
+
+- bsl-ls (Java) counts UTF-16 code units, this checker counts Unicode
+  scalars. The counts diverge only on astral-plane characters (e.g. emoji),
+  which are practically absent from BSL code outside string literals (and
+  literal continuations are skipped anyway).
+- The default limit is 150, while bsl-ls defaults to 120 in code. 150 is the
+  bsl-ls Sonar profile value and the requested `prec-bsl` default.
+- A `;` immediately after a string token on an ordinary (non-continuation)
+  line is counted here, while bsl-ls excludes it. This does not surface on
+  the control corpus used for parity validation.
+
+Tree-sitter is deliberately not used for this scenario: its columns are byte
+offsets (breaking Cyrillic parity) and the 0.1.x grammar has gaps for
+multiline string literals.
+
+Parity scope statement:
+
+- Parity with bsl-ls is validated as a snapshot on a pinned corpus commit
+  (baseline fixture capturing 58 diagnostics from bsl-ls v1.0.7 at yaxunit
+  `d21ce6ff`, limit 150). There is no continuous parity guarantee against
+  upstream changes; the semantic contract is carried by the unit and
+  integration tests.
+- The string-literal state tracker is private to the LineLength checker.
+  It is extracted for reuse only when a second consumer appears.
 
 ## Implementation Contract
 
