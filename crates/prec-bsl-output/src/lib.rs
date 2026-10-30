@@ -418,6 +418,9 @@ fn text_message(message: &str) -> String {
     {
         return format!("настройка {setting} должна быть целым положительным числом");
     }
+    if let Some(value) = message.strip_prefix("incorrect line break at line ") {
+        return format!("неправильный перенос выражения (строка {value})");
+    }
     if let Some(value) = message.strip_prefix("failed to read file: ") {
         return format!("не удалось прочитать файл: {value}");
     }
@@ -469,6 +472,7 @@ fn text_message(message: &str) -> String {
             "динамическое выполнение локальных .os-сценариев не поддерживается в v1".to_owned()
         }
         "file contained tabs" => "файл содержит табы".to_owned(),
+        "fixed incorrect line breaks" => "исправлены неправильные переносы строк".to_owned(),
         "form element name and id must be plain XML text" => {
             "имя и идентификатор элемента формы должны быть обычным XML-текстом".to_owned()
         }

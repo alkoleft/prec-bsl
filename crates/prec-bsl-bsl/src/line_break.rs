@@ -9,10 +9,23 @@
 //! паттерны на кодовой части каждой строки. Прецедент переносимой логики —
 //! `CommentSpacingState` в `text_fixers.rs`.
 
+use std::fs;
+
 use crate::text_fixers::is_identifier_char;
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun, SourceSpan,
+};
+use prec_bsl_source::SourceFileKind;
 use regex::{Regex, RegexBuilder};
+use serde_json::Value;
 
 pub const LINE_BREAK_RULE: &str = "ПроверкаПереносовСтрок";
+
+pub const LINE_BREAK_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    LINE_BREAK_RULE,
+    "ПроверкаПереносовСтрок.os",
+    line_break_handler,
+);
 
 /// Паттерн начала строки из bsl-ls `listOfIncorrectFirstSymbol` (опечатка
 /// `(:?` исправлена на `(?:`; кейс-инсенситивность задаётся при компиляции).
@@ -25,7 +38,7 @@ const DEFAULT_LAST_SYMBOL_PATTERN: &str = r"ИЛИ|И|OR|AND|\+|-|/|%|\*";
 /// `check_first`/`check_last` гейтят соответствующие проверки; паттерны —
 /// скомпилированные обрамления bsl-ls-паттернов `listOfIncorrectFirstSymbol`
 /// (`^\s*(...)`) и `listOfIncorrectLastSymbol` (`\s+(...)\s*(?://.*)?$`).
-/// Компиляция из JSON-значений — в Task 2 (`settings_from_value`).
+/// Компиляция из JSON-значений — [`settings_from_value`].
 #[derive(Debug, Clone)]
 pub struct LineBreakSettings {
     check_first: bool,
@@ -47,7 +60,8 @@ impl LineBreakSettings {
         }
     }
 
-    /// Кастомные флаги/паттерны для тестов детектора (JSON-парсинг — Task 2).
+    /// Кастомные флаги/паттерны для тестов детектора (в проде — только
+    /// [`settings_from_value`]).
     #[cfg(test)]
     fn custom(
         check_first: bool,
@@ -414,6 +428,131 @@ fn split_line_ending(line: &str) -> (&str, &str) {
     }
 }
 
+/// Ключи настроек `НастройкиСценариев.ПроверкаПереносовСтрок.*`
+/// (ASCII-имена bsl-ls `IncorrectLineBreakDiagnostic`).
+const SETTING_CHECK_FIRST: &str = "checkFirstSymbol";
+const SETTING_CHECK_LAST: &str = "checkLastSymbol";
+const SETTING_FIRST_PATTERN: &str = "listOfIncorrectFirstSymbol";
+const SETTING_LAST_PATTERN: &str = "listOfIncorrectLastSymbol";
+
+/// Разобрать настройки сценария из JSON-значения `НастройкиСценариев`.
+///
+/// `None` и пустой объект дают дефолты bsl-ls (обе проверки включены,
+/// паттерны по умолчанию). Значения валидируются на границе (прецедент
+/// `dictionary_path` в `text_checkers.rs`): не-bool флаг, не-string паттерн,
+/// пустой или некомпилируемый regex — `Err` с именем настройки; handler
+/// превращает его в per-file `hard_failure`.
+fn settings_from_value(settings: Option<&Value>) -> Result<LineBreakSettings, String> {
+    let Some(settings) = settings else {
+        return Ok(LineBreakSettings::default_settings());
+    };
+
+    let check_first = bool_setting(settings, SETTING_CHECK_FIRST)?;
+    let check_last = bool_setting(settings, SETTING_CHECK_LAST)?;
+    let first_pattern = pattern_setting(settings, SETTING_FIRST_PATTERN, compile_first_pattern)?;
+    let last_pattern = pattern_setting(settings, SETTING_LAST_PATTERN, compile_last_pattern)?;
+
+    Ok(LineBreakSettings {
+        check_first,
+        first_pattern,
+        check_last,
+        last_pattern,
+    })
+}
+
+fn bool_setting(settings: &Value, key: &str) -> Result<bool, String> {
+    match settings.get(key) {
+        None | Some(Value::Null) => Ok(true),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(format!("line break setting {key} must be a boolean")),
+    }
+}
+
+fn pattern_setting(
+    settings: &Value,
+    key: &str,
+    compile: fn(&str) -> Result<Regex, regex::Error>,
+) -> Result<Regex, String> {
+    let pattern = match settings.get(key) {
+        None | Some(Value::Null) => return Ok(default_pattern(key, compile)),
+        Some(Value::String(pattern)) => pattern.trim(),
+        Some(_) => return Err(format!("line break setting {key} must be a string")),
+    };
+
+    if pattern.is_empty() {
+        return Err(format!("line break setting {key} must not be empty"));
+    }
+
+    compile(pattern)
+        .map_err(|_| format!("line break setting {key} must be a valid regular expression"))
+}
+
+fn default_pattern(key: &str, compile: fn(&str) -> Result<Regex, regex::Error>) -> Regex {
+    let default = if key == SETTING_FIRST_PATTERN {
+        DEFAULT_FIRST_SYMBOL_PATTERN
+    } else {
+        DEFAULT_LAST_SYMBOL_PATTERN
+    };
+
+    compile(default).expect("default line-break pattern must compile")
+}
+
+/// Handler сценария `ПроверкаПереносовСтрок`: диагностика IncorrectLineBreak
+/// (паритет bsl-ls) по настройкам `НастройкиСценариев`.
+///
+/// Task 2: и DryRun (check), и Apply (hook/exec-rules/fix) выдают
+/// per-violation warnings со span. Фиксер и `modified_dry_run`-превью
+/// (DryRun) / `modified` (Apply) подключает Task 3.
+pub fn line_break_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    if context.file.kind != SourceFileKind::BslModule {
+        return ScenarioRun::single(ScenarioResult::skipped(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "scenario handles only BSL modules",
+        ));
+    }
+
+    let settings = match settings_from_value(context.settings) {
+        Ok(settings) => settings,
+        Err(message) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                message,
+            ));
+        }
+    };
+
+    let path = context.repo_root.join(&context.file.repo_path);
+    let input = match fs::read_to_string(&path) {
+        Ok(input) => input,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                format!("failed to read file: {error}"),
+            ));
+        }
+    };
+
+    let results = find_line_break_violations(&input, &settings)
+        .into_iter()
+        .map(|violation| {
+            ScenarioResult::warning(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                format!("incorrect line break at line {}", violation.line),
+            )
+            .with_source_span(SourceSpan::new(violation.byte_start, violation.byte_end))
+        })
+        .collect();
+
+    ScenarioRun {
+        results,
+        post_processing_paths: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -664,5 +803,134 @@ mod tests {
         let default_violations =
             find_line_break_violations(input, &LineBreakSettings::default_settings());
         assert_eq!(default_violations.len(), 2);
+    }
+
+    fn settings_value(json: &str) -> Value {
+        serde_json::from_str(json).expect("test settings JSON must parse")
+    }
+
+    #[test]
+    fn settings_missing_all_defaults() {
+        // None и пустой объект → дефолты: обе проверки включены, паттерны bsl-ls.
+        for settings in [
+            settings_from_value(None),
+            settings_from_value(Some(&Value::Object(serde_json::Map::new()))),
+        ] {
+            let settings = settings.expect("missing settings must resolve to defaults");
+
+            assert!(settings.check_first);
+            assert!(settings.check_last);
+            assert_eq!(
+                settings.first_pattern.as_str(),
+                compile_first_pattern(DEFAULT_FIRST_SYMBOL_PATTERN)
+                    .expect("default pattern must compile")
+                    .as_str()
+            );
+            assert_eq!(
+                settings.last_pattern.as_str(),
+                compile_last_pattern(DEFAULT_LAST_SYMBOL_PATTERN)
+                    .expect("default pattern must compile")
+                    .as_str()
+            );
+        }
+
+        // Дефолты эквивалентны `default_settings()` на репрезентативном входе.
+        let input = "\tВызов(Арг)\n\t;\nЕсли А = Б И\n\tБ = В Тогда";
+        let from_json = settings_from_value(None).expect("None settings must resolve to defaults");
+        assert_eq!(
+            find_line_break_violations(input, &from_json),
+            find_line_break_violations(input, &LineBreakSettings::default_settings())
+        );
+    }
+
+    #[test]
+    fn settings_invalid_bool_type() {
+        let settings = settings_value(r#"{"checkFirstSymbol": "yes"}"#);
+
+        assert_eq!(
+            settings_from_value(Some(&settings)).expect_err("non-bool flag must be rejected"),
+            "line break setting checkFirstSymbol must be a boolean"
+        );
+    }
+
+    #[test]
+    fn settings_invalid_regex() {
+        let settings = settings_value(r#"{"listOfIncorrectFirstSymbol": "[unclosed"}"#);
+
+        assert_eq!(
+            settings_from_value(Some(&settings))
+                .expect_err("non-compilable regex must be rejected"),
+            "line break setting listOfIncorrectFirstSymbol must be a valid regular expression"
+        );
+
+        let last_settings = settings_value(r#"{"listOfIncorrectLastSymbol": "[unclosed"}"#);
+        assert_eq!(
+            settings_from_value(Some(&last_settings))
+                .expect_err("non-compilable last-symbol regex must be rejected"),
+            "line break setting listOfIncorrectLastSymbol must be a valid regular expression"
+        );
+    }
+
+    #[test]
+    fn settings_empty_regex() {
+        let settings = settings_value(r#"{"listOfIncorrectFirstSymbol": ""}"#);
+
+        assert_eq!(
+            settings_from_value(Some(&settings)).expect_err("empty regex must be rejected"),
+            "line break setting listOfIncorrectFirstSymbol must not be empty"
+        );
+
+        let last_settings = settings_value(r#"{"listOfIncorrectLastSymbol": "  "}"#);
+        assert_eq!(
+            settings_from_value(Some(&last_settings))
+                .expect_err("whitespace-only regex must be rejected"),
+            "line break setting listOfIncorrectLastSymbol must not be empty"
+        );
+    }
+
+    #[test]
+    fn settings_non_string_list() {
+        let settings = settings_value(r#"{"listOfIncorrectFirstSymbol": 42}"#);
+
+        assert_eq!(
+            settings_from_value(Some(&settings)).expect_err("non-string pattern must be rejected"),
+            "line break setting listOfIncorrectFirstSymbol must be a string"
+        );
+
+        let last_settings = settings_value(r#"{"listOfIncorrectLastSymbol": true}"#);
+        assert_eq!(
+            settings_from_value(Some(&last_settings))
+                .expect_err("non-string last pattern must be rejected"),
+            "line break setting listOfIncorrectLastSymbol must be a string"
+        );
+    }
+
+    #[test]
+    fn settings_custom_patterns_roundtrip() {
+        // Кастомные паттерны (без `,`-ветки FIRST) компилируются и работают
+        // в детекторе: `,`-строка не флагается, `;`-строка флагается.
+        let settings = settings_value(
+            r#"{"listOfIncorrectFirstSymbol": "\\)|;", "listOfIncorrectLastSymbol": "И"}"#,
+        );
+        let settings =
+            settings_from_value(Some(&settings)).expect("custom patterns must compile and resolve");
+
+        let input = "Вызов(\n\t, Оповещение\n\t;";
+        let violations = find_line_break_violations(input, &settings);
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 3);
+        assert_eq!(
+            &input[violations[0].byte_start..violations[0].byte_end],
+            "\t;"
+        );
+
+        // Кастомный END-паттерн (только `И`) флагает `И` в конце строки…
+        let end_input = "Если А = Б И\n\tБ = В Тогда";
+        assert_eq!(find_line_break_violations(end_input, &settings).len(), 1);
+
+        // …но не `ИЛИ` (альтернативы `ИЛИ` в кастомном паттерне нет).
+        let or_input = "Если А = Б ИЛИ\n\tБ = В Тогда";
+        assert!(find_line_break_violations(or_input, &settings).is_empty());
     }
 }
