@@ -9,6 +9,7 @@
 //! паттерны на кодовой части каждой строки. Прецедент переносимой логики —
 //! `CommentSpacingState` в `text_fixers.rs`.
 
+use crate::text_fixers::is_identifier_char;
 use regex::{Regex, RegexBuilder};
 
 pub const LINE_BREAK_RULE: &str = "ПроверкаПереносовСтрок";
@@ -96,6 +97,8 @@ pub struct LineBreakViolation {
 struct LineScanState {
     in_string: bool,
     in_query: bool,
+    /// Кавычка по текущему индексу — вторая в паре `""` (экранированная).
+    skip_escaped_quote: bool,
 }
 
 /// Результат классификации одной строки (без окончания строки).
@@ -130,12 +133,15 @@ impl LineClassification {
 ///
 /// Скан посимвольный, state переносится между строками:
 /// - вход в строку на `"`, выход на закрывающей `"`; `""` — экранированная
-///   кавычка, не выход (прецедент `CommentSpacingState` в `text_fixers.rs`);
+///   кавычка, не вход и не выход (lookahead-парнинг пар по образцу
+///   `CommentSpacingState` в `text_fixers.rs`);
 /// - строка, начавшаяся как in_string-продолжение, остаётся строкой до
 ///   закрывающей `"` (`|`-продолжения попадают в string_ranges);
 /// - `//` вне строки фиксируется как `comment_start` и завершает разбор;
-/// - запросное ключевое слово (ВЫБРАТЬ/ВЫБОРКА/SELECT…) внутри `"`-строки
-///   открывает query-регион до закрывающей `"` (state переносится).
+/// - запросный литерал (слово сразу после открывающей `"` — ВЫБРАТЬ/ВЫБОРКА/
+///   SELECT…) открывает query-регион на строке открытия; регион длится до
+///   закрывающей `"` — на этой же строке (однострочный запрос) или на одной
+///   из следующих (state переносится).
 fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
     let mut classification = LineClassification {
         in_query: state.in_query,
@@ -144,6 +150,8 @@ fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
 
     // Незакрытая строка с предыдущей строки: продолжение от начала строки.
     let mut string_start: Option<usize> = if state.in_string { Some(0) } else { None };
+    // Запросный литерал, открывшийся на этой строке и ещё не закрытый.
+    let mut query_start: Option<usize> = None;
     state.in_string = false;
 
     let mut index = 0;
@@ -152,32 +160,52 @@ fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
         let char = body[index..].chars().next().unwrap();
 
         if state.in_query {
-            // Внутри query-региона строка целиком пропускается до закрывающей
-            // кавычки; всё до неё — строковый контент.
-            if char == '"' && !is_escaped_quote(body, index) {
-                classification.string_ranges.push((0, index + 1));
-                state.in_query = false;
+            // Внутри query-региона всё до закрывающей кавычки — строковый
+            // контент; `""` — экранированная кавычка, не закрытие региона.
+            if char == '"' {
+                if state.skip_escaped_quote {
+                    state.skip_escaped_quote = false;
+                } else if body[index + char.len_utf8()..].starts_with('"') {
+                    state.skip_escaped_quote = true;
+                } else {
+                    classification
+                        .string_ranges
+                        .push((query_start.unwrap_or(0), index + 1));
+                    state.in_query = false;
+                    query_start = None;
+                }
             }
             index += char.len_utf8();
             continue;
         }
 
         if char == '"' {
-            match string_start {
-                Some(start) => {
-                    // Закрывающая кавычка текущего литерала. `""`-пара перед
-                    // выходом уже учтена is_escaped_quote.
-                    if is_escaped_quote(body, index) {
-                        index += char.len_utf8();
-                        continue;
+            if state.skip_escaped_quote {
+                // Вторая кавычка пары `""` — экранированная, не выход.
+                state.skip_escaped_quote = false;
+            } else {
+                match string_start {
+                    Some(start) => {
+                        if body[index + char.len_utf8()..].starts_with('"') {
+                            // Первая кавычка пары `""` внутри литерала.
+                            state.skip_escaped_quote = true;
+                        } else {
+                            classification.string_ranges.push((start, index + 1));
+                            string_start = None;
+                        }
                     }
-                    classification.string_ranges.push((start, index + 1));
-                    if is_query_keyword(&body[start + 1..index]) {
-                        state.in_query = true;
+                    None => {
+                        if is_query_keyword(&body[index + char.len_utf8()..]) {
+                            // Запросный литерал: регион открывается здесь и
+                            // закрывается закрывающей `"` (возможно, на одной
+                            // из следующих строк).
+                            state.in_query = true;
+                            query_start = Some(index);
+                        } else {
+                            string_start = Some(index);
+                        }
                     }
-                    string_start = None;
                 }
-                None => string_start = Some(index),
             }
             index += char.len_utf8();
             continue;
@@ -198,40 +226,28 @@ fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
     }
 
     // Незакрытый на этой строке литерал: остаток строки — строка, состояние
-    // in_string переносится на следующую строку.
+    // in_string переносится на следующую строку. Для запросного литерала
+    // in_string не нужен: регион переносится через state.in_query.
     if let Some(start) = string_start {
         classification.string_ranges.push((start, body.len()));
         state.in_string = true;
-    } else if state.in_query {
-        // Незакрытый query-регион: остаток строки тоже строковый контент.
-        classification.string_ranges.push((0, body.len()));
+    }
+    // Незакрытый на этой строке запросный литерал: остаток строки-открытия —
+    // строковый контент (строки региона детектор пропускает целиком).
+    if let Some(start) = query_start {
+        classification.string_ranges.push((start, body.len()));
     }
 
     classification
 }
 
-/// Является ли кавычка по смещению `quote_index` закрывающей (не частью `""`)?
+/// Текст после открывающей кавычки начинается с запросного ключевого слова?
 ///
-/// Кавычка закрывающая, когда идущий подряд ряд кавычек, заканчивающийся ею,
-/// имеет нечётную длину: пары `""` полностью экранированы, последняя — выход.
-fn is_escaped_quote(body: &str, quote_index: usize) -> bool {
-    let quote_len = '"'.len_utf8();
-
-    // Ряд кавычек перед текущей (без неё).
-    let mut run_start = quote_index;
-    while run_start > 0 && body[..run_start].ends_with('"') {
-        run_start -= quote_len;
-    }
-    let quotes_before = (quote_index - run_start) / quote_len;
-
-    // Нечётное число кавычек перед текущей значит, что она закрывает литерал:
-    // каждая пара `""` открывает и тут же закрывает экранирование.
-    quotes_before % 2 == 1
-}
-
-/// Текст литерала между кавычками начинается с запросного ключевого слова?
+/// Сравнение кириллически кейс-инсенситивно: `"выбрать"` — тоже запрос
+/// (END/FIRST-паттерны компилируются case-insensitive).
 fn is_query_keyword(literal_text: &str) -> bool {
-    const QUERY_KEYWORDS: &[&str] = &["ВЫБРАТЬ", "ВЫБОРКА", "ВЫБОРКИ", "SELECT"];
+    // Ключевые слова в нижнем регистре для сравнения через to_lowercase().
+    const QUERY_KEYWORDS: &[&str] = &["выбрать", "выборка", "выборки", "select"];
 
     let text = literal_text.trim_start();
     if text.is_empty() {
@@ -241,15 +257,9 @@ fn is_query_keyword(literal_text: &str) -> bool {
     let keyword_end = text
         .find(|char: char| !is_identifier_char(char))
         .unwrap_or(text.len());
-    let keyword = &text[..keyword_end];
+    let keyword = text[..keyword_end].to_lowercase();
 
-    QUERY_KEYWORDS
-        .iter()
-        .any(|candidate| keyword.eq_ignore_ascii_case(candidate) || keyword == *candidate)
-}
-
-fn is_identifier_char(char: char) -> bool {
-    char == '_' || char.is_alphanumeric()
+    QUERY_KEYWORDS.iter().any(|candidate| keyword == *candidate)
 }
 
 /// Найти IncorrectLineBreak-нарушения: FIRST (висячий `;`/`)`/`);`/`,` в начале
@@ -311,14 +321,9 @@ fn detect_first_violation(
         return;
     }
 
-    // Матч должен начинаться не позже конца ведущих пробелов: токен висит в
-    // начале строки (иначе `;` в середине кода ложно флагается).
     let Some(matched) = settings.first_pattern.find(body) else {
         return;
     };
-    if matched.start() > leading_whitespace_end(body) {
-        return;
-    }
     if !classification.has_code_in(matched.start(), matched.end()) {
         return;
     }
@@ -359,10 +364,6 @@ fn detect_last_violation(
         byte_start: line_start + operator.start(),
         byte_end: line_start + operator.end(),
     });
-}
-
-fn leading_whitespace_end(body: &str) -> usize {
-    body.len() - body.trim_start().len()
 }
 
 /// Разбор входа на строки с окончаниями: `\r\n`/`\n`/`\r` (прецедент
@@ -554,6 +555,63 @@ mod tests {
 
         assert_eq!(resumed_violations.len(), 1);
         assert_eq!(resumed_violations[0].line, 5);
+    }
+
+    #[test]
+    fn detects_after_empty_string_literal() {
+        // `""` — пустой литерал (открытие и сразу закрытие), а не
+        // экранированная пара: состояние строки не переносится на следующие
+        // строки.
+        let input = "А = \"\";\nБ = В И";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 2);
+        assert_eq!(
+            &input[violations[0].byte_start..violations[0].byte_end],
+            "И"
+        );
+    }
+
+    #[test]
+    fn detects_after_literal_ending_with_escaped_quote() {
+        // `"a"""` — литерал `a"`: пара `""` (экранирование) и закрывающая `"`.
+        let input = "А = \"a\"\"\";\nБ = В И";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 2);
+    }
+
+    #[test]
+    fn detects_after_single_line_query_literal() {
+        // Однострочный запросный литерал закрывает query-регион своей
+        // закрывающей кавычкой: код следующих строк сканируется.
+        let input = "Запрос.Текст = \"ВЫБРАТЬ А\";\n\t;";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 2);
+        assert_eq!(
+            &input[violations[0].byte_start..violations[0].byte_end],
+            "\t;"
+        );
+    }
+
+    #[test]
+    fn no_panic_multiline_literal_with_cyrillic_continuation() {
+        // Кириллическое продолжение незакрытого литерала и вложенные кавычки:
+        // разбор не паникует на мультибайтных границах и восстанавливает
+        // состояние к концу литерала (строка 3 сканируется как код).
+        let input = "Текст = \"Первая строка\nВторая \"строка\" хвост\";\nБ = В И";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 3);
+        assert_eq!(
+            &input[violations[0].byte_start..violations[0].byte_end],
+            "И"
+        );
     }
 
     #[test]

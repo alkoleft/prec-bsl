@@ -687,7 +687,9 @@ fn starts_with_export_keyword(input: &str) -> bool {
             .is_none_or(|char| !is_identifier_char(char))
 }
 
-fn is_identifier_char(char: char) -> bool {
+// Общий лексический примитив (используется и из line_break.rs для границы
+// запросного ключевого слова).
+pub(crate) fn is_identifier_char(char: char) -> bool {
     char == '_' || char.is_alphanumeric()
 }
 
