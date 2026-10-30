@@ -55,6 +55,7 @@ Use `tree-sitter-bsl` for:
   coexistence checks.
 - `ПроверкаКорректностиИнструкцийПрепроцессора`: validate preprocessor nodes and error nodes where the grammar covers directives.
 - `ПроверкаКорректностиОбластей`: inspect `#Область` / `#КонецОбласти` tokens where grammar coverage is sufficient, with a lexical stack fallback if needed.
+- `ОдинОператорНаСтроку` (detection only, see the scenario contract below)
 - Diagnostics that need byte ranges for source spans.
 
 Use text/lexical processing instead of tree-sitter when preserving exact textual parity is the primary behavior:
@@ -468,6 +469,104 @@ Parity scope statement:
   0 unexpected).
 - The string-literal state tracker is private to the LineLength checker.
   It is extracted for reuse only when a second consumer appears.
+
+### One statement per line contract (`ОдинОператорНаСтроку`)
+
+`ОдинОператорНаСтроку` (prec-bsl issue #6) is a tree-sitter-backed
+check-and-fix extension scenario. tree-sitter is used only to identify
+statement spans and structure; the fix is a text splice that never
+regenerates or reformats the source. The scenario is implemented in
+`crates/prec-bsl-bsl/src/one_statement_per_line.rs`.
+
+Detection contract (parity with `bsl-language-server`
+OneStatementPerLineDiagnostic):
+
+- The reference is the bsl-ls diagnostic source and its tests: fixtures
+  `OneStatementPerLineDiagnostic.bsl` (5 violations, LSP ranges
+  (3,8,3,14), (8,18,8,32), (8,33,8,37), (12,5,12,9), (12,10,12,14)) and
+  `OneStatementPerLineDiagnosticEndFile.bsl` (2 violations, ranges
+  (1,5,1,9), (1,10,1,14)) from `OneStatementPerLineDiagnosticTest.java`.
+  Both fixtures are embedded verbatim in the module unit tests; a runnable
+  bsl-ls is not required.
+- The algorithm is a transliteration of the bsl-ls `previousLineNumber`
+  tracking: statement nodes are visited in document order (pre-order,
+  descending into compound statements and containers — `source_file`,
+  procedure/function definitions, `if_statement`, `elseif_clause`,
+  `else_clause`, `while_statement`, `for_statement`, `for_each_statement`,
+  `try_statement`, and ERROR regions that still hold valid statements); a
+  statement whose start row equals the previously tracked statement's start
+  row is a violation. The first statement on a line is never flagged
+  (`А=1; А=2; А=3;` flags `А=2;` and `А=3;`).
+- Preprocessor statements, exception-equivalent ERROR regions and bare `;`
+  reset the row tracking and are never flagged themselves (bsl-ls
+  `ctx.preprocessor() != null` / `ctx.exception != null` semantics). The
+  grammar 0.1.x has no `_empty_statement` node: a bare `;` is an ERROR node
+  in three forms — a top-level ERROR-`;` resets the tracking; an EOF-swallowed
+  ERROR-`;` child of a statement resets at the statement's end row; a
+  top-level ERROR-`;` immediately after a `while_statement` is a grammar
+  artifact (0.1.6 `while_statement` lacks `optional(';')`) and is skipped
+  entirely.
+- An ERROR region led by `IF_KEYWORD`/`WHILE_KEYWORD`/`TRY_KEYWORD`/
+  `FOR_KEYWORD` is an unterminated compound statement that ANTLR would
+  recover inline: it occupies a statement slot (its row participates in
+  tracking, so a body statement on the `Тогда` row is still flagged) and its
+  inner statements stay visible. MISSING nodes do not invalidate a
+  statement.
+- `elseif_clause` participates in tracking as a track-only slot: its row can
+  make a following body statement a violation, but the clause itself is
+  never flagged (bsl-ls never flags `elsifBranch`).
+- The diagnostic span is the statement node span including the trailing
+  `;` (bsl-ls range parity). `;` and `Тогда` inside string literals and
+  comments are never detected as violations (they are string/comment nodes,
+  not statements).
+
+Fix contract (text splice, applied over original byte offsets):
+
+- Pattern 1 (the previous statement on the line is not a block opener):
+  target indent is the statement's own line indent prefix, copied
+  byte-for-byte.
+- Pattern 2 (the statement follows `Тогда` of `Если`/`ИначеЕсли` on the same
+  row): target indent is the anchor line indent prefix plus one `\t`.
+- Mixed chain after a block opener (`Если X Тогда А = 1; Б = 2;`): all
+  statements of the chain get the anchor indent + one tab. `Иначе` is NOT
+  pattern 2 (an `Иначе X = 1;` line with no other statement on the row is
+  not a violation at all).
+- The edit replaces the whitespace prefix before the statement start (the
+  byte range from the end of the previous content on the line up to the
+  statement start) with `<line_ending><indent>` — the file's dominant line
+  ending is used, no trailing whitespace remains (double spaces collapse),
+  and multiline statements move as a whole with continuation rows untouched.
+- `;` is never added to or removed from a moved statement (missing `;` is
+  the prospective SemicolonPresence issue #10 territory), and empty
+  statements (`;;`) produce no blank lines.
+- The fix is idempotent: a second run over fixed output produces zero
+  changes (unit `fix(fix(x))`, golden `assert_fixer_fixture` and the
+  integration double run).
+
+Parse-error policy: known safe ERROR forms (MISSING nodes, the bare-`;`
+forms above, keyword-led compound ERROR regions and preprocessor-containing
+ERROR regions) do not block detection or fixing — the bsl-ls fixtures
+themselves contain `;;` and must stay clean of warnings. Any other parse
+error intersecting the row of a detected violation makes the result
+unreliable: the scenario returns a Warning and leaves the file unchanged
+instead of silently modifying unreliable input.
+
+Check mode (`WritePolicy::DryRun`) yields a single dry-run result with the
+proposed fixed content and one message enumerating the 1-based violating
+rows; per-statement diagnostic results are not produced. Non-BSL files are
+skipped.
+
+Deliberate non-parity with `bsl-language-server` (explicit, accepted):
+
+1. Pattern-2 fix indent is the anchor line indent + one tab, while the
+   bsl-ls quickfix moves the statement with the same indent as the anchor
+   line. The `prec-bsl` issue #6 contract (one indent level into the block)
+   takes priority.
+2. `;` is not added to moved statements that lack one; bsl-ls adds the
+   missing terminator in its quickfix. Missing-`;` handling is the
+   prospective issue #10 (SemicolonPresence) territory.
+3. Check mode reports one dry-run result enumerating the violating rows,
+   not one diagnostic per flagged statement as bsl-ls does.
 
 ## Implementation Contract
 
