@@ -130,10 +130,15 @@ struct LineClassification {
 
 impl LineClassification {
     /// Есть ли код (вне строк и комментария) в диапазоне `[start, end)`?
+    ///
+    /// Матч, любая часть которого заходит в `//`-комментарий, кодом не
+    /// считается (PR #17 round 2: дефолтный FIRST-паттерн `,\s*\S+` матчит
+    /// `//` как «код после запятой», если матч начинается до comment_start,
+    /// но заканчивается внутри комментария — `\t, // пояснение`).
     fn has_code_in(&self, start: usize, end: usize) -> bool {
         if self
             .comment_start
-            .is_some_and(|comment_start| comment_start <= start)
+            .is_some_and(|comment_start| comment_start < end)
         {
             return false;
         }
@@ -469,7 +474,17 @@ fn plan_fix<'a>(
     }
 
     // END: известный оператор в конце кодовой части prev, cur — код-строка.
-    if settings.check_last && is_code_line(cur_body, cur_classification) {
+    // Query-регион на prev: гейт по entry-state prev — тому же полю, которым
+    // детектор гейтит строку (classification.in_query — снапшот на начало
+    // строки, см. classify_line). Строка, ЗАКРЫВАЮЩАЯ запрос, несёт
+    // in_query=true на входе: детектор пропускает её целиком, фиксер
+    // обязан лечить только подмножество диагностированного (PR #17 round 2:
+    // хвостовой `+` после закрывающей `"` переносился из недиагностиро-
+    // ванной строки — Apply правил то, чего check не видит).
+    if settings.check_last
+        && !previous_classification.in_query
+        && is_code_line(cur_body, cur_classification)
+    {
         let previous_body = strip_line_ending(previous);
         // Кодовая часть prev: хвостовой `//`-комментарий не входит — оператор
         // ищется в конце кода, до comment_start (Codex#2 PR #17: детекторный
@@ -1927,6 +1942,108 @@ mod tests {
         assert_eq!(
             twice, once,
             "fixer must be idempotent on `Или` before a trailing comment"
+        );
+    }
+
+    // PR #17 round 2 (CR-контракт): END-ветка фиксера меняла строку
+    // query-региона, которую детектор пропускает целиком. Строка, ЗАКРЫВАЮЩАЯ
+    // запрос (`|ИЗ Т" +`), имеет entry-state in_query = true (регион открыт
+    // с предыдущей строки): детектор её не диагностирует, но фиксер видел
+    // хвостовой `+` (после закрывающей `"`) как END-оператор на код-строке
+    // и переносил его — Apply молча правил недиагностированное, DryRun давал
+    // modified_dry_run без парного warning.
+    #[test]
+    fn fix_skips_end_operator_on_query_closing_line() {
+        let input = "\tТекст = \"ВЫБРАТЬ\n\t|*\n\t|ИЗ Т\" +\n\t\tУсловие;";
+        let settings = LineBreakSettings::default_settings();
+
+        // Паритет с детектором: строка внутри query-региона (включая
+        // закрывающую) не диагностируется вовсе.
+        assert!(find_line_break_violations(input, &settings).is_empty());
+
+        // Фиксер обязан лечить только подмножество диагностированного:
+        // файл не меняется.
+        assert_eq!(fix_line_breaks(input, &settings), input);
+    }
+
+    // Симметричное направление того же гейта: prev-строка ЗАКРЫВАЕТ
+    // query-регион, открытый строкой выше, и несёт оператор в хвосте после
+    // закрывающей `"`. Entry-state prev = true — детектор пропускает prev
+    // целиком, фиксер обязан пропускать так же: перенос оператора из
+    // недиагностированной строки = правка вне контракта.
+    #[test]
+    fn fix_skips_end_operator_on_prev_line_closing_query() {
+        let input = "\tТекст = \"ВЫБРАТЬ\n\t|А\" И\n\t\tУсловие;";
+        let settings = LineBreakSettings::default_settings();
+
+        // Паритет: ни открывающая, ни закрывающая строка региона не
+        // диагностируется (entry-state закрывающей строки = in_query).
+        assert!(find_line_break_violations(input, &settings).is_empty());
+
+        assert_eq!(fix_line_breaks(input, &settings), input);
+    }
+
+    // Контроль направления: prev-строка сама открыла и закрыла запрос
+    // (однострочный запросный литерал) — entry-state prev = false, код
+    // после литерала диагностируется и фиксируется как обычно.
+    #[test]
+    fn fix_moves_end_operator_after_single_line_query_prev() {
+        let input = "\tТекст = \"ВЫБРАТЬ А\" И\n\t\tУсловие;";
+        let settings = LineBreakSettings::default_settings();
+
+        let violations = find_line_break_violations(input, &settings);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 1);
+
+        assert_eq!(
+            fix_line_breaks(input, &settings),
+            "\tТекст = \"ВЫБРАТЬ А\"\n\t\tИ Условие;"
+        );
+    }
+
+    // Контроль направления: запрос закрыт на более ранней строке —
+    // entry-state строк с оператором чист, END-перенос работает как раньше.
+    #[test]
+    fn fix_moves_end_operator_after_earlier_closed_query() {
+        let input = "\tА = \"ВЫБРАТЬ А\";\n\tЕсли А И\n\t\tБ Тогда\n";
+        let settings = LineBreakSettings::default_settings();
+
+        let violations = find_line_break_violations(input, &settings);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].line, 2);
+
+        assert_eq!(
+            fix_line_breaks(input, &settings),
+            "\tА = \"ВЫБРАТЬ А\";\n\tЕсли А\n\t\tИ Б Тогда\n"
+        );
+    }
+
+    // PR #17 round 2 (детектор): дефолтный FIRST-паттерн `,\s*\S+` матчит
+    // `//` комментария как «код после запятой», если матч ЗАХОДИТ в
+    // комментарий (`\t, // пояснение` → span `\t, //`). has_code_in
+    // отвергал только матч, начавшийся уже ПОСЛЕ comment_start.
+    #[test]
+    fn detect_rejects_comma_match_crossing_into_comment() {
+        let input = "\tОповещение(\n\t, // пояснение\n\t);";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        // Строка 2 — фантом (запятая ведёт в комментарий, не в код);
+        // строка 3 (`\t)`) — реальное FIRST-нарушение.
+        let lines: Vec<usize> = violations.iter().map(|violation| violation.line).collect();
+        assert_eq!(lines, vec![3]);
+    }
+
+    // Контроль: матч ДО комментария не пересекает его и остаётся нарушением
+    // (`\t;` при comment_start за токеном).
+    #[test]
+    fn detect_keeps_match_entirely_before_comment() {
+        let input = "\t; // комм";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            &input[violations[0].byte_start..violations[0].byte_end],
+            "\t;"
         );
     }
 }

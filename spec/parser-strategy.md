@@ -628,7 +628,13 @@ END violations are matches of the last-symbol pattern at the end of the code
 part (default `ИЛИ|И|OR|AND|\+|-|/|%|\*`, wrapped as
 `\s+(...)\s*(?://.*)?$`, the capturing group around the operator is the
 reported span). Matches inside string literals, after `//` comments, or
-inside query regions are not violations.
+inside query regions are not violations. A match is not a violation when
+any part of it crosses into a `//` comment either: the default
+first-symbol pattern `,\s*\S+` can match the `//` of a comment as "code
+after the comma" (`\t, // пояснение` matches `\t, //`), and such a match is
+rejected — the comma must lead to code, not into comment text. A match
+that ends strictly before the comment start (e.g. `\t; // комм`) remains a
+violation.
 
 Deliberate non-parity with bsl-ls, by design:
 
@@ -650,6 +656,11 @@ Mode contract:
   `proposed_content` when the fixer would change the file. Text output
   renders the per-file diff preview; JSON output carries `proposed_content`.
   `check` counts warnings as violations and exits `1` when any are present.
+  Span shape: for FIRST violations the span covers the whole match from the
+  start of the line to the end of the matched token (the first-symbol
+  pattern is anchored `^\s*(...)`, so the leading indentation is part of
+  the span, e.g. `\t;` / `\t)`); for END violations the span covers only
+  the trailing operator.
 - **Apply (fix/hook/exec-rules)**: if the fixer changes the file, exactly
   one `modified` result (warnings are never emitted in Apply, following the
   shared fixer precedent); if not, the scenario reports no results
@@ -669,12 +680,17 @@ check only; the fixer never operates on custom-pattern matches.
 Fix mechanics (known, mechanically safe tokens only):
 
 - FIRST: a fixable token (`);`, `;`, `)` — longest match first; `,` is
-  check-only and custom-pattern matches are check-only) at the start of the
-  code part of a line is removed there and glued to the end of the previous
-  line's body. The carrier line is removed when nothing remains after the
-  token; a remaining `//` comment keeps the carrier line with the original
-  indent. Line endings are preserved exactly (LF/CRLF/mixed/final
-  no-newline; `\r` never lands inside the glued token).
+  check-only and custom patterns do not add fixable tokens) at the start of
+  the code part of a line is removed there and glued to the end of the
+  previous line's body. The token is taken only when what follows it on the
+  carrier line, up to the line end, is whitespace or a `//` comment
+  (`rest.trim().is_empty() || rest.trim_start().starts_with("//")`); any
+  other tail (e.g. `\t); хвост`) leaves the line unchanged (check-only —
+  the fixer moves a hanging token, not arbitrary code). The carrier line is
+  removed when nothing remains after the token; a remaining `//` comment
+  keeps the carrier line with the original indent. Line endings are
+  preserved exactly (LF/CRLF/mixed/final no-newline; `\r` never lands
+  inside the glued token).
 - END: a fixable trailing operator (`И`, `ИЛИ`, `OR`, `AND`, `+`, `-`, `/`,
   `%`, `*`) at the end of the **code part** of a line (a trailing `//`
   comment after the operator does not hide it — the detector pattern
@@ -682,10 +698,18 @@ Fix mechanics (known, mechanically safe tokens only):
   the violation the detector reports) is moved to the start of the next
   line's code, after its indent, in its original byte-exact spelling (word
   operators are matched case-insensitively so lowercase `и`/`or` are fixed
-  too). When the previous line ends with a comment, the operator detaches
-  from the code part and the comment stays on the previous line; the spaces
-  between the code and `//` are preserved (the previous line's code part is
-  rstripped, not the comment) so
+  too). The previous line must not carry the query-region entry state: the
+  END branch is gated on the previous line's `in_query` entry state — the
+  same field the detector uses to skip the line — so a line that closes a
+  query region (e.g. `|ИЗ Т" +`, where `+` follows the closing quote of a
+  region opened on an earlier line) is never touched by the fixer. The
+  fixer only repairs a subset of what the detector diagnoses; it never
+  edits a line the detector skips as a whole (query-region lines,
+  including the opening and closing lines of the region). When the previous
+  line ends with a comment, the operator detaches from the code part and
+  the comment stays on the previous line; the spaces between the code and
+  `//` are preserved (the previous line's code part is rstripped, not the
+  comment) so
   `Если А = Б И // комм` becomes `Если А = Б // комм`. The code part of the
   previous line is rstripped so `УдалениеЛишнихКонцевыхПробелов` stays
   clean.
@@ -725,11 +749,15 @@ Fix mechanics (known, mechanically safe tokens only):
   `,`-series runs, e.g. a `,,,,,` run — the corpus case is already broken
   code where gluing produces garbage); the previous line starts with a
   check-only `,`; the previous line carries a `//` comment (gluing into a
-  comment would corrupt the file); custom-pattern matches.
+  comment would corrupt the file); violations that exist only under custom
+  patterns and are not known tokens (the fixer does not read custom
+  patterns at all — see check-only tokens below).
 
 Check-only tokens: `,`-FIRST violations (the `,`-alternative of the default
-first-symbol pattern, including comma-series runs) and every match of a
-custom pattern are reported by check but never touched by the fixer.
+first-symbol pattern, including comma-series runs) are reported by check
+but never touched by the fixer. Custom patterns affect only the detector;
+the fixer ignores them entirely and fixes only its known tokens — a
+custom-pattern match that is also a known token (e.g. `;`) is still fixed.
 
 Known limitations:
 

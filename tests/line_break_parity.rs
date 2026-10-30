@@ -411,6 +411,13 @@ fn explicit_corpus_without_git_repo_must_fail_not_skip() {
 
 // CR4 (PR #17): ошибки обхода корпуса (права, битые симлинки) — ошибка
 // теста, не тихий частичный список файлов.
+//
+// Root-safety (PR #17 round 2): chmod 000 не мешает root (CI-контейнеры,
+// CAP_DAC_OVERRIDE) читать каталог — fs::read_dir ok → expect_err паниковал
+// бы и валил `cargo test --workspace` в окружении без корпуса. Поэтому
+// после снятия прав тест зондирует фактическую читаемость каталога: если
+// процесс читает chmod-000 каталоги, Unix-часть skip-ается с сообщением
+// (контракт CR4 непроверяем в этом окружении), остальные кейсы остаются.
 #[test]
 fn corpus_walk_errors_must_fail_not_skip() {
     // Корневой каталог без прав на чтение: fs::read_dir возвращает
@@ -425,12 +432,24 @@ fn corpus_walk_errors_must_fail_not_skip() {
         fs::create_dir_all(snapshot_root.join("exts")).expect("CR4 exts dir must be created");
         set_no_read_permissions(&snapshot_root.join("exts"));
 
-        let files = corpus_bsl_files(&snapshot_root);
-        reset_permissions(&snapshot_root.join("exts"));
-        fs::remove_dir_all(&unwalkable).ok();
+        // Зонд root-окружения: процесс с CAP_DAC_OVERRIDE читает chmod-000
+        // каталоги — PermissionDenied не наступит, контракт CR4 в этом
+        // окружении непроверяем.
+        if fs::read_dir(snapshot_root.join("exts")).is_ok() {
+            reset_permissions(&snapshot_root.join("exts"));
+            fs::remove_dir_all(&unwalkable).ok();
+            eprintln!(
+                "skipping permission check: process can read chmod-000 dirs \
+                 (running as root or with CAP_DAC_OVERRIDE)"
+            );
+        } else {
+            let files = corpus_bsl_files(&snapshot_root);
+            reset_permissions(&snapshot_root.join("exts"));
+            fs::remove_dir_all(&unwalkable).ok();
 
-        let error = files.expect_err("an unreadable corpus root must fail the walk");
-        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+            let error = files.expect_err("an unreadable corpus root must fail the walk");
+            assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        }
     }
 
     // Отсутствующие корневые `exts`/`tests`/`fixtures` — допустимы (корень
@@ -443,6 +462,35 @@ fn corpus_walk_errors_must_fail_not_skip() {
         corpus_bsl_files(&empty_root).expect("missing corpus roots must be an acceptable skip");
     assert!(files.is_empty());
     fs::remove_dir_all(&empty_root).ok();
+}
+
+// Root-safety (PR #17 round 2): зонд-путь «каталог читается → skip Unix-часть,
+// не паниковать» покрыт отдельным кейсом с намеренно читаемым каталогом —
+// тот же fs::read_dir(...).is_ok(), который гейтит chmod-000 кейс выше.
+#[cfg(unix)]
+#[test]
+fn corpus_walk_probe_treats_readable_dir_as_readable() {
+    let readable = std::env::temp_dir()
+        .join("prec-bsl-ilb-corpus-cr4")
+        .join(format!("readable-{}", std::process::id()));
+    fs::create_dir_all(readable.join("exts")).expect("probe exts dir must be created");
+    fs::write(readable.join("exts").join("module.bsl"), "А = 1;\n")
+        .expect("probe module must be written");
+
+    // Зонд читаемого каталога: is_ok() → walk обязан вернуть файл, не ошибку
+    // (зонд не принимает читаемый каталог за недоступный).
+    assert!(
+        fs::read_dir(readable.join("exts")).is_ok(),
+        "a readable dir must probe as readable"
+    );
+    let files =
+        corpus_bsl_files(&readable).expect("a readable corpus root must walk without errors");
+    assert_eq!(
+        files.len(),
+        1,
+        "the probe dir must yield its single .bsl file"
+    );
+    fs::remove_dir_all(&readable).ok();
 }
 
 /// Права `000` на каталог: read_dir падает PermissionDenied.
