@@ -14,6 +14,7 @@ use std::fs;
 use crate::text_fixers::is_identifier_char;
 use prec_bsl_pipeline::{
     ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun, SourceSpan,
+    WritePolicy,
 };
 use prec_bsl_source::SourceFileKind;
 use regex::{Regex, RegexBuilder};
@@ -107,7 +108,7 @@ pub struct LineBreakViolation {
 
 /// Переносимое между строками состояние сканера: незакрытая `"`-строка и
 /// query-регион.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct LineScanState {
     in_string: bool,
     in_query: bool,
@@ -141,6 +142,283 @@ impl LineClassification {
             .iter()
             .any(|&(string_start, string_end)| start < string_end && end > string_start)
     }
+}
+
+/// Известные фикстеру FIRST-токены: `);`, `;`, `)` (от длинного к короткому,
+/// чтобы `\t);` приклеился целиком; `,` — check-only, кастомные паттерны —
+/// check-only; план F6).
+const FIXABLE_FIRST_TOKENS: &[&str] = &[");", ";", ")"];
+
+/// Известные фикстеру END-операторы (дефолтный список bsl-ls; `ИЛИ` раньше
+/// `И`, иначе хвост `ИЛИ` ложно матчится как `И`; словные операторы
+/// сравниваются кейс-инсенситивно).
+const FIXABLE_LAST_OPERATORS: &[&str] = &["ИЛИ", "И", "OR", "AND", "+", "-", "/", "%", "*"];
+
+/// Исправить IncorrectLineBreak-нарушения механически безопасным способом.
+///
+/// Парный проход (prev, cur) по строкам с [`classify_line`]: состояние
+/// переносится по **исходным** строкам, поэтому правки не ломают
+/// классификацию следующих строк (ревью F2: детектор не переиспользуется —
+/// его позиции протухают после правок).
+///
+/// Правила фикса (только известные токены — план F6: check следует паттернам
+/// настроек, fix — только механикам известных токенов; bool-флаги
+/// `checkFirstSymbol`/`checkLastSymbol` гейтят обе стороны):
+/// - FIRST: известный токен (`;` / `)` / `);`) в начале кодовой части cur,
+///   prev — код-строка → снять токен с cur, приклеить к телу prev; остаток
+///   cur (комментарий) остаётся строкой-носителем, пустой остаток → строка
+///   удаляется, её окончание переходит на объединённую строку. Skip: prev
+///   уже оканчивается тем же токеном (защита `;;`); `,`-FIRST и кастомные
+///   матчи фиксер не видит вовсе.
+/// - END: известный оператор в конце кодовой части prev, cur — код-строка
+///   (не пустая, не чистый комментарий, не строка/query-регион) → оператор
+///   перенести в начало кода cur после отступа; тело prev rstrip (иначе
+///   `УдалениеЛишнихКонцевыхПробелов` найдёт хвост).
+///
+/// Окончания строк (`\r\n`/`\n`/`\r`, final-no-newline) сохраняются в
+/// точности; `\r` не попадает в приклеенный токен.
+pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
+    let lines = split_input_lines(input);
+    if lines.is_empty() {
+        return input.to_owned();
+    }
+
+    let mut state = LineScanState::default();
+    // Каждая собранная строка хранит классификацию своего исходного тела:
+    // END-проверка prev должна знать строки/комментарии prev, а FIRST — что
+    // prev является код-строкой.
+    let mut fixed: Vec<(String, LineClassification)> = Vec::with_capacity(lines.len());
+
+    for line in &lines {
+        let (body, ending) = split_line_ending(line);
+        let classification = classify_line(body, &mut state);
+
+        let Some((previous, previous_classification)) = fixed.last_mut() else {
+            fixed.push((format!("{body}{ending}"), classification));
+            continue;
+        };
+
+        match plan_fix(
+            previous,
+            previous_classification,
+            body,
+            &classification,
+            settings,
+        ) {
+            LineFix::None => fixed.push((format!("{body}{ending}"), classification)),
+            LineFix::GlueFirstToken { token, remainder } => {
+                let previous_body = strip_line_ending(previous);
+                if remainder.is_empty() {
+                    // Строка-носитель удалена целиком: её окончание
+                    // переходит на объединённую строку.
+                    *previous = format!("{previous_body}{token}{ending}");
+                } else {
+                    // prev сохраняет своё окончание; строка-носитель
+                    // (остаток-комментарий) — окончание cur.
+                    let previous_ending = line_ending_of(previous);
+                    *previous = format!("{previous_body}{token}{previous_ending}");
+                    fixed.push((format!("{remainder}{ending}"), classification));
+                }
+            }
+            LineFix::MoveOperatorForward { operator } => {
+                // Оператор удаляется из тела prev (хвост rstrip, иначе
+                // `УдалениеЛишнихКонцевыхПробелов` найдёт пробелы).
+                let previous_body = strip_line_ending(previous);
+                let previous_ending = line_ending_of(previous);
+                let without_operator = previous_body
+                    .strip_suffix(operator.as_str())
+                    .unwrap_or(previous_body);
+                *previous = format!(
+                    "{}{}",
+                    without_operator.trim_end_matches([' ', '\t']),
+                    previous_ending
+                );
+
+                let indent_len = body.len() - body.trim_start_matches([' ', '\t']).len();
+                fixed.push((
+                    format!(
+                        "{}{} {}{}",
+                        &body[..indent_len],
+                        operator,
+                        &body[indent_len..],
+                        ending
+                    ),
+                    classification,
+                ));
+            }
+        }
+    }
+
+    fixed.into_iter().map(|(line, _)| line).collect()
+}
+
+/// Какое изменение нужно текущей паре (prev, cur).
+#[derive(Debug, PartialEq, Eq)]
+enum LineFix<'a> {
+    None,
+    /// Снять известный FIRST-токен с cur, приклеить к prev; `remainder` —
+    /// строка-носитель без токена (комментарий или пустая).
+    GlueFirstToken {
+        token: &'a str,
+        remainder: String,
+    },
+    /// Перенести известный END-оператор из prev в начало кода cur.
+    MoveOperatorForward {
+        operator: String,
+    },
+}
+
+/// Спланировать фикс пары (prev, cur): `previous` — собранная строка (с
+/// окончанием) и классификация её исходного тела, `cur_body` — исходное тело
+/// cur с его классификацией.
+fn plan_fix<'a>(
+    previous: &str,
+    previous_classification: &LineClassification,
+    cur_body: &'a str,
+    cur_classification: &LineClassification,
+    settings: &LineBreakSettings,
+) -> LineFix<'a> {
+    // Query-регион и строка-продолжение: cur не код — пару не трогаем (в том
+    // числе END: оператор из prev не должен попадать в строку/запрос).
+    if cur_classification.in_query || starts_in_string(cur_body, cur_classification) {
+        return LineFix::None;
+    }
+
+    // FIRST: известный токен в начале кодовой части cur, prev — код-строка
+    // без check-only нарушений (приклейка к `,`-строке даёт мусор вида
+    // `Оповещение);` — план F6: `,`-кейсы остаются для ручной правки).
+    if settings.check_first
+        && is_code_line(strip_line_ending(previous), previous_classification)
+        && !starts_with_check_only_token(strip_line_ending(previous))
+    {
+        let indent_len = cur_body.len() - cur_body.trim_start_matches([' ', '\t']).len();
+        let after_indent = &cur_body[indent_len..];
+        let token = FIXABLE_FIRST_TOKENS
+            .iter()
+            .copied()
+            .find(|token| after_indent.starts_with(token));
+
+        if let Some(token) = token {
+            let token_end = indent_len + token.len();
+            let rest = &cur_body[token_end..];
+            // Токен — код (не строка/комментарий), а за ним только пробелы
+            // или комментарий до конца строки (висячий токен, не `\t); хвост`).
+            if cur_classification.has_code_in(indent_len, token_end)
+                && (rest.trim().is_empty() || rest.trim_start().starts_with("//"))
+            {
+                let previous_body = strip_line_ending(previous);
+                // Skip: prev уже оканчивается тем же токеном (защита `;;`).
+                if !previous_body.trim_end().ends_with(token) {
+                    return LineFix::GlueFirstToken {
+                        token,
+                        remainder: trim_line_tail(&cur_body[..indent_len], rest),
+                    };
+                }
+            }
+        }
+    }
+
+    // END: известный оператор в конце кодовой части prev, cur — код-строка.
+    if settings.check_last && is_code_line(cur_body, cur_classification) {
+        let previous_body = strip_line_ending(previous);
+        let trimmed = previous_body.trim_end_matches([' ', '\t']);
+        if let Some(operator) = trailing_known_operator(trimmed) {
+            let operator_start = trimmed.len() - operator.len();
+            // Оператор отделён пробелом от кода слева (дефолтный END-паттерн
+            // bsl-ls требует `\s+` перед оператором) и является кодом на
+            // prev (не строка, не комментарий — напр. `// хвост И` не трогаем).
+            if operator_start > 0
+                && trimmed[..operator_start].ends_with([' ', '\t'])
+                && previous_classification.has_code_in(operator_start, trimmed.len())
+            {
+                return LineFix::MoveOperatorForward {
+                    operator: operator.to_owned(),
+                };
+            }
+        }
+    }
+
+    LineFix::None
+}
+
+/// Остаток строки-носителя FIRST-токена: ведущий отступ сохраняется, пробелы
+/// между токеном и комментарием убираются; пустой остаток → пустая строка
+/// (носитель удаляется).
+fn trim_line_tail(indent: &str, rest: &str) -> String {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        String::new()
+    } else {
+        format!("{indent}{rest}")
+    }
+}
+
+/// Тело cur начинается внутри `"`-литерала (продолжение с предыдущей строки)?
+fn starts_in_string(cur_body: &str, classification: &LineClassification) -> bool {
+    !cur_body.is_empty()
+        && classification
+            .string_ranges
+            .iter()
+            .any(|&(start, _)| start == 0)
+}
+
+/// Строка — код: не пустая, не чистый `//`-комментарий, содержит код вне
+/// строк и комментария. Диапазон `has_code_in(0, len)` не подходит: строка
+/// с любым литералом посередине дала бы false; проверяем по сегментам.
+fn is_code_line(body: &str, classification: &LineClassification) -> bool {
+    let trimmed = body.trim();
+    if trimmed.is_empty() || trimmed.starts_with("//") {
+        return false;
+    }
+
+    let limit = classification.comment_start.unwrap_or(body.len());
+    let mut cursor = 0;
+    for &(range_start, range_end) in &classification.string_ranges {
+        let segment_end = range_start.min(limit);
+        if segment_end > cursor && !body[cursor..segment_end].trim().is_empty() {
+            return true;
+        }
+        cursor = range_end.max(cursor);
+    }
+    cursor < limit && !body[cursor..limit].trim().is_empty()
+}
+
+/// Код-часть строки начинается с check-only FIRST-токена (`,`)? К такому
+/// prev фиксер ничего не приклеивает: `,`-нарушение лечится только вручную.
+fn starts_with_check_only_token(body: &str) -> bool {
+    let after_indent = body.trim_start_matches([' ', '\t']);
+    after_indent.starts_with(',')
+}
+
+/// Известный END-оператор в конце тела. Словные операторы (`И`/`ИЛИ`/`OR`/
+/// `AND`) сравниваются кейс-инсенситивно (через `to_lowercase`, кириллица
+/// включена), знаковые — точно; разрез — только по границе символа.
+fn trailing_known_operator(body: &str) -> Option<&'static str> {
+    for operator in FIXABLE_LAST_OPERATORS {
+        let split = body.len().saturating_sub(operator.len());
+        if !body.is_char_boundary(split) {
+            continue;
+        }
+        let tail = &body[split..];
+        let matches = if operator.chars().all(|char| char.is_alphabetic()) {
+            tail.to_lowercase() == operator.to_lowercase()
+        } else {
+            tail == *operator
+        };
+        if matches {
+            return Some(operator);
+        }
+    }
+    None
+}
+
+/// Тело строки без её окончания (`fixed_lines` хранят строки с окончаниями).
+fn strip_line_ending(line: &str) -> &str {
+    split_line_ending(line).0
+}
+
+fn line_ending_of(line: &str) -> &str {
+    split_line_ending(line).1
 }
 
 /// Классифицировать строку кода (без окончания строки), обновив состояние.
@@ -498,11 +776,17 @@ fn default_pattern(key: &str, compile: fn(&str) -> Result<Regex, regex::Error>) 
 }
 
 /// Handler сценария `ПроверкаПереносовСтрок`: диагностика IncorrectLineBreak
-/// (паритет bsl-ls) по настройкам `НастройкиСценариев`.
+/// (паритет bsl-ls) по настройкам `НастройкиСценариев` и механически
+/// безопасный фикс известного подмножества токенов.
 ///
-/// Task 2: и DryRun (check), и Apply (hook/exec-rules/fix) выдают
-/// per-violation warnings со span. Фиксер и `modified_dry_run`-превью
-/// (DryRun) / `modified` (Apply) подключает Task 3.
+/// Контракт режимов:
+/// - **DryRun (check)**: per-violation `warning` со span плюс, если фикс
+///   меняет файл, один `modified_dry_run` с `proposed_content`
+///   (diff-превью `render_dry_run_diffs` подхватывает автоматически);
+/// - **Apply (fix/hook/exec-rules)**: если фикс меняет файл — только
+///   `modified` (единственный результат, warnings не эмитятся — прецедент
+///   всех фикстеров); если не меняет — `ScenarioRun::clean()`
+///   (идемпотентность: повторный прогон → 0 результатов, exit 0).
 pub fn line_break_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
     if context.file.kind != SourceFileKind::BslModule {
         return ScenarioRun::single(ScenarioResult::skipped(
@@ -535,7 +819,26 @@ pub fn line_break_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun
         }
     };
 
-    let results = find_line_break_violations(&input, &settings)
+    let violations = find_line_break_violations(&input, &settings);
+
+    if context.write_policy == WritePolicy::Apply {
+        // Apply: только modified — невылеченные skip-нарушения видны через
+        // `check`, не ломают exit-0 идемпотентность фикса.
+        let output = fix_line_breaks(&input, &settings);
+        if output == input {
+            return ScenarioRun::clean();
+        }
+
+        return crate::text_fixers::apply_text_modification(
+            context,
+            &path,
+            output,
+            "fixed incorrect line breaks",
+        );
+    }
+
+    // DryRun: per-violation warnings + опциональный modified_dry_run.
+    let mut results = violations
         .into_iter()
         .map(|violation| {
             ScenarioResult::warning(
@@ -545,7 +848,17 @@ pub fn line_break_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun
             )
             .with_source_span(SourceSpan::new(violation.byte_start, violation.byte_end))
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    let output = fix_line_breaks(&input, &settings);
+    if output != input {
+        results.push(ScenarioResult::modified_dry_run(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "fixed incorrect line breaks",
+            output,
+        ));
+    }
 
     ScenarioRun {
         results,
@@ -932,5 +1245,209 @@ mod tests {
         // …но не `ИЛИ` (альтернативы `ИЛИ` в кастомном паттерне нет).
         let or_input = "Если А = Б ИЛИ\n\tБ = В Тогда";
         assert!(find_line_break_violations(or_input, &settings).is_empty());
+    }
+
+    // Task 3: фиксер `fix_line_breaks`.
+
+    #[test]
+    fn fix_glues_semicolon_to_previous_line() {
+        let input = "\tВызов(Арг)\n\t;";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(output, "\tВызов(Арг);");
+    }
+
+    #[test]
+    fn fix_glues_semicolon_keeps_comment() {
+        let input = "\tВызов(Арг)\n\t; // комментарий";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(output, "\tВызов(Арг);\n\t// комментарий");
+    }
+
+    #[test]
+    fn fix_glues_close_paren() {
+        let input = "\tВызов(\n\t\tАргумент\n\t);";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(output, "\tВызов(\n\t\tАргумент);");
+    }
+
+    #[test]
+    fn fix_skips_semicolon_after_semicolon() {
+        let input = "Часть();\n\t;";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(
+            output, input,
+            "gluing to a prev already ending with ; must be skipped"
+        );
+    }
+
+    #[test]
+    fn fix_skips_comma_first() {
+        for input in [
+            "Вызов(\n\t, Оповещение\n);",
+            "Вызов(\n\t,,,,, Оповещение\n);",
+        ] {
+            let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+            assert_eq!(
+                output, input,
+                "comma-first violations are check-only: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fix_moves_operator_to_next_line_start() {
+        let input = "\tЕсли А = Б И\n\t\tБ = В Тогда";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(output, "\tЕсли А = Б\n\t\tИ Б = В Тогда");
+    }
+
+    #[test]
+    fn fix_skips_operator_before_comment_line() {
+        let input = "\tС = А +\n\t\t// комментарий";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(
+            output, input,
+            "operator before a pure comment line must be skipped"
+        );
+    }
+
+    #[test]
+    fn fix_skips_operator_before_empty_line() {
+        let input = "\tС = А +\n\n\tБ;";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(
+            output, input,
+            "operator before an empty line must be skipped"
+        );
+    }
+
+    #[test]
+    fn fix_ignores_custom_pattern_matches() {
+        // Кастомный FIRST-паттерн: его матчи — check-only, фиксер не трогает.
+        let settings = LineBreakSettings::custom(true, r"@", true, DEFAULT_LAST_SYMBOL_PATTERN);
+        let custom_input = "Проц()\n\t@токен";
+        assert_eq!(
+            fix_line_breaks(custom_input, &settings),
+            custom_input,
+            "custom pattern matches are check-only"
+        );
+
+        // Известные токены фиксируются и на кастомных паттернах: check следует
+        // настройкам, fix — только механикам известных токенов.
+        assert_eq!(
+            fix_line_breaks("Проц()\n\t;", &settings),
+            "Проц();",
+            "known tokens stay fixable under custom patterns"
+        );
+    }
+
+    #[test]
+    fn fix_preserves_line_endings() {
+        let crlf = "\tВызов(Арг)\r\n\t;\r\n";
+        assert_eq!(
+            fix_line_breaks(crlf, &LineBreakSettings::default_settings()),
+            "\tВызов(Арг);\r\n"
+        );
+
+        // Окончание удалённой строки-носителя переносится на prev: mixed-концы
+        // сохраняются построчно, `\r` не попадает в приклеенный токен.
+        let mixed = "\tВызов(Арг)\r\n\t;\n";
+        assert_eq!(
+            fix_line_breaks(mixed, &LineBreakSettings::default_settings()),
+            "\tВызов(Арг);\n"
+        );
+    }
+
+    #[test]
+    fn fix_preserves_final_no_newline() {
+        let input = "\tВызов(Арг)\n\t;";
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(output, "\tВызов(Арг);");
+
+        let clean = "Процедура А()\nКонецПроцедуры";
+        assert_eq!(
+            fix_line_breaks(clean, &LineBreakSettings::default_settings()),
+            clean
+        );
+    }
+
+    #[test]
+    fn fix_idempotent() {
+        let defaults = LineBreakSettings::default_settings();
+        let custom = LineBreakSettings::custom(true, r"@", true, DEFAULT_LAST_SYMBOL_PATTERN);
+        let cases: &[(&str, &LineBreakSettings)] = &[
+            ("\tВызов(Арг)\n\t;", &defaults),
+            ("\tВызов(Арг)\n\t; // комментарий", &defaults),
+            ("\tВызов(\n\t\tАргумент\n\t);", &defaults),
+            ("Часть();\n\t;", &defaults),
+            ("Вызов(\n\t, Оповещение\n);", &defaults),
+            ("Вызов(\n\t,,,,, Оповещение\n);", &defaults),
+            ("\tЕсли А = Б И\n\t\tБ = В Тогда", &defaults),
+            ("\tС = А +\n\t\t// комментарий", &defaults),
+            ("\tС = А +\n\n\tБ;", &defaults),
+            ("Проц()\n\t@токен", &custom),
+            ("\tВызов(Арг)\r\n\t;\r\n", &defaults),
+            ("\tВызов(Арг)\r\n\t;\n", &defaults),
+            ("Проц()\n\t;", &custom),
+        ];
+
+        for (input, settings) in cases {
+            let once = fix_line_breaks(input, settings);
+            let twice = fix_line_breaks(&once, settings);
+            assert_eq!(twice, once, "fixer must be idempotent on {input:?}");
+        }
+    }
+
+    #[test]
+    fn fix_noop_clean() {
+        let input = concat!(
+            "Процедура Тест()\n",
+            "\tВызов(Арг);\n",
+            "\tЕсли А = Б\n",
+            "\t\tИ Б = В Тогда\n",
+            "\t\tСообщить(\"готово\");\n",
+            "\tКонецЕсли;\n",
+            "КонецПроцедуры\n",
+        );
+        let output = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn fix_respects_disabled_checks() {
+        let first_disabled = LineBreakSettings::custom(
+            false,
+            DEFAULT_FIRST_SYMBOL_PATTERN,
+            true,
+            DEFAULT_LAST_SYMBOL_PATTERN,
+        );
+        let first_input = "\tВызов(Арг)\n\t;";
+        assert_eq!(
+            fix_line_breaks(first_input, &first_disabled),
+            first_input,
+            "checkFirstSymbol=false must gate first-symbol fixes"
+        );
+
+        let last_disabled = LineBreakSettings::custom(
+            true,
+            DEFAULT_FIRST_SYMBOL_PATTERN,
+            false,
+            DEFAULT_LAST_SYMBOL_PATTERN,
+        );
+        let last_input = "\tЕсли А = Б И\n\t\tБ = В Тогда";
+        assert_eq!(
+            fix_line_breaks(last_input, &last_disabled),
+            last_input,
+            "checkLastSymbol=false must gate last-symbol fixes"
+        );
     }
 }

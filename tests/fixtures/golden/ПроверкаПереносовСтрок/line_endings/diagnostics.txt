@@ -1,0 +1,1 @@
+modified|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|fixed incorrect line breaks

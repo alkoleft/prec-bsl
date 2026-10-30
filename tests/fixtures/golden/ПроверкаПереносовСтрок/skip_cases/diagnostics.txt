@@ -1,0 +1,5 @@
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 3
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 5
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 6
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 7
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 10
