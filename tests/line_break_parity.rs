@@ -23,6 +23,7 @@
 //! Регенерация baseline описана в шапке baseline-файла.
 
 use std::fs;
+use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -42,7 +43,17 @@ fn resolved_corpus_path() -> PathBuf {
 
 fn yaxunit_corpus() -> Option<PathBuf> {
     let path = resolved_corpus_path();
-    path.join(".git").exists().then_some(path)
+    if !path.join(".git").exists() {
+        if std::env::var_os("YAXUNIT_CORPUS").is_some() {
+            panic!(
+                "YAXUNIT_CORPUS is set explicitly, but {} is not a git repository: an \
+                 explicitly requested corpus must not silently skip",
+                path.display()
+            );
+        }
+        return None;
+    }
+    Some(path)
 }
 
 /// RAII-гвард временного каталога снапшота: каталог удаляется при выходе из
@@ -161,16 +172,15 @@ fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
 
 /// Рекурсивный сбор `.bsl`-файлов (read-only обход) в детерминированном
 /// порядке: сначала отсортированный список файлов, находки внутри файла —
-/// по порядку строк.
-fn collect_bsl_files(root: &Path, files: &mut Vec<PathBuf>) -> Option<()> {
-    let entries = fs::read_dir(root).ok()?;
-    for entry in entries.flatten() {
-        let Ok(file_type) = entry.file_type() else {
-            continue;
-        };
+/// по порядку строк. Ошибки обхода (права, битые симлинки) — ошибка теста,
+/// не тихий пропуск частичного списка.
+fn collect_bsl_files(root: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
         let path = entry.path();
         if file_type.is_dir() {
-            collect_bsl_files(&path, files);
+            collect_bsl_files(&path, files)?;
         } else if file_type.is_file()
             && path.extension().and_then(|extension| extension.to_str()) == Some("bsl")
         {
@@ -178,23 +188,30 @@ fn collect_bsl_files(root: &Path, files: &mut Vec<PathBuf>) -> Option<()> {
         }
     }
     files.sort();
-    Some(())
+    Ok(())
 }
 
 /// Сбор `.bsl`-файлов снапшота корпуса (общий для parity- и smoke-тестов).
-fn corpus_bsl_files(corpus: &Path) -> Vec<PathBuf> {
+/// Отсутствующие корневые `exts`/`tests`/`fixtures` — допустимы (корень
+/// пропускается, как раньше).
+fn corpus_bsl_files(corpus: &Path) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for root in ["exts", "tests", "fixtures"] {
-        collect_bsl_files(&corpus.join(root), &mut files);
+        let root_path = corpus.join(root);
+        if root_path.is_dir() {
+            collect_bsl_files(&root_path, &mut files)?;
+        }
     }
-    files
+    files.sort();
+    Ok(files)
 }
 
 /// Fingerprint-строки текущего прогона: `path|rule|message` на каждую находку,
 /// пути — относительные от корня снапшота (= корня корпуса), разделители
 /// нормализованы в `/`.
 fn collect_current_fingerprint(corpus: &Path) -> Vec<String> {
-    let files = corpus_bsl_files(corpus);
+    let files = corpus_bsl_files(corpus)
+        .unwrap_or_else(|error| panic!("failed to walk corpus {}: {error}", corpus.display()));
 
     let settings = prec_bsl::line_break::LineBreakSettings::default_settings();
     let mut fingerprint = Vec::new();
@@ -323,7 +340,12 @@ fn yaxunit_line_break_fix_corpus_smoke_idempotent() {
     };
 
     let settings = prec_bsl::line_break::LineBreakSettings::default_settings();
-    let files = corpus_bsl_files(&snapshot_dir);
+    let files = corpus_bsl_files(&snapshot_dir).unwrap_or_else(|error| {
+        panic!(
+            "failed to walk corpus snapshot {}: {error}",
+            snapshot_dir.display()
+        )
+    });
     assert!(
         !files.is_empty(),
         "yaxunit corpus must contain at least one .bsl file for the fix smoke test"
@@ -345,4 +367,97 @@ fn yaxunit_line_break_fix_corpus_smoke_idempotent() {
             file.display()
         );
     }
+}
+
+// CR3 (PR #17): явно заданный YAXUNIT_CORPUS без валидного git-репозитория —
+// это ошибка окружения, а не тихий skip (ложный зелёный при явном запросе
+// недопустим).
+#[test]
+fn explicit_corpus_without_git_repo_must_fail_not_skip() {
+    let explicit_dir = std::env::temp_dir()
+        .join("prec-bsl-ilb-corpus-cr3")
+        .join(format!("plain-dir-{}", std::process::id()));
+    fs::create_dir_all(&explicit_dir).expect("CR3 test dir must be created");
+    // Внутри — `exts`, но НЕ `.git`: раньше такой корпус тихо skip-ался.
+    fs::create_dir_all(explicit_dir.join("exts")).expect("CR3 exts dir must be created");
+
+    let output = Command::new(std::env::current_exe().unwrap())
+        .arg("--exact")
+        .arg("yaxunit_line_break_parity_matches_committed_baseline")
+        .env("YAXUNIT_CORPUS", &explicit_dir)
+        .output()
+        .expect("nested test process must start");
+    fs::remove_dir_all(&explicit_dir).ok();
+
+    assert!(
+        !output.status.success(),
+        "an explicitly set YAXUNIT_CORPUS without .git must fail, not silently skip:\n\
+         stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // libtest захватывает panic-сообщение вложенного теста в stdout
+    // (секция `---- <test> stdout ----`), поэтому ищем в обоих потоках.
+    let output_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output_text.contains("is not a git repository"),
+        "the failure must name the invalid corpus path:\n{output_text}"
+    );
+}
+
+// CR4 (PR #17): ошибки обхода корпуса (права, битые симлинки) — ошибка
+// теста, не тихий частичный список файлов.
+#[test]
+fn corpus_walk_errors_must_fail_not_skip() {
+    // Корневой каталог без прав на чтение: fs::read_dir возвращает
+    // PermissionDenied — раньше глотался, сейчас валит тест.
+    #[cfg(unix)]
+    {
+        let unwalkable = std::env::temp_dir()
+            .join("prec-bsl-ilb-corpus-cr4")
+            .join(format!("no-read-{}", std::process::id()));
+        fs::create_dir_all(&unwalkable).expect("CR4 test dir must be created");
+        let snapshot_root = unwalkable.join("snapshot");
+        fs::create_dir_all(snapshot_root.join("exts")).expect("CR4 exts dir must be created");
+        set_no_read_permissions(&snapshot_root.join("exts"));
+
+        let files = corpus_bsl_files(&snapshot_root);
+        reset_permissions(&snapshot_root.join("exts"));
+        fs::remove_dir_all(&unwalkable).ok();
+
+        let error = files.expect_err("an unreadable corpus root must fail the walk");
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    }
+
+    // Отсутствующие корневые `exts`/`tests`/`fixtures` — допустимы (корень
+    // пропускается), как и раньше.
+    let empty_root = std::env::temp_dir()
+        .join("prec-bsl-ilb-corpus-cr4")
+        .join(format!("empty-{}", std::process::id()));
+    fs::create_dir_all(&empty_root).expect("CR4 empty dir must be created");
+    let files =
+        corpus_bsl_files(&empty_root).expect("missing corpus roots must be an acceptable skip");
+    assert!(files.is_empty());
+    fs::remove_dir_all(&empty_root).ok();
+}
+
+/// Права `000` на каталог: read_dir падает PermissionDenied.
+#[cfg(unix)]
+fn set_no_read_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000))
+        .expect("chmod 000 must succeed on the test dir");
+}
+
+#[cfg(unix)]
+fn reset_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(0o755))
+        .expect("chmod 755 must succeed on the test dir");
 }
