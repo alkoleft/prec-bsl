@@ -120,9 +120,10 @@ struct RawScenarioConfig {
     #[serde(rename = "КаталогЛокальныхСценариев", default)]
     local_scenarios_dir: String,
     /// Missing `ГлобальныеСценарии` key (`None`) resolves to the default
-    /// scenario set (same list as built-in defaults, required v1 only);
-    /// `Some(vec![])` is the explicit "all scenarios off" opt-out, so the
-    /// two states must stay distinct through deserialization.
+    /// scenario set (same list as built-in defaults, all supported
+    /// scenarios); `Some(vec![])` is the explicit "all scenarios off"
+    /// opt-out, so the two states must stay distinct through
+    /// deserialization.
     #[serde(rename = "ГлобальныеСценарии")]
     global_scenarios: Option<Vec<String>>,
     #[serde(rename = "ОтключенныеСценарии", default)]
@@ -140,9 +141,10 @@ impl RawScenarioConfig {
             // that turns every scenario off.
             Some(scenarios) => normalize_scenario_vec(scenarios),
             // The key is absent: use the default scenario set, the same list
-            // as built-in defaults (required v1 scenarios only). This keeps
-            // a config that only tunes `GLOBAL` or `ОтключенныеСценарии`
-            // from silently resolving to zero enabled scenarios.
+            // as built-in defaults (all supported scenarios: required v1
+            // plus compatibility). This keeps a config that only tunes
+            // `GLOBAL` or `ОтключенныеСценарии` from silently resolving to
+            // zero enabled scenarios.
             None => default_global_scenarios(catalog),
         };
         ScenarioConfig {
@@ -168,11 +170,11 @@ impl RawScenarioConfig {
 }
 
 /// The default enabled scenario set for a config file without the
-/// `ГлобальныеСценарии` key. Mirrors the built-in defaults: required v1
-/// scenarios only, without compatibility scenarios.
+/// `ГлобальныеСценарии` key. Mirrors the built-in defaults: all supported
+/// scenarios (required v1 plus compatibility).
 fn default_global_scenarios(catalog: ScenarioCatalog<'_>) -> Vec<String> {
     catalog
-        .required_v1()
+        .supported()
         .map(|scenario| scenario.id.to_owned())
         .collect()
 }

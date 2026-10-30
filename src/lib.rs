@@ -259,6 +259,45 @@ mod tests {
         assert_eq!(scenario.id, "УдалениеЛишнихКонцевыхПробелов");
     }
 
+    /// Built-in defaults (no `v8config.json`) enable every supported scenario:
+    /// all RequiredV1 plus all Compatibility entries, and never the
+    /// unsupported ones.
+    #[test]
+    fn built_in_defaults_enable_all_supported_scenarios() {
+        let defaults = crate::config::built_in_defaults()
+            .scenarios
+            .global_scenarios;
+
+        let mut expected: Vec<String> = EXPECTED_REQUIRED_V1
+            .iter()
+            .chain(EXPECTED_COMPATIBILITY)
+            .map(|scenario| (*scenario).to_owned())
+            .collect();
+        expected.sort();
+        let mut actual = defaults.clone();
+        actual.sort();
+
+        assert_eq!(
+            actual, expected,
+            "built-in defaults must enable exactly all supported scenarios"
+        );
+        for scenario in ["ОдинОператорНаСтроку", "ПробелыВКомментариях"]
+        {
+            assert!(
+                defaults.contains(&scenario.to_owned()),
+                "built-in defaults must include {scenario}"
+            );
+        }
+        assert!(
+            !defaults.contains(&"РазборОбычныхФормНаИсходники".to_owned()),
+            "unsupported ordinary-forms scenario must stay out of defaults"
+        );
+        assert!(
+            !defaults.contains(&"ОбработкаЮнитТестов".to_owned()),
+            "unsupported unit-test scenario must stay out of defaults"
+        );
+    }
+
     #[test]
     fn reference_scenario_inventory_fixture_preserves_reference_config_key_and_order() {
         let fixture = include_str!("../tests/fixtures/scenario_inventory/reference-v8config.json");

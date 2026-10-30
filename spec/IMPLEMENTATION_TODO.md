@@ -370,3 +370,47 @@ Completion evidence:
 Dependencies:
 
 - T38, T39 (crate layout and scenario definition binding).
+
+### T53. DONE: Enable all supported scenarios in built-in defaults
+
+Maintainer decision (2026-10-30, branch `default-all-supported-scenarios`):
+users get every supported scenario out of the box instead of the required v1
+subset only.
+
+Resolution:
+
+- `built_in_defaults_with_catalog` and the mirrored
+  `RawScenarioConfig::into_domain` fallback (config file without the
+  `ГлобальныеСценарии` key) now enable `catalog.supported()` = RequiredV1 +
+  Compatibility, so `СортировкаДереваМетаданных`, `СортировкаСоставаПодсистем`,
+  `ПробелыВКомментариях`, `ПробелыПослеЗапятых`, `ПроверкаДлиныСтрок` and
+  `ОдинОператорНаСтроку` run without opting in.
+- Unsupported scenarios (`РазборОбычныхФормНаИсходники`, `ОбработкаЮнитТестов`,
+  platform-dependent/repo-local ids) stay excluded from defaults.
+- Opt-out paths unchanged: `ОтключенныеСценарии` subtracts at every level,
+  explicit `ГлобальныеСценарии` (including `[]`) still narrows/disables;
+  project sections keep inheriting the default set.
+- Specs rewritten: `spec/configuration.md` (built-in defaults paragraph),
+  `spec/reference-scenario-inventory.md` (extension-scenario registration
+  contract), README configuration section.
+
+Acceptance criteria:
+
+- Built-in defaults contain exactly RequiredV1 + Compatibility and no
+  unsupported ids (unit test over `EXPECTED_REQUIRED_V1` +
+  `EXPECTED_COMPATIBILITY`).
+- A hook run with built-in defaults fixes `ОдинОператорНаСтроку` violations;
+  `ОтключенныеСценарии` turns it off without restating the whole list.
+- Tests pinning explicit-config narrowing semantics (e.g. a non-empty
+  `ГлобальныеСценарии` list without the scenario) keep passing unchanged.
+
+Validation:
+
+- `cargo test --workspace` (436 passed / 0 failed at completion)
+- `cargo fmt --check`
+- clippy: no new warnings in touched files
+
+Dependencies:
+
+- T38, T39, T51, T52 (scenario registry and the extension scenarios that are
+  now on by default).

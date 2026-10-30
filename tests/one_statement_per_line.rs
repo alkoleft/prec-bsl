@@ -1,7 +1,7 @@
 //! Integration and golden-fixture tests for the `ОдинОператорНаСтроку`
 //! (one statement per line) extension scenario: hook-mode modification
 //! and idempotence, check-mode dry-run contract, parse-error warning
-//! path, opt-in enablement and `.os`-suffix lookup.
+//! path, default enablement with opt-out and `.os`-suffix lookup.
 
 mod support;
 
@@ -173,30 +173,66 @@ fn one_statement_per_line_lone_cr_file_yields_warning_and_leaves_file_unchanged(
     }
 }
 
-/// The scenario is opt-in: without `ГлобальныеСценарии` listing it, no
-/// results are produced for this rule.
+/// The scenario is enabled by built-in defaults: a run without any
+/// `ГлобальныеСценарии` key (no config file at all) fixes violations, and
+/// `ОтключенныеСценарии` can turn it off without restating the whole list.
 #[test]
-fn one_statement_per_line_is_not_enabled_by_default() {
-    let repo = temp_repo("not_enabled");
+fn one_statement_per_line_is_enabled_by_default_and_can_be_disabled() {
+    let repo = temp_repo("enabled_by_default");
     let repo_path = PathBuf::from(REPO_PATH);
     write_file(repo.join(&repo_path), "А = 1; Б = 2;\n");
 
-    let config = parse_config_str(
+    let report = run_one_statement_pipeline(
+        &repo,
+        &repo_path,
+        prec_bsl::config::built_in_defaults(),
+        PipelineMode::Hook,
+    );
+
+    let result = report
+        .results
+        .iter()
+        .find(|result| result.rule_id == ONE_STATEMENT_PER_LINE_RULE)
+        .expect("scenario must run under built-in defaults");
+    assert_eq!(result.status, ScenarioResultStatus::Modified);
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        "А = 1;\nБ = 2;\n",
+        "default run must fix the violations"
+    );
+
+    let disabled_repo = temp_repo("disabled_via_config");
+    let disabled_path = PathBuf::from(REPO_PATH);
+    write_file(disabled_repo.join(&disabled_path), "А = 1; Б = 2;\n");
+
+    let disabled_config = parse_config_str(
         r#"{
             "Precommt4onecСценарии": {
-                "ГлобальныеСценарии": ["УдалениеЛишнихКонцевыхПробелов"]
+                "ОтключенныеСценарии": ["ОдинОператорНаСтроку"]
             }
         }"#,
     )
     .unwrap();
 
-    let report = run_one_statement_pipeline(&repo, &repo_path, config, PipelineMode::Hook);
+    let disabled_report = run_one_statement_pipeline(
+        &disabled_repo,
+        &disabled_path,
+        disabled_config,
+        PipelineMode::Hook,
+    );
 
-    assert!(report.results.is_empty(), "{:?}", report.results);
+    assert!(
+        !disabled_report
+            .results
+            .iter()
+            .any(|result| result.rule_id == ONE_STATEMENT_PER_LINE_RULE),
+        "ОтключенныеСценарии must turn the scenario off: {:?}",
+        disabled_report.results
+    );
     assert_eq!(
-        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        fs::read_to_string(disabled_repo.join(&disabled_path)).unwrap(),
         "А = 1; Б = 2;\n",
-        "scenario must not run when not enabled"
+        "disabled scenario must not touch the file"
     );
 }
 

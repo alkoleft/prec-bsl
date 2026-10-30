@@ -658,10 +658,10 @@ fn config_missing_global_scenarios_key_falls_back_to_default_scenario_set() {
     )
     .unwrap();
 
-    // Missing key must resolve to the built-in default set: all required_v1
-    // scenarios, without compatibility scenarios.
+    // Missing key must resolve to the built-in default set: all supported
+    // scenarios (required v1 plus compatibility).
     let expected: Vec<String> = test_catalog()
-        .required_v1()
+        .supported()
         .map(|scenario| scenario.id.to_owned())
         .collect();
     assert_eq!(config.scenarios.global_scenarios, expected);
@@ -704,7 +704,7 @@ fn config_missing_global_scenarios_key_without_scenario_section_uses_defaults() 
     let config = parse_config_str(r#"{"GLOBAL": {"version": "2.0"}}"#).unwrap();
 
     let expected: Vec<String> = test_catalog()
-        .required_v1()
+        .supported()
         .map(|scenario| scenario.id.to_owned())
         .collect();
     assert_eq!(config.scenarios.global_scenarios, expected);
@@ -734,7 +734,7 @@ fn config_project_section_without_global_scenarios_key_inherits_defaults() {
     // which for a missing top-level key is the default set.
     assert_eq!(project.global_scenarios, None);
     let expected: Vec<String> = test_catalog()
-        .required_v1()
+        .supported()
         .map(|scenario| scenario.id.to_owned())
         .collect();
     assert_eq!(
@@ -824,7 +824,7 @@ fn config_project_section_without_key_falls_back_to_explicit_base_list() {
 }
 
 #[test]
-fn config_missing_global_scenarios_key_excludes_compatibility_scenarios() {
+fn config_missing_global_scenarios_key_includes_compatibility_scenarios() {
     let config = parse_config_str(
         r#"{
                 "Precommt4onecСценарии": {
@@ -834,15 +834,16 @@ fn config_missing_global_scenarios_key_excludes_compatibility_scenarios() {
     )
     .unwrap();
 
-    // The default set mirrors built_in_defaults: required_v1 only.
+    // The default set mirrors built_in_defaults: all supported scenarios,
+    // including the compatibility ones.
     assert!(
-        !config
+        config
             .scenarios
             .global_scenarios
             .contains(&"СортировкаДереваМетаданных".to_owned())
     );
     assert!(
-        !config
+        config
             .scenarios
             .global_scenarios
             .contains(&"СортировкаСоставаПодсистем".to_owned())
