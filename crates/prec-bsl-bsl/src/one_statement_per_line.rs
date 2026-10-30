@@ -124,6 +124,13 @@ struct Event {
     row: usize,
     end_row: usize,
     span: BslByteSpan,
+    /// Track-only slot (`elseif_clause`): participates in
+    /// `previous_row` tracking (its row can make a following body
+    /// statement a violation with `after_block_keyword`) but is never
+    /// flagged itself — bsl-ls never flags `elsifBranch` (it is not a
+    /// statement in the ANTLR grammar, only the plan's indent extension
+    /// needs its THEN row).
+    track_only: bool,
 }
 
 /// Pending violations of the current tracked row, flushed when a
@@ -169,7 +176,7 @@ impl Tracker {
             EventKind::EmptySemiAtEnd => event.end_row,
             _ => event.row,
         };
-        if self.previous_row == Some(row) {
+        if self.previous_row == Some(row) && !event.track_only {
             // after_block_keyword must be captured at push time: the
             // previous statement in tracking (the node that set
             // previous_row) is if_statement or an IF/ELSIF-led ERROR
@@ -215,6 +222,14 @@ impl Tracker {
 
 /// Collect the tracking events for a parsed tree, in document order.
 fn collect_events(node: tree_sitter::Node<'_>, source: &str, out: &mut Vec<Event>) {
+    // `elseif_clause` occupies a statement slot in the ANTLR model
+    // (elsifBranch is a compoundStatement alternative): its start row
+    // participates in tracking, so a body statement on the ELSIF/THEN row
+    // is a violation with `after_block_keyword` (tree-dumps § 11.6). The
+    // slot is track-only: bsl-ls never flags `elsifBranch` itself.
+    if node.kind() == "elseif_clause" {
+        out.push(statement_event(node));
+    }
     if is_statement_kind(node.kind()) {
         if node.kind() == "preprocessor" {
             out.push(reset_event(node));
@@ -292,6 +307,7 @@ fn statement_event(node: tree_sitter::Node<'_>) -> Event {
         row: node.start_position().row,
         end_row: node.end_position().row,
         span: BslByteSpan::new(node.start_byte(), node.end_byte()),
+        track_only: node.kind() == "elseif_clause",
     }
 }
 
@@ -303,6 +319,7 @@ fn reset_event(node: tree_sitter::Node<'_>) -> Event {
         row: node.start_position().row,
         end_row: node.end_position().row,
         span: BslByteSpan::new(node.start_byte(), node.end_byte()),
+        track_only: false,
     }
 }
 
@@ -390,6 +407,125 @@ pub fn has_relevant_parse_errors(input: &str) -> Result<bool, BslParserError> {
     }
     let violation_rows: Vec<usize> = violations.iter().map(|v| v.row).collect();
     Ok(has_unsafe_error_at_rows(&parsed, &violation_rows))
+}
+
+/// Text splice edit moving one statement to its own line: replace the
+/// whitespace prefix before the statement start with
+/// `<line_ending><indent>`. Private fixer detail (plan Task 3).
+struct MoveEdit {
+    /// Byte range of the whitespace prefix to replace
+    /// `[end of previous content on the line .. statement_start]`.
+    prefix_start: usize,
+    prefix_end: usize,
+    indent: String,
+}
+
+/// Compute all `MoveEdit`s for the given violations. Each edit replaces
+/// the whitespace prefix before the statement start with
+/// `<line_ending><indent>`; the line ending is appended by the applier.
+fn plan_move_edits(violations: &[StatementViolation], input: &str) -> Vec<MoveEdit> {
+    // Rows holding a pattern-2 violation (statement right after a block
+    // opener's `Тогда`): every statement of that chain moves to the
+    // opener-line indent + one tab — the plan's mixed rule (pattern-2
+    // target of a row equals its line indent + tab, so propagating it to
+    // the whole row equals propagating along the chain).
+    let block_opener_rows: Vec<usize> = violations
+        .iter()
+        .filter(|violation| violation.after_block_keyword)
+        .map(|violation| violation.row)
+        .collect();
+
+    let bytes = input.as_bytes();
+    let mut edits = Vec::new();
+    for violation in violations {
+        let start = violation.statement_span.start_byte;
+        let line_start = input[..start].rfind('\n').map_or(0, |at| at + 1);
+        // Indent prefix of the violation's own row (byte-for-byte).
+        let mut indent_end = line_start;
+        while indent_end < start && (bytes[indent_end] == b' ' || bytes[indent_end] == b'\t') {
+            indent_end += 1;
+        }
+        if indent_end == start {
+            // The statement opens its line: there is no previous content
+            // to break from (cannot happen for a tracked violation —
+            // defensive skip, no edit is expressible as a move).
+            continue;
+        }
+        // Whitespace prefix before the statement: from the end of the
+        // previous content on the line up to the statement start. The
+        // statement node starts at its first non-whitespace character, so
+        // this range is exactly the whitespace to replace (collapses
+        // double spaces, leaves no trailing whitespace).
+        let mut prefix_start = start;
+        while prefix_start > line_start
+            && (bytes[prefix_start - 1] == b' ' || bytes[prefix_start - 1] == b'\t')
+        {
+            prefix_start -= 1;
+        }
+        if prefix_start == line_start {
+            // Whitespace run swallowed the whole line indent — the line
+            // has no previous content; skip instead of blanking the line.
+            continue;
+        }
+
+        let line_indent = &input[line_start..indent_end];
+        let indent = if block_opener_rows.contains(&violation.row) {
+            format!("{line_indent}\t")
+        } else {
+            line_indent.to_owned()
+        };
+        edits.push(MoveEdit {
+            prefix_start,
+            prefix_end: start,
+            indent,
+        });
+    }
+    edits
+}
+
+/// Apply the edits to the original text. All byte ranges refer to the
+/// ORIGINAL input (never to partially-applied text), so application order
+/// cannot shift later offsets — equivalent to applying right-to-left.
+fn apply_move_edits(input: &str, edits: Vec<MoveEdit>, line_ending: &str) -> String {
+    let mut edits = edits;
+    edits.sort_by_key(|edit| edit.prefix_start);
+
+    let extra: usize = edits
+        .iter()
+        .map(|edit| line_ending.len() + edit.indent.len())
+        .sum();
+    let mut output = String::with_capacity(input.len() + extra);
+    let mut copied = 0usize;
+    for edit in edits {
+        output.push_str(&input[copied..edit.prefix_start]);
+        output.push_str(line_ending);
+        output.push_str(&edit.indent);
+        copied = edit.prefix_end;
+    }
+    output.push_str(&input[copied..]);
+    output
+}
+
+/// Fix multiple-statements-per-line violations: move every flagged
+/// statement to its own line with the indent computed from the plan's
+/// rules (pattern 1: line indent; pattern 2: block-opener line indent +
+/// one tab; mixed chains after a block opener all get the opener indent +
+/// one tab). Pure function: no violations (or relevant parse errors) →
+/// the input is returned unchanged, byte-for-byte.
+pub fn fix_one_statement_per_line(input: &str) -> Result<String, BslParserError> {
+    let violations = find_violations(input)?;
+    if violations.is_empty() {
+        return Ok(input.to_owned());
+    }
+    // The fixer refuses to touch unreliable regions (handler warns in a
+    // later task); `;` is never added or removed and empty statements
+    // (`;;`) are never flagged, so they produce no blank lines.
+    if has_relevant_parse_errors(input)? {
+        return Ok(input.to_owned());
+    }
+    let line_ending = crate::text_fixers::dominant_line_ending(input);
+    let edits = plan_move_edits(&violations, input);
+    Ok(apply_move_edits(input, edits, line_ending))
 }
 
 /// Collect error nodes (excluding MISSING) that intersect a violation row
@@ -677,5 +813,180 @@ mod tests {
             ]
         );
         assert!(!has_relevant_parse_errors(input).unwrap());
+    }
+
+    // --- Task 3: fixer (`fix_one_statement_per_line`) ---
+
+    /// All mutation inputs used by the fixer tests (also used for the
+    /// idempotence loop).
+    fn fixer_mutation_inputs() -> Vec<&'static str> {
+        vec![
+            // pattern 1 chains
+            "А = 1; Б = 2;",
+            "\tА = 1; Б = 2;",
+            // pattern 2 (block opener on the same row)
+            "Если X Тогда Тип = \"1\";",
+            "\tЕсли X Тогда А = 1;",
+            // mixed chain after a block opener
+            "Если X Тогда А = 1; Б = 2;",
+            // elseif opener
+            "Если А Тогда\n Б=1;\nИначеЕсли Б Тогда С=2;",
+            // CRLF file
+            "Если X Тогда А = 1;\r\nБ = 2; В = 3;\r\nКонецЕсли",
+            // spaces indent
+            "    Если X Тогда А = 1;",
+            // multiline statement in a chain
+            "А = 1; Б = Ф(x,\n y);",
+            // double-space collapse before the statement
+            "Если X Тогда  А = 1;",
+        ]
+    }
+
+    #[test]
+    fn fix_chain_moves_second_statement_to_new_line_with_line_indent() {
+        let output = fix_one_statement_per_line("А = 1; Б = 2;").unwrap();
+        assert_eq!(output, "А = 1;\nБ = 2;");
+    }
+
+    #[test]
+    fn fix_indented_chain_copies_line_indent_byte_for_byte() {
+        let output = fix_one_statement_per_line("\tА = 1; Б = 2;").unwrap();
+        assert_eq!(output, "\tА = 1;\n\tБ = 2;");
+    }
+
+    #[test]
+    fn fix_if_then_body_gets_one_extra_tab() {
+        let output = fix_one_statement_per_line("Если X Тогда Тип = \"1\";").unwrap();
+        assert_eq!(output, "Если X Тогда\n\tТип = \"1\";");
+    }
+
+    #[test]
+    fn fix_indented_if_then_adds_tab_to_line_indent() {
+        let output = fix_one_statement_per_line("\tЕсли X Тогда А = 1;").unwrap();
+        assert_eq!(output, "\tЕсли X Тогда\n\t\tА = 1;");
+    }
+
+    #[test]
+    fn fix_mixed_chain_moves_all_body_statements_to_opener_indent_plus_tab() {
+        let output = fix_one_statement_per_line("Если X Тогда А = 1; Б = 2;").unwrap();
+        assert_eq!(output, "Если X Тогда\n\tА = 1;\n\tБ = 2;");
+    }
+
+    #[test]
+    fn fix_elseif_body_gets_extra_tab() {
+        let input = "Если А Тогда\n Б=1;\nИначеЕсли Б Тогда С=2;";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "Если А Тогда\n Б=1;\nИначеЕсли Б Тогда\n\tС=2;");
+    }
+
+    #[test]
+    fn fix_crlf_file_uses_crlf_insertions() {
+        let input = "Если X Тогда А = 1;\r\nБ = 2; В = 3;\r\nКонецЕсли";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(
+            output,
+            "Если X Тогда\r\n\tА = 1;\r\nБ = 2;\r\nВ = 3;\r\nКонецЕсли"
+        );
+    }
+
+    #[test]
+    fn fix_spaces_indent_file_copies_prefix_and_appends_tab() {
+        let input = "    Если X Тогда А = 1;";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "    Если X Тогда\n    \tА = 1;");
+    }
+
+    #[test]
+    fn fix_multiline_statement_moves_whole_span_continuation_untouched() {
+        let input = "А = 1; Б = Ф(x,\n y);";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "А = 1;\nБ = Ф(x,\n y);");
+    }
+
+    #[test]
+    fn fix_collapses_double_space_no_trailing_whitespace_left() {
+        let input = "Если X Тогда  А = 1;";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "Если X Тогда\n\tА = 1;");
+    }
+
+    #[test]
+    fn fix_leaves_clean_inputs_unchanged_byte_for_byte() {
+        let inputs = [
+            "А = \"1;2\";",
+            "// Если Тогда",
+            "А = 1;\nБ = 2;",
+            "А = 0;;",
+            // Stray `)` resets the tracking, so violations are dropped
+            // and the fixer has nothing to do.
+            "А = 1; Б = 2; )",
+            // Relevant parse error (bare `;` ERROR intersects the
+            // violation row): the fixer refuses to touch unreliable
+            // regions and returns the input unchanged.
+            "А=1; А=2;; А=3;",
+        ];
+        for input in inputs {
+            let output = fix_one_statement_per_line(input).unwrap();
+            assert_eq!(output, input, "input changed: {input:?}");
+        }
+    }
+
+    /// Regression guard for the elseif statement slot: a body statement
+    /// sharing the row with `ИначеЕсли ... Тогда` is a violation, but the
+    /// elseif clause itself is never flagged (track-only slot) — bsl-ls
+    /// never flags `elsifBranch`, and flagging it would make the fixer
+    /// indent the clause into the if-body.
+    #[test]
+    fn elseif_clause_on_shared_row_is_never_flagged_itself() {
+        // `Б=1;` after `Тогда` (row 0) and `С=2;` after the ELSIF `Тогда`
+        // (row 1) are flagged; the `ИначеЕсли` clause itself is NOT
+        // (track-only): its span never appears in the violation list.
+        let input = "Если А Тогда Б=1;\nИначеЕсли Б Тогда С=2;";
+        let violations = find_violations(input).unwrap();
+        assert_eq!(
+            violations,
+            vec![
+                violation(input, "Б=1;", 0, true),
+                violation(input, "С=2;", 1, true),
+            ]
+        );
+        let elseif_span = span_of(input, "ИначеЕсли Б Тогда");
+        assert!(!violations.iter().any(|v| v.statement_span == elseif_span));
+        // The fixer moves the two body statements but never the clause.
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "Если А Тогда\n\tБ=1;\nИначеЕсли Б Тогда\n\tС=2;");
+    }
+
+    #[test]
+    fn fix_is_idempotent_on_all_mutation_inputs() {
+        for input in fixer_mutation_inputs() {
+            let once = fix_one_statement_per_line(input).unwrap();
+            let twice = fix_one_statement_per_line(&once).unwrap();
+            assert_eq!(once, twice, "not idempotent for {input:?}");
+        }
+    }
+
+    #[test]
+    fn fix_bsl_ls_main_fixture_is_stable_after_two_runs_and_moves_all_violations() {
+        let input = BSL_LS_MAIN_FIXTURE;
+        let before_rows: Vec<usize> = find_violations(input)
+            .unwrap()
+            .iter()
+            .map(|v| v.row)
+            .collect();
+        assert!(!before_rows.is_empty());
+
+        let once = fix_one_statement_per_line(input).unwrap();
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+
+        // No violation of the first run may survive the fix: after the fix
+        // the second run's finder must not re-flag the moved statements.
+        // (Violations may legitimately remain on rows the fixer cannot
+        // express — but for this fixture the fix must clear them all.)
+        assert!(
+            find_violations(&once).unwrap().is_empty(),
+            "violations remain after fix:\n{once}"
+        );
     }
 }

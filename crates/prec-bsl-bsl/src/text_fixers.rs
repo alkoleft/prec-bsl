@@ -475,7 +475,7 @@ fn copyright_block_end(input: &str) -> Result<Option<usize>, String> {
     Err("copyright block shape is ambiguous".to_owned())
 }
 
-fn dominant_line_ending(input: &str) -> &'static str {
+pub(crate) fn dominant_line_ending(input: &str) -> &'static str {
     if input.contains("\r\n") { "\r\n" } else { "\n" }
 }
 
