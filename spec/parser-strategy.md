@@ -393,6 +393,9 @@ Length semantics (per source line, mirroring `bsl-language-server` LineLength):
   split on `\r\n`, `\n`, and a lone `\r` (Java `readLine` semantics, mirroring
   the `bsl-language-server` reader), so the terminator never enters the
   counted text and legacy CR-only Designer dumps are still split into lines.
+  The input is assumed to be UTF-8 (shared with the other text scenarios:
+  the handler reads via `fs::read_to_string` and fails on non-UTF-8 files);
+  CP1251-encoded dumps are out of scope.
 - Comment lines (`//` ...) and preprocessor directive lines are counted as
   ordinary lines; quotes inside a `//` comment never open a string literal.
 - Multiline string literal continuations: while a string literal stays open

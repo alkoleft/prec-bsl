@@ -113,7 +113,11 @@ fn line_length_detector_matches_bsl_ls_baseline_on_yaxunit_corpus() {
     }
 
     println!("{report}");
-    println!("parity: 58/58 expected diagnostics matched, 0 missing, 0 unexpected");
+    println!(
+        "parity: {}/{} expected diagnostics matched, 0 missing, 0 unexpected",
+        expected.len(),
+        expected.len()
+    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
