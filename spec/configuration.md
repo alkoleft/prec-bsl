@@ -586,6 +586,54 @@ Behavior:
 - The T30 boundary does not store platform credentials or execute 1C. Runtime
   execution settings belong to a later explicit spec task.
 
+### ПроверкаПереносовСтрок
+
+Line-break settings (ASCII keys as in the bsl-ls `IncorrectLineBreak`
+diagnostic):
+
+- `НастройкиСценариев.ПроверкаПереносовСтрок.checkFirstSymbol`
+- `НастройкиСценариев.ПроверкаПереносовСтрок.checkLastSymbol`
+- `НастройкиСценариев.ПроверкаПереносовСтрок.listOfIncorrectFirstSymbol`
+- `НастройкиСценариев.ПроверкаПереносовСтрок.listOfIncorrectLastSymbol`
+
+Types and defaults:
+
+- `checkFirstSymbol`, `checkLastSymbol`: boolean, default `true`. They gate
+  the respective side of both check and fix.
+- `listOfIncorrectFirstSymbol`: regex source string, default the bsl-ls
+  pattern `\)|;|,\s*\S+|\);` (the historic bsl-ls `(:?` typo is corrected to
+  `(?:` semantics by the wrapper). The value is wrapped as `^\s*(...)` and
+  compiled case-insensitively.
+- `listOfIncorrectLastSymbol`: regex source string, default the bsl-ls
+  pattern `ИЛИ|И|OR|AND|\+|-|/|%|\*`. The value is wrapped as
+  `\s+(...)\s*(?://.*)?$` and compiled case-insensitively; the capturing
+  group around the operator is the reported source span.
+
+Behavior:
+
+- If a boolean flag is absent or `null`, it defaults to `true`.
+- If a pattern setting is absent or `null`, the default bsl-ls pattern is
+  used. A present pattern is trimmed before compilation.
+- Custom patterns affect the check only: the fixer operates on its known
+  token list and never on custom-pattern matches.
+- Invalid setting shapes are hard failures for the processed file, with the
+  setting name in the message:
+  - a non-boolean flag value reports
+    `line break setting checkFirstSymbol must be a boolean` (likewise for
+    `checkLastSymbol`);
+  - a non-string pattern value reports
+    `line break setting listOfIncorrectFirstSymbol must be a string`
+    (likewise for `listOfIncorrectLastSymbol`);
+  - an empty (after trim) pattern reports
+    `line break setting listOfIncorrectFirstSymbol must not be empty`;
+  - a pattern that fails regex compilation reports
+    `line break setting listOfIncorrectFirstSymbol must be a valid regular
+    expression`.
+- The behavior contract (stateful classification, mode contract, fix
+  mechanics, check-only tokens, known limitations) is specified in the
+  `ПроверкаПереносовСтрок` (IncorrectLineBreak parity) contract section of
+  `spec/parser-strategy.md`.
+
 ## Decision Table
 
 | Setting kind | `.pre-commit-hooks.yaml` | `prek.toml` / `.pre-commit-config.yaml` | `v8config.json` |

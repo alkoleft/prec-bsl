@@ -1,4 +1,4 @@
-# Completed implementation tasks: T1-T43, T47-T49
+# Completed implementation tasks: T1-T43, T47-T51
 
 Archived from `spec/IMPLEMENTATION_TODO.md` on 2026-05-26 to keep the active
 implementation ledger focused on open work. Task text below preserves the
@@ -1968,3 +1968,56 @@ Completion evidence:
   in `spec/reference-scenario-inventory.md`, and added unit, integration and
   golden-fixture coverage in `tests/empty_lines.rs` and
   `tests/fixtures/golden/УдалениеЛишнихПустыхСтрок/хвостовой_пробельный_блок/`.
+
+### T51. DONE: `ПроверкаПереносовСтрок` (IncorrectLineBreak parity, issue #5)
+
+prec-bsl issue: `alkoleft/prec-bsl` #5 (bsl-ls `IncorrectLineBreak` parity,
+parent tracking issue #3 — yaxunit migration).
+
+Current finding (at task creation):
+
+- `bsl-ls` `IncorrectLineBreakDiagnostic` flags hanging `;` / `)` / `);` / `,`
+  at the start of a line and binary operators `И`/`ИЛИ`/`OR`/`AND`/`+`/`-`/`/`/
+  `%`/`*` at the end of a line. The corpus run over yaxunit `.bsl` files
+  reports ~317 findings (FIRST 268: `;` 259, `)` 9, `,` 1; END 49).
+- No built-in Rust scenario covered this class; stateful line
+  classification (multi-line `"` strings with `""` escaping, query regions
+  inside string literals) was required to avoid the hundreds of false
+  positives a naive per-line grep produces.
+
+Resolution:
+
+- Implemented `ПроверкаПереносовСтрок` as a
+  `ScenarioSupport::Compatibility` scenario in
+  `crates/prec-bsl-bsl/src/line_break.rs`: a stateful line classifier
+  (`in_string` with `""` escaping, `in_query` from a query keyword to the
+  closing quote), a per-line violation detector, and a mechanically safe
+  fixer (glue `;`/`)`/`);` to the previous line, move a trailing operator to
+  the next line) with idempotence and line-ending preservation.
+- Settings `НастройкиСценариев.ПроверкаПереносовСтрок.*` (ASCII bsl-ls keys):
+  `checkFirstSymbol`, `listOfIncorrectFirstSymbol`, `checkLastSymbol`,
+  `listOfIncorrectLastSymbol`; invalid values produce per-file hard failures.
+- Contract captured in `spec/parser-strategy.md` (stateful classifier,
+  4 deliberate non-parity points, mode contract, fix mechanics, check-only
+  tokens, known limitations), the extension inventory row in
+  `spec/reference-scenario-inventory.md`, and the settings surface in
+  `spec/configuration.md`.
+
+Validation:
+
+- `cargo test -p prec-bsl-bsl line_break` (46 module tests)
+- `cargo test --test line_break` (16 tests, incl. CLI JSON, check-after-fix
+  and the cross-scenario invariant)
+- `YAXUNIT_CORPUS=... cargo test --test line_break_parity` against the
+  committed yaxunit fingerprint baseline (auto-skip without the corpus)
+- `cargo test --workspace` (416 passed)
+- `cargo fmt --check`, `cargo clippy --all-targets` (no new findings in the
+  task files)
+
+Completion evidence:
+
+- 2026-10-30: Detector, fixer, handler, settings and registration landed in
+  `crates/prec-bsl-bsl/src/line_break.rs` (commits d053483, 1a69c40, 67e0c10,
+  42702e8, d5101be, 5cbdb57, 23ab28a); the yaxunit parity baseline was
+  committed as `tests/fixtures/parity/ilb-fingerprint.txt` with the
+  auto-skipping corpus test `tests/line_break_parity.rs`.

@@ -596,6 +596,120 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
    prospective issue #10 (SemicolonPresence) territory.
 3. Check mode reports one dry-run result enumerating the violating rows,
    not one diagnostic per flagged statement as bsl-ls does.
+=======
+### `ПроверкаПереносовСтрок` (IncorrectLineBreak parity) contract
+
+`ПроверкаПереносовСтрок` is a lexical, stateful check + fix scenario modeled
+on the `bsl-language-server` `IncorrectLineBreak` diagnostic. It is a
+`ScenarioSupport::Compatibility` extension beyond the required v1
+`precommit4onec` inventory (opt-in through `ГлобальныеСценарии`), implemented
+in `crates/prec-bsl-bsl/src/line_break.rs` without tree-sitter.
+
+The scanner core is a stateful line classifier, not a per-line port of the
+bsl-ls comment/string machinery. bsl-ls computes the `IN_STRING` state per
+line from the line text alone, which mis-tracks multi-line `"` literals.
+The prec-bsl classifier carries the state between lines:
+
+- `in_string` is opened by an unclosed `"` on a line and closed by the
+  matching `"` on the same or a later line; `""` inside a literal is an
+  escaped quote, not an exit; a literal that started as an in-string
+  continuation keeps `|`-style continuation lines inside the string;
+- a query region is opened by a query keyword (`ВЫБРАТЬ`/`ВЫБОРКА`/
+  `ВЫБОРКИ`/`SELECT`, case-insensitive, word immediately after the opening
+  `"`) inside a `"` literal and closed by the closing `"` of that literal
+  (same line or a later line); every line inside the region is skipped
+  entirely by both the detector and the fixer;
+- `//` outside strings terminates the code part of a line.
+
+FIRST violations are matches of the first-symbol pattern at the start of the
+code part of a line (default bsl-ls pattern `\)|;|,\s*\S+|\);`, wrapped as
+`^\s*(...)`, case-insensitive, the bsl-ls `(:?` typo corrected to `(?:`);
+END violations are matches of the last-symbol pattern at the end of the code
+part (default `ИЛИ|И|OR|AND|\+|-|/|%|\*`, wrapped as
+`\s+(...)\s*(?://.*)?$`, the capturing group around the operator is the
+reported span). Matches inside string literals, after `//` comments, or
+inside query regions are not violations.
+
+Deliberate non-parity with bsl-ls, by design:
+
+1. Query regions are skipped as a whole region (from the opening query
+   keyword to the closing quote), instead of the fragile bsl-ls
+   "first line plus 2" window.
+2. Check messages carry the violation line number
+   (`incorrect line break at line N`) instead of the constant bsl-ls
+   diagnostic text.
+3. `""` escaping is handled correctly by the state machine, instead of the
+   per-line `IN_STRING` quirk of bsl-ls.
+4. The fixer has no bsl-ls counterpart: quickfix semantics are invented by
+   prec-bsl and scoped to mechanically safe tokens (see below).
+
+Mode contract:
+
+- **DryRun (check)**: one `warning` per violation with the source span of
+  the matched token, plus a single `modified_dry_run` result with
+  `proposed_content` when the fixer would change the file. Text output
+  renders the per-file diff preview; JSON output carries `proposed_content`.
+  `check` counts warnings as violations and exits `1` when any are present.
+- **Apply (fix/hook/exec-rules)**: if the fixer changes the file, exactly
+  one `modified` result (warnings are never emitted in Apply, following the
+  shared fixer precedent); if not, the scenario reports no results
+  (`ScenarioRun::clean()`), so a repeated run exits `0` (idempotence).
+- Skip cases — violations the fixer deliberately leaves in place — are
+  check-visible (exit `1` in check) and fix-silent (exit `0`, file
+  unchanged): `check` is the mode that distinguishes a clean file from a
+  skip-only file.
+
+Settings (`НастройкиСценариев.ПроверкаПереносовСтрок.*`, ASCII keys as in
+bsl-ls; see `spec/configuration.md` for validation): `checkFirstSymbol`,
+`checkLastSymbol` (booleans gating both check and fix on the respective
+side), `listOfIncorrectFirstSymbol`, `listOfIncorrectLastSymbol` (regex
+sources wrapped by the compile-time anchors). Custom patterns affect the
+check only; the fixer never operates on custom-pattern matches.
+
+Fix mechanics (known, mechanically safe tokens only):
+
+- FIRST: a fixable token (`);`, `;`, `)` — longest match first; `,` is
+  check-only and custom-pattern matches are check-only) at the start of the
+  code part of a line is removed there and glued to the end of the previous
+  line's body. The carrier line is removed when nothing remains after the
+  token; a remaining `//` comment keeps the carrier line with the original
+  indent. Line endings are preserved exactly (LF/CRLF/mixed/final
+  no-newline; `\r` never lands inside the glued token).
+- END: a fixable trailing operator (`И`, `ИЛИ`, `OR`, `AND`, `+`, `-`, `/`,
+  `%`, `*`) at the end of the code part of a line is moved to the start of
+  the next line's code, after its indent, in its original byte-exact
+  spelling (word operators are matched case-insensitively so lowercase
+  `и`/`or` are fixed too); the previous line is rstripped so
+  `УдалениеЛишнихКонцевыхПробелов` stays clean.
+- The scan state advances over the original line bodies, so edits cannot
+  break the classification of following lines (the detector is not reused
+  by the fixer; its positions go stale after edits).
+- Fix skip conditions (violation remains for manual repair, still visible
+  through check): the next line after a trailing operator is empty or a
+  pure comment; gluing a `;` onto a previous line that already ends with
+  `;` (the `;;` protection); `,`-FIRST violations (including `,`-series
+  runs, e.g. a `,,,,,` run — the corpus case is already broken code where
+  gluing produces garbage); the previous line starts with a check-only `,`;
+  the previous line carries a `//` comment (gluing into a comment would
+  corrupt the file); custom-pattern matches.
+
+Check-only tokens: `,`-FIRST violations (the `,`-alternative of the default
+first-symbol pattern, including comma-series runs) and every match of a
+custom pattern are reported by check but never touched by the fixer.
+
+Known limitations:
+
+- Gluing `;`/`)`/`);` lengthens the previous line. A `LineLength`-style
+  limit would flag some results; `LineLength` is not part of the required
+  v1 inventory and no such prec-bsl scenario exists in v1, so no
+  interaction is defined yet. The trade-off is accepted.
+- The detector classifies text as written. Garbage in, garbage out: on
+  invalid input, e.g. an `END`-operator line followed by an operator-less
+  statement, a fixed file can still contain a dangling `;` sequence; the
+  fixer repairs line-break structure, not syntax errors. In particular, on
+  already-invalid input an `END` operator glued before a `;` that a later
+  statement needs can leave a dangling `;` — the `;;` skip protection keeps
+  the fixer from collapsing such runs.
 
 ## Implementation Contract
 
