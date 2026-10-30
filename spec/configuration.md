@@ -614,6 +614,12 @@ Behavior:
 - If a boolean flag is absent or `null`, it defaults to `true`.
 - If a pattern setting is absent or `null`, the default bsl-ls pattern is
   used. A present pattern is trimmed before compilation.
+- A non-object settings value (string, array, number) is a hard failure
+  for the processed file reporting
+  `line break settings must be a settings object`: every key lookup on a
+  non-object silently yields defaults, so the shape is rejected at the
+  boundary. `null` stays the valid "explicitly empty" value (per-key
+  defaulting convention).
 - Custom patterns affect the check only: the fixer operates on its known
   token list and never on custom-pattern matches.
 - Invalid setting shapes are hard failures for the processed file, with the

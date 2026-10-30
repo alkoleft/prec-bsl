@@ -676,20 +676,32 @@ Fix mechanics (known, mechanically safe tokens only):
   indent. Line endings are preserved exactly (LF/CRLF/mixed/final
   no-newline; `\r` never lands inside the glued token).
 - END: a fixable trailing operator (`И`, `ИЛИ`, `OR`, `AND`, `+`, `-`, `/`,
-  `%`, `*`) at the end of the code part of a line is moved to the start of
-  the next line's code, after its indent, in its original byte-exact
-  spelling (word operators are matched case-insensitively so lowercase
-  `и`/`or` are fixed too); the previous line is rstripped so
-  `УдалениеЛишнихКонцевыхПробелов` stays clean.
+  `%`, `*`) at the end of the **code part** of a line (a trailing `//`
+  comment after the operator does not hide it — the detector pattern
+  `\s+(...)\s*(?://.*)?$` accepts a trailing comment, and the fixer must see
+  the violation the detector reports) is moved to the start of the next
+  line's code, after its indent, in its original byte-exact spelling (word
+  operators are matched case-insensitively so lowercase `и`/`or` are fixed
+  too). When the previous line ends with a comment, the operator detaches
+  from the code part and the comment stays on the previous line; the spaces
+  between the code and `//` are preserved (the previous line's code part is
+  rstripped, not the comment) so
+  `Если А = Б И // комм` becomes `Если А = Б // комм`. The code part of the
+  previous line is rstripped so `УдалениеЛишнихКонцевыхПробелов` stays
+  clean.
 - The scan state advances over the original line bodies, so edits cannot
   break the classification of following lines (the detector is not reused
   by the fixer; its positions go stale after edits). Each assembled line
   stores the scan state as of its original line start and the
   classification of its body **as currently assembled**: whenever a line
   is mutated (operator removal, token gluing, operator insertion after the
-  indent), its classification is recomputed from that entry state over the
-  new body, so string/comment ranges never go stale relative to the text
-  they describe.
+  indent, a carrier line being replaced by its comment remainder), its
+  classification is recomputed from that entry state over the new body, so
+  string/comment ranges never go stale relative to the text they describe.
+  This includes the comment-remainder carrier produced by FIRST gluing:
+  the remainder is reclassified from the carrier's own entry state, so the
+  following pair (carrier, next line) reads the remainder's actual
+  `comment_start` instead of the original body's.
 - FIRST gluing is cascaded over carrier lines within a single pass: when
   gluing a token onto a previous line turns that line itself into a
   fixable-token carrier (e.g. `Вызов(Арг)` + `\t)` + `\t;` — gluing `;`
@@ -705,12 +717,15 @@ Fix mechanics (known, mechanically safe tokens only):
   with a baseline-refresh hint instead of failing.
 - Fix skip conditions (violation remains for manual repair, still visible
   through check): the next line after a trailing operator is empty or a
-  pure comment; gluing a `;` onto a previous line that already ends with
-  `;` (the `;;` protection); `,`-FIRST violations (including `,`-series
-  runs, e.g. a `,,,,,` run — the corpus case is already broken code where
-  gluing produces garbage); the previous line starts with a check-only `,`;
-  the previous line carries a `//` comment (gluing into a comment would
-  corrupt the file); custom-pattern matches.
+  pure comment; gluing **any** fixable FIRST token onto a previous line
+  that already ends with `;` (the `;;` protection gates on the previous
+  line's trailing `;`, not on the glued token: a `)` glued after a `;`
+  would produce the garbage `;)`, while a `)` glued after a `)` is a valid
+  call continuation and must be glued); `,`-FIRST violations (including
+  `,`-series runs, e.g. a `,,,,,` run — the corpus case is already broken
+  code where gluing produces garbage); the previous line starts with a
+  check-only `,`; the previous line carries a `//` comment (gluing into a
+  comment would corrupt the file); custom-pattern matches.
 
 Check-only tokens: `,`-FIRST violations (the `,`-alternative of the default
 first-symbol pattern, including comma-series runs) and every match of a

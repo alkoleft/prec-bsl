@@ -167,6 +167,47 @@ fn line_break_check_fails_on_invalid_settings() {
 }
 
 #[test]
+fn line_break_check_fails_on_non_object_settings() {
+    let repo = temp_repo("non_object_settings");
+    let repo_path = PathBuf::from("src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl");
+    write_file(repo.join(&repo_path), VIOLATION_MODULE);
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path, None).unwrap();
+    let config = parse_config_str(
+        r#"{
+            "Precommt4onecСценарии": {
+                "ГлобальныеСценарии": ["ПроверкаПереносовСтрок.os"],
+                "НастройкиСценариев": {
+                    "ПроверкаПереносовСтрок": ["checkFirstSymbol"]
+                }
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file],
+            mode: PipelineMode::Check,
+        },
+    );
+
+    assert_eq!(report.results.len(), 1);
+    assert_eq!(report.results[0].rule_id, LINE_BREAK_RULE);
+    assert_eq!(report.results[0].status, ScenarioResultStatus::HardFailure);
+    assert_eq!(
+        report.results[0].message,
+        "line break settings must be a settings object"
+    );
+    assert_eq!(report.exit_code(), 1);
+}
+
+#[test]
 fn line_break_check_skips_non_bsl_files() {
     let repo = temp_repo("non_bsl_file");
     // EDT-файл метаданных внутри source root: не BslModule → skipped.

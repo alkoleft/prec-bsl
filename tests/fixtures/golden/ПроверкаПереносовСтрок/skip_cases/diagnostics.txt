@@ -1,8 +1,7 @@
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 3
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 5
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 6
-warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 7
-warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 10
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 9
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 11
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 13
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 15
-warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 17
-warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 19

@@ -238,9 +238,18 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                     *previous = format!("{previous_body}{token}{previous_ending}");
                     let mut state = *previous_entry_state;
                     *previous_classification = classify_line(previous, &mut state);
+                    // Классификация строки-носителя пересчитывается по её
+                    // НОВОМУ телу (остаток-комментарий) от entry-state ЕЁ
+                    // исходной строки: классификация исходного тела
+                    // (`\t;   // И` с comment_start после токена) протухает
+                    // — comment_start остатка другой, и следующая итерация
+                    // plan_fix считала кодом содержимое комментария (CR1
+                    // PR #17: `И` вырывался из `// И` в код).
+                    let mut carrier_state = line_entry_state;
+                    let carrier_classification = classify_line(&remainder, &mut carrier_state);
                     fixed.push((
                         format!("{remainder}{ending}"),
-                        classification,
+                        carrier_classification,
                         line_entry_state,
                     ));
                 }
@@ -254,19 +263,29 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                 cascade_carrier_glues(&mut fixed, settings);
             }
             LineFix::MoveOperatorForward { operator } => {
-                // Оператор отклеивается от rstrip-тела prev по фактической
-                // длине среза (план матчит оператор на rstrip-теле; от
-                // нетронутого тела `strip_suffix` молча проваливается на
-                // хвостовом пробеле и оператор остаётся на prev И попадается
+                // Оператор отклеивается от rstrip-кодовой-части prev по
+                // фактической длине среза (план матчит оператор на rstrip
+                // кода; от нетронутого тела `strip_suffix` молча проваливается
+                // на хвостовом пробеле и оператор остаётся на prev И попадается
                 // в cur — рост `+ + Б`). Хвост rstrip — иначе
-                // `УдалениеЛишнихКонцевыхПробелов` найдёт пробелы.
+                // `УдалениеЛишнихКонцевыхПробелов` найдёт пробелы. Хвостовой
+                // `//`-комментарий остаётся на prev в конце: оператор
+                // отклеивается от кодовой части, а пробелы между кодом и `//`
+                // сохраняются (минимальная порча форматирования комментария).
                 let previous_body = strip_line_ending(previous);
                 let previous_ending = line_ending_of(previous);
-                let operator_start = previous_body
+                let code_limit = previous_classification
+                    .comment_start
+                    .unwrap_or(previous_body.len());
+                let operator_start = previous_body[..code_limit]
                     .trim_end_matches([' ', '\t'])
                     .len()
                     .saturating_sub(operator.len());
-                let without_operator = &previous_body[..operator_start];
+                let without_operator = format!(
+                    "{}{}",
+                    &previous_body[..operator_start],
+                    &previous_body[code_limit..]
+                );
                 *previous = format!(
                     "{}{}",
                     without_operator.trim_end_matches([' ', '\t']),
@@ -320,6 +339,7 @@ fn cascade_carrier_glues(
         let grand_index = fixed.len() - 2;
         let cur_body = strip_line_ending(&fixed[grand_index + 1].0).to_owned();
         let cur_classification = fixed[grand_index + 1].1.clone();
+        let cur_entry_state = fixed[grand_index + 1].2;
         let cur_ending = line_ending_of(&fixed[grand_index + 1].0).to_owned();
 
         let grand_line = fixed[grand_index].0.clone();
@@ -350,18 +370,24 @@ fn cascade_carrier_glues(
             // Носитель сохраняется (остаток-комментарий): grand хранит своё
             // окончание, носитель — окончание cur. После замены носителя
             // каскад останавливается: остаток-комментарий не может быть
-            // строкой-носителем фиксируемого токена.
+            // строкой-носителем фиксируемого токена. Классификация остатка
+            // пересчитывается по его новому телу от entry-state носителя
+            // (CR1 PR #17: протухший comment_start исходного тела ел код
+            // следующей строки).
             let grand_ending = line_ending_of(&grand_line).to_owned();
             let (target, target_classification, _) = fixed.last_mut().expect("grand exists");
             *target = format!("{grand_body}{token}{grand_ending}");
             let mut state = grand_entry_state;
             *target_classification = classify_line(target, &mut state);
 
+            let mut carrier_state = cur_entry_state;
+            let carrier_classification = classify_line(&remainder, &mut carrier_state);
             let carrier = (
                 format!("{remainder}{cur_ending}"),
-                cur_classification,
-                fixed[grand_index].2,
+                carrier_classification,
+                cur_entry_state,
             );
+            fixed.pop();
             fixed.push(carrier);
             return;
         }
@@ -426,8 +452,13 @@ fn plan_fix<'a>(
                 && (rest.trim().is_empty() || rest.trim_start().starts_with("//"))
             {
                 let previous_body = strip_line_ending(previous);
-                // Skip: prev уже оканчивается тем же токеном (защита `;;`).
-                if !previous_body.trim_end().ends_with(token) {
+                // Skip: prev уже оканчивается на `;` (защита `;;`). Гейт
+                // именно по `;`, а не по приклеиваемому токену: `)` после
+                // `;` даёт мусор `;)`, а `)` после `)` — валидное
+                // продолжение вызова и должно клеиться (CR2 PR #17:
+                // старый `ends_with(token)` пропускал второй кейс и
+                // калечил первый).
+                if !previous_body.trim_end().ends_with(';') {
                     return LineFix::GlueFirstToken {
                         token,
                         remainder: trim_line_tail(&cur_body[..indent_len], rest),
@@ -440,15 +471,23 @@ fn plan_fix<'a>(
     // END: известный оператор в конце кодовой части prev, cur — код-строка.
     if settings.check_last && is_code_line(cur_body, cur_classification) {
         let previous_body = strip_line_ending(previous);
-        let trimmed = previous_body.trim_end_matches([' ', '\t']);
-        if let Some(operator) = trailing_known_operator(trimmed) {
-            let operator_start = trimmed.len() - operator.len();
+        // Кодовая часть prev: хвостовой `//`-комментарий не входит — оператор
+        // ищется в конце кода, до comment_start (Codex#2 PR #17: детекторный
+        // паттерн `\s+(...)\s*(?://.*)?$` допускает trailing comment, фиксер
+        // обязан видеть то же нарушение, иначе Apply молча clean при
+        // диагностированном нарушении).
+        let code_limit = previous_classification
+            .comment_start
+            .unwrap_or(previous_body.len());
+        let code_part = previous_body[..code_limit].trim_end_matches([' ', '\t']);
+        if let Some(operator) = trailing_known_operator(code_part) {
+            let operator_start = code_part.len() - operator.len();
             // Оператор отделён пробелом от кода слева (дефолтный END-паттерн
             // bsl-ls требует `\s+` перед оператором) и является кодом на
             // prev (не строка, не комментарий — напр. `// хвост И` не трогаем).
             if operator_start > 0
-                && trimmed[..operator_start].ends_with([' ', '\t'])
-                && previous_classification.has_code_in(operator_start, trimmed.len())
+                && code_part[..operator_start].ends_with([' ', '\t'])
+                && previous_classification.has_code_in(operator_start, code_part.len())
             {
                 return LineFix::MoveOperatorForward {
                     operator: operator.to_owned(),
@@ -836,6 +875,13 @@ fn settings_from_value(settings: Option<&Value>) -> Result<LineBreakSettings, St
     let Some(settings) = settings else {
         return Ok(LineBreakSettings::default_settings());
     };
+
+    // Не-объект (строка/массив/число): все `.get(key)` ниже дали бы None и
+    // настройки молча скатывались в дефолты. `null` — валидное «явно пустое»
+    // значение (конвенция per-key null), объект — обычная форма.
+    if !settings.is_object() && !settings.is_null() {
+        return Err("line break settings must be a settings object".to_owned());
+    }
 
     let check_first = bool_setting(settings, SETTING_CHECK_FIRST)?;
     let check_last = bool_setting(settings, SETTING_CHECK_LAST)?;
@@ -1330,6 +1376,27 @@ mod tests {
         );
     }
 
+    // Codex#1 (PR #17): не-объект в `НастройкиСценариев` — все `.get(key)`
+    // молча давали None → тихие дефолты вместо диагностики.
+    #[test]
+    fn settings_non_object() {
+        for settings in [
+            settings_value(r#""yes""#),
+            settings_value(r#"["checkFirstSymbol"]"#),
+            settings_value("42"),
+        ] {
+            assert_eq!(
+                settings_from_value(Some(&settings))
+                    .expect_err("non-object line break settings must be rejected"),
+                "line break settings must be a settings object"
+            );
+        }
+
+        // `null` — «явно пустые» настройки: дефолты bsl-ls, конвенция
+        // per-key null (см. spec/configuration.md).
+        assert!(settings_from_value(Some(&Value::Null)).is_ok());
+    }
+
     #[test]
     fn settings_custom_patterns_roundtrip() {
         // Кастомные паттерны (без `,`-ветки FIRST) компилируются и работают
@@ -1737,6 +1804,129 @@ mod tests {
         assert_eq!(
             twice, once,
             "a `)`+`;` carrier chain must converge in a single pass"
+        );
+    }
+
+    // CR1 (PR #17): строка-носитель с остатком-комментарием пушится в
+    // `fixed` с классификацией ИСХОДНОГО тела — comment_start протухал, и
+    // следующая пара (носитель, след. строка) считала кодом содержимое
+    // комментария: `\tИ` из `// И` вырывалось в код.
+    #[test]
+    fn fix_reclassifies_comment_remainder_carrier() {
+        let input = "\tВызов(Арг)\n\t;   // И\n\tБ = В;";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tВызов(Арг);\n\t// И\n\tБ = В;");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on a comment-remainder carrier"
+        );
+    }
+
+    #[test]
+    fn fix_reclassifies_remainder_carrier_with_two_following_lines() {
+        // Каскад-контекст CR1: остаток-носитель в середине цепочки —
+        // классификация остатка должна пересчитываться от entry-state
+        // носителя, а не от классификации его исходного тела.
+        let input = "\tВызов(Арг)\n\t;  // и\n\tВ = Г\n\t;";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tВызов(Арг);\n\t// и\n\tВ = Г;");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(twice, once);
+    }
+
+    #[test]
+    fn fix_reclassifies_close_paren_remainder_carrier() {
+        // Вариант с `);` и комментарием, оканчивающимся на словный оператор:
+        // протухший comment_start носителя пропускал `и` из комментария
+        // как код END-ветки следующей пары.
+        let input = "\tВызов(Арг)\n\t);  // и\n\tВ = Г;";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tВызов(Арг));\n\t// и\n\tВ = Г;");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on a `);` comment-remainder carrier"
+        );
+    }
+
+    // CR2 (PR #17): защита `;;` срабатывала для любого токена —
+    // `previous_body.trim_end().ends_with(token)`.
+    #[test]
+    fn fix_skips_any_token_after_semicolon_prev() {
+        // Reverse (порча): `)` после prev, оканчивающегося на `;`, давал
+        // `Часть();)` — мусор. Skip: prev оканчивается на `;`.
+        let input = "Часть();\n\t)";
+        assert_eq!(
+            fix_line_breaks(input, &LineBreakSettings::default_settings()),
+            input,
+            "gluing any token onto a prev already ending with `;` must be skipped"
+        );
+
+        let idempotent_input = "Часть();\n\t)";
+        let once = fix_line_breaks(idempotent_input, &LineBreakSettings::default_settings());
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(twice, once);
+    }
+
+    #[test]
+    fn fix_glues_close_paren_after_close_paren_prev() {
+        // Forward (пропуск фикса): `)` после prev, оканчивающегося на `)`,
+        // даёт валидное продолжение вызова — приклейка обязательна.
+        let input = "\tВызов(Ф(А)\n\t)";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tВызов(Ф(А))");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on `)` glued after a `)`-ending prev"
+        );
+    }
+
+    // Codex#2 (PR #17): END-оператор перед хвостовым `//`-комментарием —
+    // детектор флагает (паттерн допускает trailing comment), фиксер молча
+    // пропускал → Apply clean при диагностированном нарушении.
+    #[test]
+    fn fix_moves_operator_before_trailing_comment() {
+        let input = "\tЕсли А = Б И // комм\n\t\tБ = В Тогда";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tЕсли А = Б // комм\n\t\tИ Б = В Тогда");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on an operator before a trailing comment"
+        );
+
+        // Детектор по-прежнему флагает исходную строку (нарушение реальное).
+        assert_eq!(
+            find_line_break_violations(input, &LineBreakSettings::default_settings()).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn fix_moves_ili_operator_before_trailing_comment() {
+        // `Или` с комментарием: оператор отклеивается в исходном написании,
+        // комментарий остаётся на prev в конце.
+        let input = "\tЕсли А = Б Или // комм\n\t\tБ = В Тогда";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tЕсли А = Б // комм\n\t\tИли Б = В Тогда");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on `Или` before a trailing comment"
         );
     }
 }
