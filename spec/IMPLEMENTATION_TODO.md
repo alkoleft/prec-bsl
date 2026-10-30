@@ -20,6 +20,46 @@ Roadmap style:
   platform-dependent work.
 - This file is the implementation ledger, not a replacement for the specs.
 
+## Milestone 12: Extension Lexical Fixers
+
+### T51. IN PROGRESS: ПробелыВокругОператоров + ЛишниеЗапятыеВКонце extension fixers
+
+Upstream issue: `alkoleft/prec-bsl` #9 (part of #3, «проверка vs фикс» table).
+
+Scope:
+
+- Two lexical extension fixers (opt-in via `ГлобальныеСценарии`):
+  `ПробелыВокругОператоров` (bsl-ls MissingSpace operator subset) and
+  `ЛишниеЗапятыеВКонце` (bsl-ls ExtraCommas), following the
+  `ПробелыПослеЗапятых` / `ПробелыВКомментариях` compatibility pattern.
+- Whole-file lexical span scan (single literal/comment tracker, paren depth,
+  look-ahead), no new public module, no migration of existing per-line fixers.
+- bsl-ls 1.0.7 parity on the yaxunit control corpus (env-gated test, pinned
+  commit) with documented deliberate non-parity: unary `-`/`+` after
+  `[ ( , =`, syntactically broken code, non-operator MissingSpace classes
+  (`,`/`;`/keywords).
+- Idempotence for both fixers (unit + corpus-level).
+
+Acceptance criteria:
+
+- `ГлобальныеСценарии` opt-in enables both scenarios; not default-on;
+  unknown ids still fail validation with a clear diagnostic.
+- Trailing comma chains (`Метод(А,,,)` → `Метод(А)`) are removed in one pass;
+  argument-continuation commas and `//` comments are preserved.
+- Post-fix bsl-ls ExtraCommas = 0 on the corpus; post-fix MissingSpace ⊆ the
+  documented residue policy; second fixer pass makes zero changes.
+- Spec updates: `spec/reference-scenario-inventory.md` (extension section),
+  `spec/parser-strategy.md` (fixer contract + deliberate non-parity).
+
+Validation:
+
+- `cargo test --workspace`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- env-gated parity test (`PREC_BSL_PARITY_CORPUS`, bsl-ls 1.0.7 jar)
+
+References: `spec/parser-strategy.md`, `spec/reference-scenario-inventory.md`,
+plan `docs/superpowers/plans/2026-10-31-issue-9-operator-spacing-trailing-commas.md`.
+
 ## Milestone 11: Upstream Issue Regression Backlog
 
 These tasks capture risks found during the 2026-05-07 review of open
