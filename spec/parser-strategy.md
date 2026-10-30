@@ -18,7 +18,7 @@ tree-sitter-bsl = "0.1"
 
 Rationale:
 
-- `tree-sitter-bsl` 0.1.6 provides BSL language support for tree-sitter.
+- `tree-sitter-bsl` 0.1.7 provides BSL language support for tree-sitter.
 - The crate exposes `LANGUAGE` for `tree_sitter::Parser` and `NODE_TYPES` for grammar metadata.
 - The upstream README demonstrates the Rust integration with `tree-sitter = "0.25"` and `tree-sitter-bsl = "0.1"`.
 - The grammar includes BSL procedure/function definitions, `goto`/`Перейти`, preprocessor directives, regions, annotations, and compilation directives.
@@ -504,13 +504,21 @@ OneStatementPerLineDiagnostic):
   exception branch (`statementsPerLine.clear()`): a reset clears any pending
   violations of the tracked row without emitting them, so e.g.
   `А = 1; Б = 2; )` yields no diagnostics in bsl-ls either (parity, not a
-  gap). The
-  grammar 0.1.x has no `_empty_statement` node: a bare `;` is an ERROR node
-  in three forms — a top-level ERROR-`;` resets the tracking; an EOF-swallowed
-  ERROR-`;` child of a statement resets at the statement's end row; a
-  top-level ERROR-`;` immediately after a `while_statement` is a grammar
-  artifact (0.1.6 `while_statement` lacks `optional(';')`) and is skipped
-  entirely.
+  gap). Since tree-sitter-bsl 0.1.7 a bare `;` is a real
+  `_empty_statement` node (kind `";"`, prec(-1)): it resets the tracking
+  exactly in statement position — a `;` whose previous sibling ends an
+  if/try/for/for_each compound (`КонецЕсли`/`КонецЦикла`/`КонецПопытки`)
+  is that compound's own `optional(';')` terminator, and a `;` right
+  after a `while_statement` is the while's terminator (0.1.7
+  `while_statement` still lacks `optional(';')`) — neither may clear
+  pending violations (ANTLR parity: in `BSLParser.g4` both are part of
+  the preceding statement, not the `statement: SEMICOLON` alternative).
+  0.1.7 also parses `#Область … #КонецОбласти` as ONE `preprocessor`
+  node whose body holds the region's statements: the reset fires at the
+  region start row and the body statements are then visited inside —
+  equivalent to the ANTLR model, where region contents are statements of
+  the surrounding code block between two preprocessor statements. The
+  0.1.6 ERROR-`;` fallback forms are kept for other error shapes.
 - An ERROR region led by `IF_KEYWORD`/`WHILE_KEYWORD`/`TRY_KEYWORD`/
   `FOR_KEYWORD` is an unterminated compound statement that ANTLR would
   recover inline: it occupies a statement slot (its row participates in
@@ -636,6 +644,15 @@ Ordinary BSL parse errors outside preprocessor/annotation constructs are not
 reported by this scenario. They may be handled by a later syntax scenario if one
 is accepted.
 
+Since tree-sitter-bsl 0.1.7 an unterminated `#Если` block or a stray
+`#ИначеЕсли` / `#Иначе` / `#КонецЕсли` directive parses as ONE ERROR region
+led by the directive keyword. The lexical balance stack owns the diagnostics
+for this directive family (directive-level span plus the precise message,
+e.g. `missing #КонецЕсли`), so the tree walk skips ERROR regions led by an
+`#Если`-family keyword to avoid reporting the same directive twice. Other
+preprocessor-related ERROR shapes (e.g. `#Если` inside a call argument list)
+are still reported by the tree walk.
+
 The published `tree-sitter-bsl` 0.1.x grammar recognizes preprocessor
 instructions as individual nodes and does not yet model every directive as a
 nested block. After parser evaluation, this scenario may add a narrow
@@ -665,7 +682,11 @@ The published `tree-sitter-bsl` 0.1.x grammar models valid regions as
 preprocessor nodes, but malformed region balance can be easier to report
 precisely with a narrow lexical stack. This fallback is limited to directive
 lines, is case-insensitive, ignores comments and string literals, and must not
-rewrite source text.
+rewrite source text. Since tree-sitter-bsl 0.1.7 an unterminated `#Область`
+or a stray `#КонецОбласти` also parses as ONE ERROR region led by the
+directive keyword: the lexical stack owns those diagnostics (directive-level
+span, precise message), so the tree walk skips ERROR regions led by a region
+keyword to avoid double-reporting the same directive.
 
 Initial fixtures must cover valid nested regions, missing `#КонецОбласти`,
 unmatched `#КонецОбласти`, case-insensitive directives, comments/string

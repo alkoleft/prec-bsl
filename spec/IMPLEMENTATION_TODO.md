@@ -317,6 +317,38 @@ Completion evidence:
   `063ad96` (test rename follow-up `5a8a3ac`); fixer in commit `4c3959f`;
   handler, registration and integration/golden tests in commit `2746317`; CR-only guard in commit `783fc9c`;
   specs in this commit (branch `issue-6-one-statement-per-line`).
+- 2026-10-30 (tree-sitter-bsl 0.1.7 adaptation, Cargo.lock bump kept):
+  probed 0.1.7 deltas with the standalone probe crate
+  (`/tmp/opencode/dateprobe2/probe`, depends on the workspace crate):
+  date literals parse as a clean `date` node; a bare `;` is a real
+  `_empty_statement` node (kind `";"`, prec(-1)) in statement position,
+  not an ERROR; `#Область … #КонецОбласти` parses as ONE `preprocessor`
+  node whose body holds the region's statements (the old walk returned
+  after the region reset and lost the region-body violations — main
+  bsl-ls fixture regained rows 8/8); `while_statement` still lacks
+  `optional(';')` (its trailing `;` is a sibling node and must not reset
+  tracking); the trailing `;` of if/try/for/for_each is held inside the
+  compound node after `ENDIF/ENDTRY/ENDDO` and must not be treated as an
+  empty statement. `call_statement` was already in STATEMENT_KINDS (the
+  task prompt's claim was wrong — no change needed). Module updated:
+  `preprocessor` added to containers with a fall-through descent after
+  the region reset; `is_empty_statement` decides statement position via
+  parent container kind plus prev-sibling exclusions
+  (`COMPOUND_TERMINATOR_KEYWORDS`, `while_statement`). ANTLR/bsl-ls
+  traces: `А=1; А=2;; А=3;` yields exactly one violation (`А=3`) and the
+  fix moves only it — replacing the old 0.1.6 guess that moved `А=1`.
+  Parse-error integration input replaced with the unterminated-procedure
+  form (`Процедура А()\nА=1; А=2;`): ERROR region led by
+  PROCEDURE_KEYWORD, not compound-led, no PREPROC children → relevant.
+  The 0.1.7 bump also changed `ПроверкаКорректностиИнструкцийПрепроцессора`
+  and `ПроверкаКорректностиОбластей`: unterminated `#Если` blocks and
+  stray region directives now parse as single ERROR regions led by the
+  directive keyword, and the tree walk double-reported the lexical
+  balance diagnostics — both checkers now skip those ERROR regions (the
+  balance stack owns the directive family; unit RED/GREEN tests added in
+  `bsl_checkers.rs`). Gates: `cargo test --workspace` 435 passed / 0
+  failed; `cargo fmt --check` clean; clippy introduces no new warnings
+  in touched files (one `needless_option_as_deref` in new code fixed).
 
 Dependencies:
 

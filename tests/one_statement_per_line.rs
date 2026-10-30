@@ -115,9 +115,12 @@ fn one_statement_per_line_check_mode_reports_dry_run_without_writing() {
 fn one_statement_per_line_parse_error_yields_warning_and_leaves_file_unchanged() {
     let repo = temp_repo("parse_error");
     let repo_path = PathBuf::from(REPO_PATH);
-    // `А=2;;` leaves a bare-`;` ERROR on the same row as the surviving
-    // violation (unit-fixture case from Task 3): relevant parse error.
-    let input = "А=1; А=2;; А=3;";
+    // Unterminated procedure: the whole region parses as an ERROR node
+    // led by PROCEDURE_KEYWORD (not a safe form), and it intersects the
+    // row of the surviving `А=2;` violation — a relevant parse error.
+    // (0.1.7 parses the old bare-`;` input `А=1; А=2;; А=3;` cleanly as
+    // a real `_empty_statement`, so it is fixed, not warned about.)
+    let input = "Процедура А()\nА=1; А=2;";
     write_file(repo.join(&repo_path), input);
 
     let report = run_one_statement_pipeline(

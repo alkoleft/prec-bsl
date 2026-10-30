@@ -376,6 +376,20 @@ fn can_coexist_with_same_name(
     })
 }
 
+/// Preprocessor keywords that lead an ERROR region for an unbalanced
+/// `#Если`-family directive (tree-sitter-bsl 0.1.7 parses an unterminated
+/// `#Если` block or a stray `#Иначе`/`#ИначеЕсли`/`#КонецЕсли` as ONE
+/// ERROR region starting at the directive keyword). The lexical balance
+/// check (`find_preprocessor_if_balance_errors`) owns these diagnostics —
+/// it reports the exact directive span and the precise message — so the
+/// tree walk must not add a second, vaguer error for the same directive.
+const PREPROC_IF_FAMILY_KEYWORD_KINDS: &[&str] = &[
+    "PREPROC_IF_KEYWORD",
+    "PREPROC_ELSIF_KEYWORD",
+    "PREPROC_ELSE_KEYWORD",
+    "PREPROC_ENDIF_KEYWORD",
+];
+
 fn collect_preprocessor_instruction_errors(
     node: Node<'_>,
     input: &str,
@@ -384,6 +398,7 @@ fn collect_preprocessor_instruction_errors(
 ) {
     let current_inside_preprocessor = inside_preprocessor || node.kind() == PREPROCESSOR_KIND;
     if is_error_node(node)
+        && !is_unbalanced_if_family_error_region(node)
         && is_preprocessor_related_error(node, input, current_inside_preprocessor)
     {
         errors.push(PreprocessorInstructionError {
@@ -405,12 +420,30 @@ fn collect_preprocessor_instruction_errors(
     }
 }
 
+/// An ERROR region whose first child is an `#Если`-family keyword: an
+/// unbalanced or unterminated preprocessor conditional. The balance
+/// check reports it exactly once with a directive-level span, so the
+/// tree walk skips it (0.1.7 delta: these regions used to have other
+/// shapes in 0.1.6 and did not collide with the balance diagnostics).
+fn is_unbalanced_if_family_error_region(node: Node<'_>) -> bool {
+    if !node.is_error() {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .next()
+        .is_some_and(|first| PREPROC_IF_FAMILY_KEYWORD_KINDS.contains(&first.kind()))
+}
+
 fn collect_region_parse_errors(
     node: Node<'_>,
     input: &str,
     errors: &mut Vec<RegionCorrectnessError>,
 ) {
-    if is_error_node(node) && is_region_related_error(node, input) {
+    if is_error_node(node)
+        && !is_unbalanced_region_error_region(node)
+        && is_region_related_error(node, input)
+    {
         errors.push(RegionCorrectnessError {
             span: BslByteSpan::new(node.start_byte(), node.end_byte()),
             message: region_error_message(node),
@@ -423,6 +456,22 @@ fn collect_region_parse_errors(
             collect_region_parse_errors(child, input, errors);
         }
     }
+}
+
+/// An ERROR region whose first child is a `#Область`/`#КонецОбласти`
+/// keyword: an unbalanced or malformed region directive. The lexical
+/// balance check (`find_region_balance_errors`) owns these diagnostics —
+/// directive-level span, precise message — so the tree walk skips it
+/// (tree-sitter-bsl 0.1.7 parses such directives as ONE ERROR region
+/// where 0.1.6 produced other shapes that did not collide).
+fn is_unbalanced_region_error_region(node: Node<'_>) -> bool {
+    if !node.is_error() {
+        return false;
+    }
+    let mut cursor = node.walk();
+    node.children(&mut cursor)
+        .next()
+        .is_some_and(|first| is_region_keyword_kind(first.kind()))
 }
 
 fn is_error_node(node: Node<'_>) -> bool {
@@ -944,6 +993,95 @@ mod tests {
         assert_eq!(span_text(input, duplicates[0].name_span), "Повтор");
         assert_eq!(duplicates[1].name, "повтор");
         assert_eq!(span_text(input, duplicates[1].name_span), "повтор");
+    }
+
+    /// tree-sitter-bsl 0.1.7 parses an unterminated `#Если` block as ONE
+    /// ERROR region led by PREPROC_IF_KEYWORD (0.1.6 left it in other
+    /// shapes). The lexical balance check already reports it precisely
+    /// (`missing #КонецЕсли` at the `#Если` span), so the tree walk must
+    /// not add a second, vaguer error for the same directive.
+    #[test]
+    fn preprocessor_instruction_errors_report_an_unterminated_if_block_once() {
+        let input = "#Если Сервер Тогда\n    Сообщить(\"server\");\n";
+
+        let errors = find_preprocessor_instruction_errors(input).unwrap();
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(span_text(input, errors[0].span), "#Если");
+        assert_eq!(
+            errors[0].message,
+            "invalid preprocessor instruction: missing #КонецЕсли"
+        );
+    }
+
+    /// Same 0.1.7 delta for unbalanced branch directives: `#Иначе`/
+    /// `#ИначеЕсли`/`#КонецЕсли` in an invalid position become small
+    /// ERROR regions led by their keyword. The balance check owns these
+    /// diagnostics; the tree walk must stay silent about them.
+    #[test]
+    fn preprocessor_instruction_errors_report_unbalanced_branch_directives_once() {
+        let cases: &[(&str, &str)] = &[
+            // duplicate #Иначе inside a valid block
+            ("#Если Сервер Тогда\n#Иначе\n#Иначе\n#КонецЕсли\n", "#Иначе"),
+            // #ИначеЕсли after #Иначе
+            (
+                "#Если Сервер Тогда\n#Иначе\n#ИначеЕсли Клиент Тогда\n#КонецЕсли\n",
+                "#ИначеЕсли",
+            ),
+            // unmatched #КонецЕсли
+            ("#КонецЕсли\n", "#КонецЕсли"),
+            // unmatched #Иначе (no open block)
+            ("#Иначе\nСообщить(\"other\");\n", "#Иначе"),
+        ];
+
+        for (input, expected_span) in cases {
+            let errors = find_preprocessor_instruction_errors(input).unwrap();
+            assert_eq!(errors.len(), 1, "input: {input}");
+            assert_eq!(span_text(input, errors[0].span), *expected_span);
+            assert_eq!(
+                errors[0].message, "invalid preprocessor instruction",
+                "input: {input}"
+            );
+        }
+    }
+
+    /// Same 0.1.7 delta for regions: an unterminated `#Область` or a
+    /// stray `#КонецОбласти` parses as ONE ERROR region led by the
+    /// directive keyword (0.1.6 left them in other shapes). The lexical
+    /// balance check owns these diagnostics with directive-level spans,
+    /// so the tree walk must not add a second error for the same
+    /// directive.
+    #[test]
+    fn region_correctness_errors_report_unbalanced_region_directives_once() {
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "#Область Служебный\nПроцедура Тест()\nКонецПроцедуры\n",
+                "#Область",
+                "invalid region directive: missing #КонецОбласти",
+            ),
+            (
+                "#область Служебный\nПроцедура Тест()\nКонецПроцедуры\n",
+                "#область",
+                "invalid region directive: missing #КонецОбласти",
+            ),
+            (
+                "#Область\n#КонецОбласти\n",
+                "#Область",
+                "invalid region directive: missing identifier",
+            ),
+            (
+                "#КонецОбласти\nПроцедура Тест()\nКонецПроцедуры\n",
+                "#КонецОбласти",
+                "invalid region directive",
+            ),
+        ];
+
+        for (input, expected_span, expected_message) in cases {
+            let errors = find_region_correctness_errors(input).unwrap();
+            assert_eq!(errors.len(), 1, "input: {input}");
+            assert_eq!(span_text(input, errors[0].span), *expected_span);
+            assert_eq!(errors[0].message, *expected_message, "input: {input}");
+        }
     }
 
     fn span_text(input: &str, span: BslByteSpan) -> &str {

@@ -1,28 +1,40 @@
 //! Detection of multiple statements per line (`ОдинОператорНаСтроку`).
 //!
 //! Transliteration of the bsl-ls `OneStatementPerLineDiagnostic`
-//! `previousLineNumber` tracking, adapted to the tree-sitter-bsl 0.1.6
-//! tree shapes (see `.superpowers/gh-issue/6/tree-dumps.md` § 11):
+//! `previousLineNumber` tracking, adapted to the tree-sitter-bsl 0.1.7
+//! tree shapes (0.1.6 facts in `.superpowers/gh-issue/6/tree-dumps.md`
+//! § 11, 0.1.7 deltas probed in /tmp/opencode/dateprobe2):
 //!
 //! - statement nodes are visited in document order, descending into
 //!   compound statements and containers (`source_file`,
-//!   `procedure_definition`, `function_definition`, `if_statement`,
-//!   `elseif_clause`, `else_clause`, `while_statement`, `for_statement`,
+//!   `preprocessor` regions, `procedure_definition`,
+//!   `function_definition`, `if_statement`, `elseif_clause`,
+//!   `else_clause`, `while_statement`, `for_statement`,
 //!   `for_each_statement`, `try_statement`) and into ERROR regions that
 //!   still hold valid statement nodes inside;
 //! - `previous_row: Option<usize>` — a statement whose start row equals
 //!   the tracked row is a violation (the first statement of a chain is
 //!   never flagged);
 //! - a `preprocessor` statement resets the tracking (bsl-ls
-//!   `ctx.preprocessor() != null`);
-//! - a bare `;` is an ERROR node in 0.1.6 (no `_empty_statement`):
-//!   a top-level ERROR-`;` resets the tracking (bsl-ls empty statement),
-//!   an EOF-swallowed ERROR-`;` child of a statement fires a reset at the
-//!   statement's END row, and a top-level ERROR-`;` right after a
-//!   `while_statement` is a grammar artifact (0.1.6 `while_statement`
-//!   lacks `optional(';')`) — in the ANTLR model that `;` is the while
-//!   statement's own terminator, so it is skipped entirely to keep
-//!   bsl-ls parity;
+//!   `ctx.preprocessor() != null`). 0.1.7 parses `#Область … #КонецОбласти`
+//!   as ONE `preprocessor` node whose repeat(`_definition`) body holds
+//!   the region's statements: the reset fires at the region START row,
+//!   then the body statements are visited inside (statement events after
+//!   the reset — exactly the ANTLR model, where region contents are
+//!   statements of the surrounding code block between two preprocessor
+//!   statements);
+//! - a bare `;` is a real `_empty_statement` node in 0.1.7 (kind
+//!   `";"`, prec(-1)): it resets the tracking and is never flagged —
+//!   mirroring the bsl-ls empty statement branch
+//!   (`ctx.getChildCount() == 1 && ctx.SEMICOLON() != null` clears
+//!   pending without updating `previousLineNumber`). The reset fires
+//!   only in statement position (`is_empty_statement`): a `;` after
+//!   `КонецЕсли`/`КонецЦикла`/`КонецПопытки` is the compound's own
+//!   `optional(';')` terminator, and a `;` right after a
+//!   `while_statement` is the while's terminator (0.1.7 while still
+//!   lacks `optional(';')`) — neither may clear pending violations.
+//!   The 0.1.6 ERROR-`;` forms remain as fallbacks for other error
+//!   shapes;
 //! - an ERROR region led by `IF_KEYWORD`/`WHILE_KEYWORD`/`TRY_KEYWORD`/
 //!   `FOR_KEYWORD` is an unterminated compound statement recovered inline
 //!   by ANTLR (missing end keyword): it occupies a statement slot and its
@@ -41,7 +53,11 @@ use prec_bsl_source::SourceFileKind;
 
 use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError, ParsedBsl};
 
-/// Statement kinds from the grammar `_statement` (grammar.js:250).
+/// Statement kinds from the grammar `_statement` (grammar.js:303 in
+/// tree-sitter-bsl 0.1.7). `call_statement` is a real statement kind
+/// since 0.1.7 (0.1.6 embedded calls in other shapes). `_empty_statement`
+/// (grammar.js:326, kind `";"`) is handled separately in
+/// `collect_events` as a reset.
 const STATEMENT_KINDS: &[&str] = &[
     "execute_statement",
     "call_statement",
@@ -65,8 +81,12 @@ const STATEMENT_KINDS: &[&str] = &[
 ];
 
 /// Containers that are not statements themselves but hold statements.
+/// 0.1.7 `preprocessor` regions hold `repeat(_definition)` bodies
+/// (`#Область` … `#КонецОбласти`), so the collector must descend into
+/// them after firing the region reset.
 const CONTAINER_KINDS: &[&str] = &[
     "source_file",
+    "preprocessor",
     "procedure_definition",
     "function_definition",
     "if_statement",
@@ -82,6 +102,12 @@ const CONTAINER_KINDS: &[&str] = &[
 /// compound statement (`Если`/`Пока`/`Попытка`/`Для`).
 const COMPOUND_KEYWORD_KINDS: &[&str] =
     &["IF_KEYWORD", "WHILE_KEYWORD", "TRY_KEYWORD", "FOR_KEYWORD"];
+
+/// End keywords of the compound statements that carry their own trailing
+/// `optional(';')` inside the statement node (if/try/for/for_each in
+/// grammar.js): a `;` right after one of them is that terminator, not an
+/// empty statement.
+const COMPOUND_TERMINATOR_KEYWORDS: &[&str] = &["ENDIF_KEYWORD", "ENDDO_KEYWORD", "ENDTRY_KEYWORD"];
 
 /// One flagged statement: several statements share its row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -233,14 +259,31 @@ fn collect_events(node: tree_sitter::Node<'_>, source: &str, out: &mut Vec<Event
     if node.kind() == "elseif_clause" {
         out.push(statement_event(node));
     }
+    // `_empty_statement` (0.1.7): a bare `;` in statement position is a
+    // real node with kind `";"` — the bsl-ls empty-statement branch
+    // (childCount==1 with SEMICOLON): clear pending WITHOUT updating
+    // previous_row, never flagged. Implemented as Reset (which never
+    // updates previous_row). Statement position is decided by
+    // `is_empty_statement`; every other `;` node (statement terminators,
+    // compound trailing `;`) falls through to the generic leaf skip.
+    if node.kind() == ";" && !node.is_error() && !node.is_missing() && is_empty_statement(node) {
+        out.push(reset_event(node));
+        return;
+    }
     if is_statement_kind(node.kind()) {
         if node.kind() == "preprocessor" {
+            // 0.1.7: a `#Область … #КонецОбласти` region parses as ONE
+            // preprocessor node whose repeat(_definition) body holds the
+            // region's statements. The reset fires at the region START
+            // row, then the body statements are visited inside — the
+            // ANTLR model, where region contents are statements of the
+            // surrounding code block BETWEEN two preprocessor statements
+            // (a `#Область` reset and a `#КонецОбласти` reset).
             out.push(reset_event(node));
-            return;
-        }
-        // EOF-swallowed bare `;` inside a statement => statement event +
-        // EmptySemiAtEnd at the statement's END row.
-        if has_embedded_error_semi(node, source) {
+            // fall through: descend into the region body
+        } else if has_embedded_error_semi(node, source) {
+            // EOF-swallowed bare `;` inside a statement => statement event +
+            // EmptySemiAtEnd at the statement's END row.
             let mut event = statement_event(node);
             event.kind = EventKind::Statement;
             out.push(event);
@@ -248,17 +291,19 @@ fn collect_events(node: tree_sitter::Node<'_>, source: &str, out: &mut Vec<Event
             empty.kind = EventKind::EmptySemiAtEnd;
             out.push(empty);
             return;
+        } else {
+            out.push(statement_event(node));
         }
-        out.push(statement_event(node));
         // composite statements: descend into their statement children
     } else if node.is_error() {
         if is_error_semi(node, source) {
             // Grammar artifact: `;` immediately after while_statement —
-            // 0.1.6 while_statement lacks optional(';') (unlike if/try/for).
-            // In the ANTLR model that `;` is the while statement's own
-            // terminator (statement: ... SEMICOLON?), NOT an empty
-            // statement. Skipping it preserves bsl-ls parity (pending
-            // statements must NOT be cleared).
+            // 0.1.6 while_statement lacks optional(';') (unlike if/try/
+            // for; still true in 0.1.7). In the ANTLR model that `;` is
+            // the while statement's own terminator
+            // (statement: ... SEMICOLON?), NOT an empty statement.
+            // Skipping it preserves bsl-ls parity (pending statements
+            // must NOT be cleared).
             let prev_is_while = node
                 .prev_sibling()
                 .is_some_and(|p| p.kind() == "while_statement");
@@ -344,6 +389,36 @@ fn is_statement_kind(kind: &str) -> bool {
 
 fn is_container_kind(kind: &str) -> bool {
     CONTAINER_KINDS.contains(&kind)
+}
+
+/// True when a clean `;` node is an `_empty_statement` in statement
+/// position (the ANTLR `statement: SEMICOLON` alternative): a direct
+/// child of a container kind (or of an ERROR region recovered inline)
+/// that does NOT continue a compound statement. A `;` whose previous
+/// sibling ends an if/try/for/for_each compound (`КонецЕсли` etc.) is
+/// that compound's own `optional(';')` terminator; a `;` right after a
+/// `while_statement` is the while's terminator in the ANTLR model
+/// (tree-sitter-bsl 0.1.7 `while_statement` still lacks
+/// `optional(';')`). Neither is an empty statement: firing a Reset
+/// there would clear pending violations that bsl-ls keeps.
+fn is_empty_statement(node: tree_sitter::Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if !is_container_kind(parent.kind()) && !parent.is_error() {
+        return false;
+    }
+    let prev = node.prev_sibling().map(|sibling| sibling.kind());
+    match prev {
+        // Trailing `optional(';')` of if/try/for/for_each — held INSIDE
+        // the compound node, so the parent check alone cannot reject it.
+        Some(kind) if COMPOUND_TERMINATOR_KEYWORDS.contains(&kind) => false,
+        // Grammar artifact: `while_statement` has no `optional(';')`, so
+        // its terminator appears as a sibling `;` node. In the ANTLR
+        // model it is part of the while statement, not an empty one.
+        Some("while_statement") => false,
+        _ => true,
+    }
 }
 
 fn is_error_semi(node: tree_sitter::Node<'_>, source: &str) -> bool {
@@ -779,17 +854,22 @@ mod tests {
     }
 
     #[test]
-    fn eof_swallowed_double_semicolon_is_not_a_violation() {
+    fn trailing_empty_statement_is_not_a_violation() {
+        // 0.1.7: the second `;` of `А = 0;;` is a clean `_empty_statement`
+        // node (kind `";"`) in statement position, not an EOF-swallowed
+        // ERROR as in 0.1.6. It resets the tracking and is never flagged.
         let input = "А = 0;;";
         assert!(find_violations(input).unwrap().is_empty());
         assert!(!has_relevant_parse_errors(input).unwrap());
     }
 
     #[test]
-    fn endfile_fragment_after_eof_semicolon_still_tracks() {
+    fn empty_statement_reset_keeps_tracking_for_the_next_row() {
         // Fragment of OneStatementPerLineDiagnosticEndFile.bsl (rows 0-1):
-        // the EOF-swallowed `;` of `А = 0;;` resets at end row 0, then the
-        // chain on row 1 is flagged from its second statement on.
+        // the trailing empty statement resets pending WITHOUT updating
+        // previous_row (bsl-ls clears pending but keeps
+        // previousLineNumber), so the chain on row 1 is flagged from its
+        // second statement on.
         let input = "А = 0;;\nФ=1; У=2; Е=3;";
         let violations = find_violations(input).unwrap();
 
@@ -801,6 +881,69 @@ mod tests {
             ]
         );
         assert!(!has_relevant_parse_errors(input).unwrap());
+    }
+
+    /// bsl-ls parity for a mid-chain empty statement (ANTLR trace of
+    /// `А=1; А=2;; А=3;`): the empty `;` clears the pending violation of
+    /// `А=2` on the tracked row without updating previousLineNumber, so
+    /// exactly ONE violation survives (`А=3`) and the fix moves only it.
+    #[test]
+    fn empty_statement_drops_pending_violations_of_the_tracked_row() {
+        let input = "А=1; А=2;; А=3;";
+        let violations = find_violations(input).unwrap();
+
+        assert_eq!(violations, vec![violation(input, "А=3;", 0, false)]);
+        // Clean parse under 0.1.7: the bare `;` is a real node, so the
+        // fixer may run (no warning path).
+        assert!(!has_relevant_parse_errors(input).unwrap());
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "А=1; А=2;;\nА=3;");
+    }
+
+    /// 0.1.7 parses date literals (`'00010101'`) as a clean `date` node
+    /// (0.1.6 could not): assignments with date values behave exactly
+    /// like any other statement chain.
+    #[test]
+    fn date_literal_assignments_flag_only_real_statements() {
+        let input = "Поле1 = '00010101'; Поле2 = '20240101'; Поле3 = '00010102';";
+        let violations = find_violations(input).unwrap();
+
+        assert_eq!(
+            violations,
+            vec![
+                violation(input, "Поле2 = '20240101';", 0, false),
+                violation(input, "Поле3 = '00010102';", 0, false),
+            ]
+        );
+        assert!(!has_relevant_parse_errors(input).unwrap());
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(
+            output,
+            "Поле1 = '00010101';\nПоле2 = '20240101';\nПоле3 = '00010102';"
+        );
+    }
+
+    /// Grammar artifact guard: tree-sitter-bsl 0.1.7 `while_statement`
+    /// still lacks `optional(';')` (unlike if/try/for/for_each), so the
+    /// `;` after `КонецЦикла` appears as a SIBLING `;` node of the while
+    /// statement. In the ANTLR model it is the while's own terminator,
+    /// NOT an empty statement: treating it as a Reset would clear the
+    /// pending violations of the while body (all on the while's row).
+    #[test]
+    fn while_trailing_semicolon_is_not_an_empty_statement() {
+        let input = "Пока Истина Цикл А = 1; Б = 2; КонецЦикла;";
+        let violations = find_violations(input).unwrap();
+
+        assert_eq!(
+            violations,
+            vec![
+                violation(input, "А = 1;", 0, false),
+                violation(input, "Б = 2;", 0, false),
+            ]
+        );
+        assert!(!has_relevant_parse_errors(input).unwrap());
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "Пока Истина Цикл\nА = 1;\nБ = 2; КонецЦикла;");
     }
 
     #[test]
@@ -1065,10 +1208,12 @@ mod tests {
             // Stray `)` resets the tracking, so violations are dropped
             // and the fixer has nothing to do.
             "А = 1; Б = 2; )",
-            // Relevant parse error (bare `;` ERROR intersects the
-            // violation row): the fixer refuses to touch unreliable
-            // regions and returns the input unchanged.
-            "А=1; А=2;; А=3;",
+            // Relevant parse error (unterminated procedure: the whole
+            // region is an ERROR node led by PROCEDURE_KEYWORD, not a
+            // safe form, and it intersects the violation row of `А=2;`):
+            // the fixer refuses to touch unreliable regions and returns
+            // the input unchanged.
+            "Процедура А()\nА=1; А=2;",
         ];
         for input in inputs {
             let output = fix_one_statement_per_line(input).unwrap();
