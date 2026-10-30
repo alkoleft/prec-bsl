@@ -532,11 +532,7 @@ fn line_break_check_json_output_contract() {
         .filter(|result| result["severity"] == "warning")
         .collect();
     let expected = [(3, "\t;"), (6, "\t)"), (7, "И")];
-    assert_eq!(
-        warnings.len(),
-        expected.len(),
-        "warnings:\n{warnings:#?}"
-    );
+    assert_eq!(warnings.len(), expected.len(), "warnings:\n{warnings:#?}");
     for (warning, (line, span_text)) in warnings.iter().zip(expected) {
         assert_eq!(warning["rule_id"], LINE_BREAK_RULE);
         assert_eq!(
@@ -647,6 +643,233 @@ fn line_break_check_after_fix_reports_zero_findings() {
         "check must not modify the fixed file"
     );
 }
+
+/// Модуль для межсценарного инварианта: 4 полностью фиксируемых нарушения —
+/// висячий `;` (строка 3), висячий `);` (строка 7), END-оператор `И` с
+/// хвостовым пробелом (строка 8 — rstrip-кейс: после снятия оператора prev
+/// не должен оставить хвост для `УдалениеЛишнихКонцевыхПробелов`), END-оператор
+/// `+` (строка 10). Без check-only `,`-кейсов и prev-с-комментарием skip-кейсов.
+/// Код вокруг подобран под взаимодействие с другими фиксерами: вызовы с
+/// запятыми (приклейка `;` не создаёт запятую без пробела — ПробелыПослеЗапятых),
+/// канонические написания ключевых слов.
+const CROSS_SCENARIO_MODULE: &str = concat!(
+    "Процедура ВычислитьИтог(Арг1, Арг2)\n",
+    "\tВызов(Арг1, Арг2)\n",
+    "\t;\n",
+    "\tВызов(\n",
+    "\t\tАрг1,\n",
+    "\t\tАрг2\n",
+    "\t);\n",
+    "\tЕсли А = Б И \n",
+    "\t\tБ = В Тогда\n",
+    "\t\tСумма = Арг1 +\n",
+    "\t\t\tАрг2;\n",
+    "\t\tСообщить(\"готово\");\n",
+    "\tКонецЕсли;\n",
+    "КонецПроцедуры\n",
+);
+
+/// Ожидаемый вывод `fix_line_breaks` на [`CROSS_SCENARIO_MODULE`]: токены
+/// приклеены к prev-строкам, операторы перенесены в начало следующих строк,
+/// prev после снятия оператора rstrip (нет хвостовых пробелов).
+const CROSS_SCENARIO_FIXED_MODULE: &str = concat!(
+    "Процедура ВычислитьИтог(Арг1, Арг2)\n",
+    "\tВызов(Арг1, Арг2);\n",
+    "\tВызов(\n",
+    "\t\tАрг1,\n",
+    "\t\tАрг2);\n",
+    "\tЕсли А = Б\n",
+    "\t\tИ Б = В Тогда\n",
+    "\t\tСумма = Арг1\n",
+    "\t\t\t+ Арг2;\n",
+    "\t\tСообщить(\"готово\");\n",
+    "\tКонецЕсли;\n",
+    "КонецПроцедуры\n",
+);
+
+/// Task 5: межсценарный инвариант — фикс `ПроверкаПереносовСтрок` не создаёт
+/// новых нарушений других правил. Полный прогон всех RequiredV1-сценариев +
+/// `ПроверкаПереносовСтрок` + `ПробелыПослеЗапятых`; line_break стоит первым
+/// в списке, поэтому каждый следующий сценарий (включая
+/// `УдалениеЛишнихКонцевыхПробелов` и `ПробелыПослеЗапятых`) исполняется уже
+/// на выводе фикса. Повторный полный прогон на фиксированном файле: 0
+/// Modified/Warning/HardFailure от других сценариев (Skipped не считается),
+/// line_break чист, exit 0.
+#[test]
+fn line_break_cross_scenario_invariant_after_fix() {
+    let repo = temp_repo("cross_scenario");
+    let repo_path = PathBuf::from("src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl");
+    write_file(repo.join(&repo_path), CROSS_SCENARIO_MODULE);
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
+    let config = parse_config_str(CROSS_SCENARIO_CONFIG).unwrap();
+
+    // Первый полный Apply-прогон: line_break первым — остальные сценарии
+    // видят уже зафиксированный файл.
+    let first = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file.clone()],
+            mode: PipelineMode::Fix,
+        },
+    );
+
+    assert_no_cross_scenario_findings(&first, "first full run");
+    let line_break_results: Vec<&prec_bsl::scenario_pipeline::ScenarioResult> = first
+        .results
+        .iter()
+        .filter(|result| result.rule_id == LINE_BREAK_RULE)
+        .collect();
+    assert_eq!(
+        line_break_results.len(),
+        1,
+        "first run must apply exactly one line-break modification"
+    );
+    assert_eq!(line_break_results[0].status, ScenarioResultStatus::Modified);
+    assert_eq!(
+        first.modified_paths(),
+        vec![repo_path.clone()],
+        "the line-break fixer must be the only modifier"
+    );
+    assert_eq!(first.exit_code(), 1);
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        CROSS_SCENARIO_FIXED_MODULE,
+        "first run must apply the expected fix"
+    );
+
+    // Повторный полный прогон на фиксированном файле: идемпотентность всего
+    // набора — 0 Modified/Warning/HardFailure от других сценариев, line_break
+    // чист (Apply не эмитит ничего на чистом файле), exit 0.
+    let second = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file.clone()],
+            mode: PipelineMode::Fix,
+        },
+    );
+
+    assert_no_cross_scenario_findings(&second, "second full run");
+    assert!(
+        second
+            .results
+            .iter()
+            .all(|result| result.rule_id != LINE_BREAK_RULE),
+        "second run must leave no line-break results:\n{:?}",
+        second.results
+    );
+    assert_eq!(second.exit_code(), 0);
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        CROSS_SCENARIO_FIXED_MODULE,
+        "second run must not change the fixed file"
+    );
+
+    // Детекторное доказательство чистоты: Check-прогон line_break на выводе
+    // фикса не находит ни одного нарушения (Apply-clean не различает
+    // «чисто» и «skip-only», check различает).
+    let check = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &line_break_config(),
+            files: vec![file],
+            mode: PipelineMode::Check,
+        },
+    );
+
+    assert!(
+        check.results.is_empty(),
+        "detector must find no violations on the fixer output:\n{:?}",
+        check.results
+    );
+    assert_eq!(check.exit_code(), 0);
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        CROSS_SCENARIO_FIXED_MODULE,
+        "check must not modify the fixed file"
+    );
+}
+
+/// Инвариант межсценарной чистоты: в отчёте нет результатов со статусом
+/// Modified/Warning/HardFailure от сценариев, отличных от line_break
+/// (Skipped не считается — XML/платформенные сценарии пропускают BSL-модуль).
+fn assert_no_cross_scenario_findings(
+    report: &prec_bsl::scenario_pipeline::PipelineReport,
+    phase: &str,
+) {
+    let offenders: Vec<String> = report
+        .results
+        .iter()
+        .filter(|result| {
+            result.rule_id != LINE_BREAK_RULE
+                && matches!(
+                    result.status,
+                    ScenarioResultStatus::Modified
+                        | ScenarioResultStatus::Warning
+                        | ScenarioResultStatus::HardFailure
+                )
+        })
+        .map(|result| {
+            format!(
+                "[{}] {}: {}",
+                match result.status {
+                    ScenarioResultStatus::Modified => "modified",
+                    ScenarioResultStatus::Warning => "warning",
+                    ScenarioResultStatus::HardFailure => "hard_failure",
+                    _ => "other",
+                },
+                result.rule_id,
+                result.message
+            )
+        })
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "{phase}: другие сценарии не должны находить нарушений \
+         на фиксированном line_break файле:\n{}",
+        offenders.join("\n")
+    );
+}
+
+/// Конфиг полного прогона: `ПроверкаПереносовСтрок` первой (остальные
+/// сценарии исполняются на выводе фикса), затем все RequiredV1-сценарии
+/// (список `EXPECTED_REQUIRED_V1` / reference-v8config.json) и
+/// `ПробелыПослеЗапятых` для проверки приклейки `;` к строкам с запятыми.
+const CROSS_SCENARIO_CONFIG: &str = r#"{
+    "Precommt4onecСценарии": {
+        "ГлобальныеСценарии": [
+            "ПроверкаПереносовСтрок.os",
+            "ВставкаКопирайтов.os",
+            "ДобавлениеПробеловПередКлючевымиСловами.os",
+            "ЗапретИспользованияПерейти.os",
+            "ИсправлениеНеКаноническогоНаписания.os",
+            "КорректировкаXMLФорм.os",
+            "ОтключениеПолнотекстовогоПоиска.os",
+            "ОтключениеРазрешенияИзменятьФорму.os",
+            "ПроверкаДублейПроцедурИФункций.os",
+            "ПроверкаКорректностиИнструкцийПрепроцессора.os",
+            "ПроверкаКорректностиОбластей.os",
+            "ПроверкаНецензурныхСлов.os",
+            "РазборОтчетовОбработокРасширений.os",
+            "СинхронизацияОбъектовМетаданныхИФайлов.os",
+            "СортировкаСостава.os",
+            "УдалениеДублейМетаданных.os",
+            "УдалениеЛишнихКонцевыхПробелов.os",
+            "УдалениеЛишнихПустыхСтрок.os",
+            "ПробелыПослеЗапятых.os"
+        ]
+    }
+}"#;
 
 fn line_break_config() -> prec_bsl::config::ResolvedConfig {
     parse_config_str(
