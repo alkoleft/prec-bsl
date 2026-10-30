@@ -3,3 +3,6 @@ warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 6
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 7
 warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 10
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 15
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 17
+warning|ПроверкаПереносовСтрок|src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl|incorrect line break at line 19

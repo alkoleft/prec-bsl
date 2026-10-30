@@ -165,15 +165,19 @@ const FIXABLE_LAST_OPERATORS: &[&str] = &["ИЛИ", "И", "OR", "AND", "+", "-",
 /// настроек, fix — только механикам известных токенов; bool-флаги
 /// `checkFirstSymbol`/`checkLastSymbol` гейтят обе стороны):
 /// - FIRST: известный токен (`;` / `)` / `);`) в начале кодовой части cur,
-///   prev — код-строка → снять токен с cur, приклеить к телу prev; остаток
-///   cur (комментарий) остаётся строкой-носителем, пустой остаток → строка
-///   удаляется, её окончание переходит на объединённую строку. Skip: prev
-///   уже оканчивается тем же токеном (защита `;;`); `,`-FIRST и кастомные
-///   матчи фиксер не видит вовсе.
+///   prev — код-строка **без `//`-комментария** (токен вклеился бы в
+///   комментарий и `)` проглотился бы им — ревью F1) → снять токен с cur,
+///   приклеить к телу prev; остаток cur (комментарий) остаётся строкой-
+///   носителем, пустой остаток → строка удаляется, её окончание переходит на
+///   объединённую строку. Skip: prev уже оканчивается тем же токеном (защита
+///   `;;`); prev с комментарием (вклейка ломает файл, нарушение остаётся
+///   check-only); `,`-FIRST и кастомные матчи фиксер не видит вовсе.
 /// - END: известный оператор в конце кодовой части prev, cur — код-строка
 ///   (не пустая, не чистый комментарий, не строка/query-регион) → оператор
-///   перенести в начало кода cur после отступа; тело prev rstrip (иначе
-///   `УдалениеЛишнихКонцевыхПробелов` найдёт хвост).
+///   перенести в начало кода cur после отступа **в исходном написании**
+///   (lowercase `и`/`and` — валидный BSL, канонический `И` в cur при
+///   байт-точной отклейке давал не-идемпотентный рост — ревью F2); тело
+///   prev rstrip (иначе `УдалениеЛишнихКонцевыхПробелов` найдёт хвост).
 ///
 /// Окончания строк (`\r\n`/`\n`/`\r`, final-no-newline) сохраняются в
 /// точности; `\r` не попадает в приклеенный токен.
@@ -221,13 +225,19 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                 }
             }
             LineFix::MoveOperatorForward { operator } => {
-                // Оператор удаляется из тела prev (хвост rstrip, иначе
-                // `УдалениеЛишнихКонцевыхПробелов` найдёт пробелы).
+                // Оператор отклеивается от rstrip-тела prev по фактической
+                // длине среза (план матчит оператор на rstrip-теле; от
+                // нетронутого тела `strip_suffix` молча проваливается на
+                // хвостовом пробеле и оператор остаётся на prev И попадает
+                // в cur — рост `+ + Б`). Хвост rstrip — иначе
+                // `УдалениеЛишнихКонцевыхПробелов` найдёт пробелы.
                 let previous_body = strip_line_ending(previous);
                 let previous_ending = line_ending_of(previous);
-                let without_operator = previous_body
-                    .strip_suffix(operator.as_str())
-                    .unwrap_or(previous_body);
+                let operator_start = previous_body
+                    .trim_end_matches([' ', '\t'])
+                    .len()
+                    .saturating_sub(operator.len());
+                let without_operator = &previous_body[..operator_start];
                 *previous = format!(
                     "{}{}",
                     without_operator.trim_end_matches([' ', '\t']),
@@ -285,10 +295,13 @@ fn plan_fix<'a>(
     }
 
     // FIRST: известный токен в начале кодовой части cur, prev — код-строка
-    // без check-only нарушений (приклейка к `,`-строке даёт мусор вида
+    // без `//`-комментария (ревью F1: вклейка в комментарий-хвост ломает
+    // файл — `Аргумент // комм` + `\t);` → `Аргумент // комм);`) и без
+    // check-only нарушений (приклейка к `,`-строке даёт мусор вида
     // `Оповещение);` — план F6: `,`-кейсы остаются для ручной правки).
     if settings.check_first
         && is_code_line(strip_line_ending(previous), previous_classification)
+        && previous_classification.comment_start.is_none()
         && !starts_with_check_only_token(strip_line_ending(previous))
     {
         let indent_len = cur_body.len() - cur_body.trim_start_matches([' ', '\t']).len();
@@ -390,10 +403,15 @@ fn starts_with_check_only_token(body: &str) -> bool {
     after_indent.starts_with(',')
 }
 
-/// Известный END-оператор в конце тела. Словные операторы (`И`/`ИЛИ`/`OR`/
-/// `AND`) сравниваются кейс-инсенситивно (через `to_lowercase`, кириллица
-/// включена), знаковые — точно; разрез — только по границе символа.
-fn trailing_known_operator(body: &str) -> Option<&'static str> {
+/// Известный END-оператор в конце тела: возвращает **фактический срез хвоста
+/// как в файле** (байт-диапазон). Словные операторы (`И`/`ИЛИ`/`OR`/`AND`)
+/// сравниваются кейс-инсенситивно (через `to_lowercase`, кириллица включена)
+/// — lowercase `и`/`or` валиден в BSL и фиксируется; отклейка и вставка идут
+/// по фактическому срезу (исходное написание сохраняется — ревью F2:
+/// байт-точный `strip_suffix("И")` на lowercase `и` не отклеивал ничего, а
+/// канонический `И` в cur давал не-идемпотентный рост `И И Б = В`).
+/// Знаковые операторы сравниваются точно; разрез — только по границе символа.
+fn trailing_known_operator(body: &str) -> Option<&str> {
     for operator in FIXABLE_LAST_OPERATORS {
         let split = body.len().saturating_sub(operator.len());
         if !body.is_char_boundary(split) {
@@ -406,7 +424,7 @@ fn trailing_known_operator(body: &str) -> Option<&'static str> {
             tail == *operator
         };
         if matches {
-            return Some(operator);
+            return Some(tail);
         }
     }
     None
@@ -1380,6 +1398,113 @@ mod tests {
     }
 
     #[test]
+    fn fix_skips_gluing_into_comment_line() {
+        // Ревью F1: prev-строка с `//`-комментарием в конце — приклейка
+        // FIRST-токена вклеивает его в комментарий (`Аргумент // комм` +
+        // `\t);` → `Аргумент // комм);` — `)` проглатывается комментарием,
+        // файл ломается). Нарушение остаётся check-only.
+        let call_in_comment =
+            "Процедура А()\n\tВызов(\n\t\tАргумент // комм\n\t);\nКонецПроцедуры\n";
+        assert_eq!(
+            fix_line_breaks(call_in_comment, &LineBreakSettings::default_settings()),
+            call_in_comment,
+            "gluing into a prev line ending with a comment must be skipped"
+        );
+
+        // Лёгкий вариант: `\t;` после `Вызов(Арг) // комм` — приклейка дала
+        // бы `Вызов(Арг) // комм;` (искажение комментария).
+        let semicolon_in_comment = "Процедура А()\n\tВызов(Арг) // комм\n\t;\nКонецПроцедуры\n";
+        assert_eq!(
+            fix_line_breaks(semicolon_in_comment, &LineBreakSettings::default_settings()),
+            semicolon_in_comment,
+            "gluing a semicolon after a trailing comment must be skipped"
+        );
+
+        // `;;`-защита тоже не должна обходиться через комментарий:
+        // `Строка1(); // комм` + `\t;` → не должно стать `... // комм;`.
+        let double_semicolon_comment = "Процедура А()\n\tСтрока1(); // комм\n\t;\nКонецПроцедуры\n";
+        assert_eq!(
+            fix_line_breaks(
+                double_semicolon_comment,
+                &LineBreakSettings::default_settings()
+            ),
+            double_semicolon_comment,
+            "semicolon gluing into a comment line must stay skipped"
+        );
+    }
+
+    #[test]
+    fn fix_moves_lowercase_operator() {
+        // Ревью F2: словные END-операторы матчатся кейс-инсенситивно, но
+        // отклейка была байт-точной — lowercase `и` не отклеивалось, а в cur
+        // вставлялся канонический `И`: каждый прогон добавлял ещё один `И`.
+        let input = "\tЕсли А = Б и\n\t\tБ = В Тогда";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tЕсли А = Б\n\t\tи Б = В Тогда");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on a lowercase operator"
+        );
+    }
+
+    #[test]
+    fn fix_moves_mixed_case_operator() {
+        let input = "\tЕсли А = Б Или\n\t\tБ = В Тогда";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tЕсли А = Б\n\t\tИли Б = В Тогда");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on a mixed-case operator"
+        );
+    }
+
+    #[test]
+    fn fix_moves_lowercase_latin_operator() {
+        let input = "If A = B and\n\t\tB = C Then";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "If A = B\n\t\tand B = C Then");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on a lowercase latin operator"
+        );
+    }
+
+    #[test]
+    fn fix_moves_operator_with_trailing_whitespace() {
+        // Хвостовой пробел после оператора: план матчит оператор на
+        // rstrip-теле, отклейка должна идти от того же базиса — иначе
+        // `strip_suffix` на нетронутом теле проваливается и оператор
+        // остаётся на prev и дублируется в cur.
+        let cases = [
+            (
+                "\tЕсли А = Б И \n\t\tБ = В Тогда",
+                "\tЕсли А = Б\n\t\tИ Б = В Тогда",
+            ),
+            (
+                "\tЕсли А = Б И\t\n\t\tБ = В Тогда",
+                "\tЕсли А = Б\n\t\tИ Б = В Тогда",
+            ),
+            ("\tС = А + \n\t\tБ;", "\tС = А\n\t\t+ Б;"),
+        ];
+        for (input, expected) in cases {
+            let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+            assert_eq!(once, expected, "trailing-whitespace case {input:?}");
+
+            let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+            assert_eq!(twice, once, "fixer must be idempotent on {input:?}");
+        }
+    }
+
+    #[test]
     fn fix_idempotent() {
         let defaults = LineBreakSettings::default_settings();
         let custom = LineBreakSettings::custom(true, r"@", true, DEFAULT_LAST_SYMBOL_PATTERN);
@@ -1397,6 +1522,24 @@ mod tests {
             ("\tВызов(Арг)\r\n\t;\r\n", &defaults),
             ("\tВызов(Арг)\r\n\t;\n", &defaults),
             ("Проц()\n\t;", &custom),
+            // Ревью F1/F2: комментарий-prev и не-канонический регистр
+            // словного оператора — обе новых проверки держат идемпотентность.
+            ("\tЕсли А = Б и\n\t\tБ = В Тогда", &defaults),
+            ("\tЕсли А = Б Или\n\t\tБ = В Тогда", &defaults),
+            ("If A = B and\n\t\tB = C Then", &defaults),
+            ("If A = B or\n\t\tB = C Then", &defaults),
+            (
+                "Процедура А()\n\tВызов(\n\t\tАргумент // комм\n\t);\nКонецПроцедуры\n",
+                &defaults,
+            ),
+            (
+                "Процедура А()\n\tВызов(Арг) // комм\n\t;\nКонецПроцедуры\n",
+                &defaults,
+            ),
+            (
+                "Процедура А()\n\tСтрока1(); // комм\n\t;\nКонецПроцедуры\n",
+                &defaults,
+            ),
         ];
 
         for (input, settings) in cases {
