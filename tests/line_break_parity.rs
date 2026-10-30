@@ -15,10 +15,12 @@
 //! фикстера работает с тем же извлечённым снапшотом коммита.
 //!
 //! Путь корпуса задаётся env `YAXUNIT_CORPUS` (default
-//! `/data/home/korav/projects/yaxunit`). Если git-репозиторий корпуса
+//! `/data/home/korav/projects/yaxunit`). Если git-репозиторий default-корпуса
 //! отсутствует, тест молча пропускается с eprintln-сообщением (паттерн
 //! `rat_acceptance.rs`) — на CI без корпуса тест не падает, на машине с
-//! корпусом гоняется.
+//! корпусом гоняется. Явно заданный `YAXUNIT_CORPUS` не даёт права на
+//! молчаливый skip: не-репозиторий, отсутствие pinned-коммита или
+//! exts-корней — ошибка теста (panic), не тихий зелёный.
 //!
 //! Регенерация baseline описана в шапке baseline-файла.
 
@@ -27,6 +29,7 @@ use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const DEFAULT_YAXUNIT_CORPUS: &str = "/data/home/korav/projects/yaxunit";
 const BASELINE_PATH: &str = "tests/fixtures/parity/ilb-fingerprint.txt";
@@ -34,6 +37,21 @@ const BASELINE_PATH: &str = "tests/fixtures/parity/ilb-fingerprint.txt";
 /// извлекает содержимое этого коммита через `git archive`, поэтому локальные
 /// правки рабочей копии корпуса не влияют на результат.
 const PINNED_CORPUS_COMMIT: &str = "d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c";
+
+/// Непредсказуемый суффикс для временных каталогов теста (PR #17 round 5,
+/// замечание 4429045928): pid + монотонные наносекунды. Предсказуемое имя
+/// (`readable-<pid>`) в общем temp-каталоге позволяло заранее создать
+/// symlink на месте записываемого `module.bsl` и перезаписать его цель
+/// правами тестового процесса. Без новой зависимости (tempfile в
+/// workspace-депендах отсутствует) — прецедент `TempRatCopy` в
+/// `tests/support/rat.rs`.
+fn unique_suffix() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    format!("{}-{nanos}", std::process::id())
+}
 
 fn resolved_corpus_path() -> PathBuf {
     std::env::var_os("YAXUNIT_CORPUS")
@@ -86,10 +104,25 @@ impl Deref for SnapshotDir {
 /// `fixtures` (каталог чистится при drop, включая паники). `None` — skip:
 /// коммит отсутствует в локальном репозитории (corpus drift), `git`/`tar`
 /// недоступны или упали; в skip-путях каталог тоже подчищается.
+///
+/// CR5 (PR #17 round 5, замечание 4426569120): при явно заданном env
+/// `YAXUNIT_CORPUS` ни один из этих путей не является допустимым skip —
+/// корпус запрошен явно, и отсутствие в нём pinned-коммита (или exts-корней
+/// pinned-коммита) — ошибка окружения, а не причина молча пройти мимо
+/// parity-приёмки (ложный зелёный). Skip остаётся допустимым только для
+/// default-корпуса без env (CI без корпуса).
 fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
+    let explicit = std::env::var_os("YAXUNIT_CORPUS").is_some();
     let snapshot_dir =
         std::env::temp_dir().join(format!("prec-bsl-ilb-parity-{}-{tag}", std::process::id()));
     if let Err(error) = fs::create_dir_all(&snapshot_dir) {
+        if explicit {
+            panic!(
+                "YAXUNIT_CORPUS is set explicitly, but the snapshot dir {} could not be \
+                 created: {error}",
+                snapshot_dir.display()
+            );
+        }
         eprintln!(
             "skipping yaxunit line-break corpus tests: failed to create snapshot dir {}: {error}",
             snapshot_dir.display()
@@ -116,6 +149,12 @@ fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
     {
         Ok(output) => output,
         Err(error) => {
+            if explicit {
+                panic!(
+                    "YAXUNIT_CORPUS is set explicitly, but git failed to run in {}: {error}",
+                    corpus.display()
+                );
+            }
             eprintln!(
                 "skipping yaxunit line-break corpus tests: failed to run git in {}: {error}",
                 corpus.display()
@@ -124,6 +163,14 @@ fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
         }
     };
     if !archive_output.status.success() {
+        if explicit {
+            panic!(
+                "YAXUNIT_CORPUS is set explicitly, but corpus {} does not contain pinned \
+                 commit {PINNED_CORPUS_COMMIT} (upstream moved on); refresh baseline per \
+                 header of {BASELINE_PATH}",
+                corpus.display()
+            );
+        }
         eprintln!(
             "skipping yaxunit line-break corpus tests: corpus {} does not contain pinned \
              commit {PINNED_CORPUS_COMMIT} (upstream moved on); refresh baseline per header \
@@ -142,6 +189,9 @@ fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
     {
         Ok(output) => output,
         Err(error) => {
+            if explicit {
+                panic!("YAXUNIT_CORPUS is set explicitly, but tar is unavailable: {error}");
+            }
             eprintln!(
                 "skipping yaxunit line-break corpus tests: tar command is unavailable: {error}"
             );
@@ -151,6 +201,13 @@ fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
     // tar-файл больше не нужен независимо от результата распаковки.
     let _ = fs::remove_file(&tar_path);
     if !extract_output.status.success() {
+        if explicit {
+            panic!(
+                "YAXUNIT_CORPUS is set explicitly, but tar -xf of the pinned corpus \
+                 snapshot failed:\n{}",
+                String::from_utf8_lossy(&extract_output.stderr)
+            );
+        }
         eprintln!(
             "skipping yaxunit line-break corpus tests: tar -xf failed:\n{}",
             String::from_utf8_lossy(&extract_output.stderr)
@@ -159,6 +216,13 @@ fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
     }
 
     if !snapshot.join("exts").is_dir() {
+        if explicit {
+            panic!(
+                "YAXUNIT_CORPUS is set explicitly, but pinned commit {PINNED_CORPUS_COMMIT} \
+                 of corpus {} does not contain exts/tests/fixtures roots",
+                corpus.display()
+            );
+        }
         eprintln!(
             "skipping yaxunit line-break corpus tests: pinned commit {PINNED_CORPUS_COMMIT} of \
              corpus {} does not contain exts/tests/fixtures roots",
@@ -371,12 +435,14 @@ fn yaxunit_line_break_fix_corpus_smoke_idempotent() {
 
 // CR3 (PR #17): явно заданный YAXUNIT_CORPUS без валидного git-репозитория —
 // это ошибка окружения, а не тихий skip (ложный зелёный при явном запросе
-// недопустим).
+// недопустим). Имя временного каталога непредсказуемо (`unique_suffix()`,
+// PR #17 round 5: predictable `plain-dir-<pid>` открывал symlink-атаку на
+// записываемые пути).
 #[test]
 fn explicit_corpus_without_git_repo_must_fail_not_skip() {
     let explicit_dir = std::env::temp_dir()
         .join("prec-bsl-ilb-corpus-cr3")
-        .join(format!("plain-dir-{}", std::process::id()));
+        .join(format!("plain-dir-{}", unique_suffix()));
     fs::create_dir_all(&explicit_dir).expect("CR3 test dir must be created");
     // Внутри — `exts`, но НЕ `.git`: раньше такой корпус тихо skip-ался.
     fs::create_dir_all(explicit_dir.join("exts")).expect("CR3 exts dir must be created");
@@ -409,8 +475,64 @@ fn explicit_corpus_without_git_repo_must_fail_not_skip() {
     );
 }
 
+// CR5 (PR #17 round 5, замечание 4426569120): явно заданный YAXUNIT_CORPUS,
+// git-репозиторий есть, но запиненный коммит корпуса в нём отсутствует —
+// тоже ошибка окружения, а не тихий skip: parity-приёмка с явно
+// запрошенным корпусом не может молча пройти мимо отсутствующего
+// baseline-коммита (ложный зелёный для приёмки parity). Без явно заданного
+// env (default-корпус, CI без корпуса) skip остаётся допустимым.
+#[test]
+fn explicit_corpus_without_pinned_commit_must_fail_not_skip() {
+    // Минимальный git-репозиторий без коммита d21ce6ff: `git archive` по
+    // нему упадёт — раньше это был eprintln-skip при явно заданном env.
+    let corpus_dir = std::env::temp_dir()
+        .join("prec-bsl-ilb-corpus-cr5")
+        .join(format!("git-repo-{}", unique_suffix()));
+    let _ = fs::remove_dir_all(&corpus_dir);
+    fs::create_dir_all(&corpus_dir).expect("CR5 corpus dir must be created");
+    let git_ok = Command::new("git")
+        .arg("init")
+        .arg("-q")
+        .arg(&corpus_dir)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !git_ok {
+        eprintln!("skipping CR5 explicit-corpus test: git is unavailable");
+        return;
+    }
+
+    let output = Command::new(std::env::current_exe().unwrap())
+        .arg("--exact")
+        .arg("yaxunit_line_break_parity_matches_committed_baseline")
+        .env("YAXUNIT_CORPUS", &corpus_dir)
+        .output()
+        .expect("nested test process must start");
+
+    assert!(
+        !output.status.success(),
+        "an explicitly set YAXUNIT_CORPUS whose repository lacks the pinned commit \
+         must fail, not silently skip:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output_text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output_text.contains("does not contain pinned commit"),
+        "the failure must name the missing pinned commit:\n{output_text}"
+    );
+
+    fs::remove_dir_all(&corpus_dir).ok();
+}
+
 // CR4 (PR #17): ошибки обхода корпуса (права, битые симлинки) — ошибка
-// теста, не тихий частичный список файлов.
+// теста, не тихий частичный список файлов. Временные каталоги этого теста
+// используют непредсказуемые имена (`unique_suffix()`, PR #17 round 5:
+// predictable `no-read-<pid>`/`empty-<pid>` открывали symlink-атаку).
 //
 // Root-safety (PR #17 round 2): chmod 000 не мешает root (CI-контейнеры,
 // CAP_DAC_OVERRIDE) читать каталог — fs::read_dir ok → expect_err паниковал
@@ -426,7 +548,7 @@ fn corpus_walk_errors_must_fail_not_skip() {
     {
         let unwalkable = std::env::temp_dir()
             .join("prec-bsl-ilb-corpus-cr4")
-            .join(format!("no-read-{}", std::process::id()));
+            .join(format!("no-read-{}", unique_suffix()));
         fs::create_dir_all(&unwalkable).expect("CR4 test dir must be created");
         let snapshot_root = unwalkable.join("snapshot");
         fs::create_dir_all(snapshot_root.join("exts")).expect("CR4 exts dir must be created");
@@ -456,7 +578,7 @@ fn corpus_walk_errors_must_fail_not_skip() {
     // пропускается), как и раньше.
     let empty_root = std::env::temp_dir()
         .join("prec-bsl-ilb-corpus-cr4")
-        .join(format!("empty-{}", std::process::id()));
+        .join(format!("empty-{}", unique_suffix()));
     fs::create_dir_all(&empty_root).expect("CR4 empty dir must be created");
     let files =
         corpus_bsl_files(&empty_root).expect("missing corpus roots must be an acceptable skip");
@@ -469,12 +591,18 @@ fn corpus_walk_errors_must_fail_not_skip() {
 // Project-контракт зонда: читаемый каталог обязан обходиться без ошибок и
 // отдавать свои файлы (тот же walk `corpus_bsl_files`, которым parity-тест
 // собирает корпус).
+//
+// Имя каталога непредсказуемо (`unique_suffix()`, PR #17 round 5,
+// замечание 4429045928): predictable `readable-<pid>` в общем temp-каталоге
+// позволял заранее создать symlink на месте `module.bsl`, и fs::write
+// перезаписывал цель symlink'а правами тестового процесса (при root —
+// системный файл).
 #[cfg(unix)]
 #[test]
 fn corpus_walk_probe_treats_readable_dir_as_readable() {
     let readable = std::env::temp_dir()
         .join("prec-bsl-ilb-corpus-cr4")
-        .join(format!("readable-{}", std::process::id()));
+        .join(format!("readable-{}", unique_suffix()));
     fs::create_dir_all(readable.join("exts")).expect("probe exts dir must be created");
     fs::write(readable.join("exts").join("module.bsl"), "А = 1;\n")
         .expect("probe module must be written");

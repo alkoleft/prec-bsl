@@ -147,6 +147,35 @@ impl LineClassification {
             .iter()
             .any(|&(string_start, string_end)| start < string_end && end > string_start)
     }
+
+    /// Конец код-части диапазона `[start, end)` — до первого строкового
+    /// литерала, пересекающего диапазон (PR #17 round 5).
+    ///
+    /// Возвращает `Some(code_end)`, если начало диапазона — код (до
+    /// первого string-range); `None` — если диапазон начинается уже внутри
+    /// литерала (продолжение многострочной строки: string-range на 0).
+    /// Используется детектором FIRST: жадный `\S+` дефолтного паттерна
+    /// съедает строковый аргумент одним куском с запятой (`\t, "текст"`),
+    /// whole-match `has_code_in` отвергает такой матч целиком, хотя
+    /// запятая до литерала — код, а запятая в начале строки — само
+    /// нарушение (матч, ведущий в строку, валиден как матч, ведущий в
+    /// код: `\t, Арг`).
+    fn code_prefix_in_match(&self, start: usize, end: usize) -> Option<usize> {
+        let mut code_end = end;
+        for &(string_start, string_end) in &self.string_ranges {
+            if start < string_end && end > string_start {
+                // Диапазон пересекает литерал: код-часть заканчивается
+                // на его начале, если начинается до него.
+                if start < string_start {
+                    code_end = code_end.min(string_start);
+                } else {
+                    // Диапазон начинается внутри литерала — кода в нём нет.
+                    return None;
+                }
+            }
+        }
+        Some(code_end)
+    }
 }
 
 /// Известные фикстеру FIRST-токены: `);`, `;`, `)` (от длинного к короткому,
@@ -807,7 +836,19 @@ fn detect_first_violation(
     let Some(matched) = settings.first_pattern.find(code_part) else {
         return;
     };
-    if !classification.has_code_in(matched.start(), matched.end()) {
+    // Матч должен содержать код — часть вне строковых литералов (комментарий
+    // уже отсечён code-part). Whole-match-проверка `has_code_in` отвергала и
+    // матчи, ЗАХОДЯЩИЕ в строковый литерал (`\t, "текст"` — жадный `\S+`
+    // съедает литерал одним куском с запятой, PR #17 round 5), хотя запятая
+    // до литерала — код, а запятая в начале строки — само нарушение.
+    // Поэтому валиден матч, код-часть которого (от начала матча до первого
+    // string-range) содержит код: матч-продолжение строки-литерала
+    // (string-range начинается на 0) кода в матче не имеет и остаётся
+    // отвергнутым.
+    if !classification
+        .code_prefix_in_match(matched.start(), matched.end())
+        .is_some_and(|code_end| !code_part[matched.start()..code_end].trim().is_empty())
+    {
         return;
     }
 
@@ -2100,5 +2141,50 @@ mod tests {
 
         assert!(find_line_break_violations(input, &settings).is_empty());
         assert_eq!(fix_line_breaks(input, &settings), input);
+    }
+
+    // PR #17 round 5 (Codex P2, детектор): запятая перед строковым
+    // аргументом — реальное FIRST-нарушение, а не фантом: дефолтный паттерн
+    // `,\s*\S+` матчит запятую вместе с жадным `"текст"` (`\S+` съедает
+    // кавычки и содержимое литерала одним куском), весь матч пересекает
+    // string-range → `has_code_in` (whole-match-семантика round 2)
+    // отвергал его целиком — true-positive терялся, хотя запятая — код.
+    // Матч, ведущий в строку, валиден ровно как матч, ведущий в код
+    // (`\t, Арг`): запятая в начале строки — само нарушение.
+    #[test]
+    fn detect_flags_comma_before_string_argument() {
+        let input = "\tОповещение(\n\t, \"текст\"\n\t);";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        // Строка 2 — нарушение (запятая ведёт в строковый аргумент);
+        // строка 3 (`\t)`) — отдельное FIRST-нарушение.
+        let lines: Vec<usize> = violations.iter().map(|violation| violation.line).collect();
+        assert_eq!(lines, vec![2, 3]);
+
+        // Span — весь матч дефолтного паттерна: `\t, "текст"` (запятая и
+        // ведущий в неё строковый аргумент; span в fingerprint не входит,
+        // но форма span должна остаться «весь матч», как у других
+        // FIRST-нарушений).
+        let line2 = &violations[0];
+        assert_eq!(&input[line2.byte_start..line2.byte_end], "\t, \"текст\"");
+    }
+
+    // Контроль к round 5: матч, НАЧИНАЮЩИЙСЯ внутри строкового литерала
+    // (продолжение многострочной строки, string_ranges начинается на 0),
+    // остаётся отвергнутым — кода до строки в матче нет. Запятая-фантом
+    // внутри текста литерала не флагается.
+    #[test]
+    fn detect_rejects_match_fully_inside_string_continuation() {
+        // Строка 1 открывает литерал; строка 2 — продолжение: `)` и `,`
+        // внутри текста строки не нарушения.
+        let input = "\tТекст = \"первая\n\tвторая, третья\"\n\t;";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        let lines: Vec<usize> = violations.iter().map(|violation| violation.line).collect();
+        assert_eq!(
+            lines,
+            vec![3],
+            "only the hanging `;` after the literal is a violation"
+        );
     }
 }

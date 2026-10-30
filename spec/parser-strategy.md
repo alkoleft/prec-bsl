@@ -634,7 +634,17 @@ END violations are matches of the last-symbol pattern at the end of the code
 part (default `ИЛИ|И|OR|AND|\+|-|/|%|\*`, wrapped as
 `\s+(...)\s*(?://.*)?$`, the capturing group around the operator is the
 reported span). Matches inside string literals, after `//` comments, or
-inside query regions are not violations. When the line carries a `//`
+inside query regions are not violations — with one exception for FIRST: a
+match that *leads into* a string literal is valid when its code prefix (the
+part of the match before the first string range) contains code, because the
+hanging comma itself is the violation. With the default pattern
+`,\s*\S+`, the greedy `\S+` swallows a quoted argument together with the
+comma (`\t, "текст"` matches as one piece), so the detector accepts the
+match on the strength of the comma before the literal — a comma leading to
+a string argument is a violation exactly like a comma leading to code
+(`\t, Арг`), while a match that starts *inside* a literal (a multiline
+string continuation, where the string range starts at offset 0) has no
+code prefix and stays rejected. When the line carries a `//`
 comment, the first-symbol pattern is matched against the code part of the
 line only (up to `comment_start`), so a match can never swallow comment
 text: with the default pattern `,\s*\S+`, `\t, // пояснение` yields no
@@ -683,7 +693,13 @@ bsl-ls; see `spec/configuration.md` for validation): `checkFirstSymbol`,
 `checkLastSymbol` (booleans gating both check and fix on the respective
 side), `listOfIncorrectFirstSymbol`, `listOfIncorrectLastSymbol` (regex
 sources wrapped by the compile-time anchors). Custom patterns affect the
-check only; the fixer never operates on custom-pattern matches.
+check only; the fixer never operates on custom-pattern matches. Note the
+consequence: Apply repairs known tokens independently of whether the
+user's pattern diagnoses them, so a pattern that excludes a known token
+(e.g. `listOfIncorrectFirstSymbol = "@"` while a line hangs a `;`) gets a
+fix without a matching warning — the fixer's known-token mechanics and the
+detector's pattern are separate inputs, and only the default patterns make
+fix a subset of check.
 
 Fix mechanics (known, mechanically safe tokens only):
 
@@ -711,9 +727,12 @@ Fix mechanics (known, mechanically safe tokens only):
   same field the detector uses to skip the line — so a line that closes a
   query region (e.g. `|ИЗ Т" +`, where `+` follows the closing quote of a
   region opened on an earlier line) is never touched by the END branch.
-  The fixer only repairs a subset of what the detector diagnoses; within
-  the END branch it never edits a line whose previous line carries the
-  query-region entry state (the interior and closing lines of the region).
+  The fixer repairs a subset of what the detector diagnoses **under the
+  default settings**; under a custom pattern that excludes a known token,
+  Apply can fix a token the check does not report (see the settings note
+  above). Within the END branch it never edits a line whose previous line
+  carries the query-region entry state (the interior and closing lines of
+  the region).
   The FIRST branch is not gated by that state: it can glue a known token
   onto the closing line of a query region (e.g. `|А" И` followed by `\t);`
   glues `);` onto the region's closing line). This is still a repair of a
@@ -754,7 +773,12 @@ Fix mechanics (known, mechanically safe tokens only):
   `d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c`, not against the corpus working
   tree: local edits in the corpus checkout never affect the parity result,
   and a checkout that no longer contains the pinned commit skips the tests
-  with a baseline-refresh hint instead of failing.
+  with a baseline-refresh hint instead of failing — but only when the
+  corpus path is the implicit default; an explicitly set `YAXUNIT_CORPUS`
+  whose repository lacks the pinned commit (or the exts/tests/fixtures
+  roots) fails the tests instead of skipping: an explicitly requested
+  parity run must not silently go green (the same rule as for a corpus path
+  that is not a git repository at all).
 - Fix skip conditions (violation remains for manual repair, still visible
   through check): the next line after a trailing operator is empty or a
   pure comment; gluing **any** fixable FIRST token onto a previous line
@@ -774,6 +798,9 @@ first-symbol pattern, including comma-series runs) are reported by check
 but never touched by the fixer. Custom patterns affect only the detector;
 the fixer ignores them entirely and fixes only its known tokens — a
 custom-pattern match that is also a known token (e.g. `;`) is still fixed.
+Conversely, a known token that the custom pattern *excludes* from
+diagnosis is still fixed by Apply without a paired warning (see the
+settings note above: fix⊆check holds only under the default patterns).
 
 Known limitations:
 
