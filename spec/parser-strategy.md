@@ -620,8 +620,11 @@ The prec-bsl classifier carries the state between lines:
   (same line or a later line); interior and closing lines of the region
   (entry state `in_query` = true) are skipped entirely by the detector, and
   the fixer's END branch is gated by the same entry state of the previous
-  line; the FIRST branch can still repair a diagnosed token on such a line
-  (see fix mechanics below);
+  line; the FIRST branch can still edit such a line when repairing a
+  diagnosed token from the next line (the token's carrier line is the next
+  line after the region's closing line and carries entry state `in_query` =
+  false, so the gluing targets the region's closing line as the previous
+  line — see fix mechanics below);
 - `//` outside strings terminates the code part of a line.
 
 FIRST violations are matches of the first-symbol pattern at the start of the
@@ -631,18 +634,15 @@ END violations are matches of the last-symbol pattern at the end of the code
 part (default `ИЛИ|И|OR|AND|\+|-|/|%|\*`, wrapped as
 `\s+(...)\s*(?://.*)?$`, the capturing group around the operator is the
 reported span). Matches inside string literals, after `//` comments, or
-inside query regions are not violations. A match is not a violation when
-any part of it crosses into a `//` comment either: the default
-first-symbol pattern `,\s*\S+` can match the `//` of a comment as "code
-after the comma" (`\t, // пояснение` matches `\t, //`), and such a match is
-rejected — the comma must lead to code, not into comment text. When the line
-carries a `//` comment, the first-symbol pattern is matched against the code
-part of the line only (up to `comment_start`), so a match can never swallow
-comment text; code glued directly to the comment without a space
-(`\t,Арг//комм`) still matches the code part (`\t,Арг`) and stays a
-violation, with the span ending at the comment start. A match
-that ends at or before the comment start (e.g. `\t; // комм`) remains a
-violation.
+inside query regions are not violations. When the line carries a `//`
+comment, the first-symbol pattern is matched against the code part of the
+line only (up to `comment_start`), so a match can never swallow comment
+text: with the default pattern `,\s*\S+`, `\t, // пояснение` yields no
+match at all — the comma must lead to code, not into comment text. Code
+glued directly to the comment without a space (`\t,Арг//комм`) still
+matches the code part (`\t,Арг`) and stays a violation, with the span
+ending at the comment start. A match that ends at or before the comment
+start (e.g. `\t; // комм`) remains a violation.
 
 Deliberate non-parity with bsl-ls, by design:
 
@@ -720,7 +720,8 @@ Fix mechanics (known, mechanically safe tokens only):
   diagnosed violation — the token's own violation was reported on the
   carrier line carrying the token — so the fix⊆check invariant holds; the
   detector skips the region's interior and closing lines only as whole-line
-  units, while a diagnosed token on such a line remains repairable. When the
+  units, while the closing line can still be edited by the FIRST branch
+  when repairing a token diagnosed on the next line. When the
   previous line ends with a comment, the operator detaches from the code part and
   the comment stays on the previous line; the spaces between the code and
   `//` are preserved (the previous line's code part is rstripped, not the
