@@ -464,6 +464,190 @@ fn line_break_check_text_output_is_localized() {
     );
 }
 
+/// Task 4: JSON-контракт `check --format json`: per-violation warnings с
+/// `severity`/`rule_id`/`message`/`source_span` плюс `modified_dry_run` с
+/// `proposed_content`; файл байт-в-байт не изменён; exit 1; stdout — один
+/// JSON-документ без text diff trailer.
+#[test]
+fn line_break_check_json_output_contract() {
+    let repo = temp_git_repo("check_json");
+    let repo_path = PathBuf::from("src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl");
+    write_file(repo.join(&repo_path), VIOLATION_MODULE);
+    write_file(
+        repo.join("v8config.json"),
+        r#"{
+            "Precommt4onecСценарии": {
+                "ГлобальныеСценарии": ["ПроверкаПереносовСтрок.os"]
+            }
+        }"#,
+    );
+    run_git(&repo, ["add", "."]);
+    run_git(&repo, ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        &repo,
+        [
+            "check",
+            repo.to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            LINE_BREAK_RULE,
+            "--mode",
+            "all",
+            "--format",
+            "json",
+        ],
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "check with findings must exit 1: {}",
+        output_text(&output)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("stdout must parse as JSON: {error}\n{stdout}"));
+    assert_eq!(json["mode"], "check");
+    assert_eq!(json["exit_code"], 1);
+
+    let results = json["results"].as_array().unwrap();
+    assert_eq!(results.len(), 4, "3 warnings + 1 dry-run modification");
+
+    // DryRun-контракт: модификация-превью с содержимым фикстера.
+    let modified = results
+        .iter()
+        .find(|result| result["severity"] == "modified")
+        .expect("dry-run JSON must include the would-be modification");
+    assert_eq!(modified["rule_id"], LINE_BREAK_RULE);
+    assert_eq!(modified["message"], "fixed incorrect line breaks");
+    assert_eq!(modified["proposed_content"], EXPECTED_FIXED_MODULE);
+    assert_eq!(modified["modified"], true);
+
+    // Per-violation warnings: span указывает на нарушающий токен в исходнике.
+    let warnings: Vec<&serde_json::Value> = results
+        .iter()
+        .filter(|result| result["severity"] == "warning")
+        .collect();
+    let expected = [(3, "\t;"), (6, "\t)"), (7, "И")];
+    assert_eq!(
+        warnings.len(),
+        expected.len(),
+        "warnings:\n{warnings:#?}"
+    );
+    for (warning, (line, span_text)) in warnings.iter().zip(expected) {
+        assert_eq!(warning["rule_id"], LINE_BREAK_RULE);
+        assert_eq!(
+            warning["message"],
+            format!("incorrect line break at line {line}")
+        );
+        let span = warning["source_span"]
+            .as_object()
+            .unwrap_or_else(|| panic!("warning for line {line} must carry a source span"));
+        let start = span["start_byte"].as_u64().unwrap() as usize;
+        let end = span["end_byte"].as_u64().unwrap() as usize;
+        assert_eq!(
+            &VIOLATION_MODULE[start..end],
+            span_text,
+            "span of line {line} must point at the offending token"
+        );
+    }
+
+    assert!(
+        !stdout.contains("Предлагаемые"),
+        "JSON output must not be followed by the text diff trailer:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        VIOLATION_MODULE,
+        "check must not modify the file"
+    );
+}
+
+/// Task 4: `fix` затем `check` на полностью фиксируемом модуле — check
+/// выходит 0 и не находит ни одного нарушения (пустой JSON `results`).
+#[test]
+fn line_break_check_after_fix_reports_zero_findings() {
+    let repo = temp_git_repo("check_after_fix");
+    let repo_path = PathBuf::from("src/ОбщиеМодули/СерверныйМодуль/Модуль.bsl");
+    write_file(repo.join(&repo_path), VIOLATION_MODULE);
+    write_file(
+        repo.join("v8config.json"),
+        r#"{
+            "Precommt4onecСценарии": {
+                "ГлобальныеСценарии": ["ПроверкаПереносовСтрок.os"]
+            }
+        }"#,
+    );
+    run_git(&repo, ["add", "."]);
+    run_git(&repo, ["commit", "-m", "baseline"]);
+
+    let fix = run_prec_bsl(
+        &repo,
+        [
+            "fix",
+            repo.to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            LINE_BREAK_RULE,
+            "--mode",
+            "all",
+        ],
+    );
+
+    assert_eq!(
+        fix.status.code(),
+        Some(1),
+        "fix with modifications must exit 1: {}",
+        output_text(&fix)
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        EXPECTED_FIXED_MODULE,
+        "fix must apply the fixer"
+    );
+
+    let check = run_prec_bsl(
+        &repo,
+        [
+            "check",
+            repo.to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--rules",
+            LINE_BREAK_RULE,
+            "--mode",
+            "all",
+            "--format",
+            "json",
+        ],
+    );
+
+    assert_eq!(
+        check.status.code(),
+        Some(0),
+        "check after fix must exit 0: {}",
+        output_text(&check)
+    );
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("stdout must parse as JSON: {error}\n{stdout}"));
+    assert_eq!(json["mode"], "check");
+    assert_eq!(json["exit_code"], 0);
+    assert!(
+        json["results"].as_array().unwrap().is_empty(),
+        "fixed module must yield zero findings:\n{stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join(&repo_path)).unwrap(),
+        EXPECTED_FIXED_MODULE,
+        "check must not modify the fixed file"
+    );
+}
+
 fn line_break_config() -> prec_bsl::config::ResolvedConfig {
     parse_config_str(
         r#"{
