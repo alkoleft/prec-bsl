@@ -1365,6 +1365,35 @@ mod tests {
         assert_eq!(once, twice, "second run must be a no-op");
     }
 
+    /// Two inline `Если ... Тогда` openers on one row: the chain start is
+    /// the MIN pattern-2 start on the row, so statements between/after
+    /// both openers get opener indent + tab; the pre-opener `А=1;` keeps
+    /// the line indent; the second inline `Если` piggybacks on the row
+    /// (detection parity — it is not itself "fixed").
+    #[test]
+    fn fix_two_inline_openers_on_one_row_min_chain_start() {
+        let input = "А=1; Если В Тогда Г=3; Д=4; Если Е Тогда Ж=5;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(
+            once,
+            "А=1;\nЕсли В Тогда\n\tГ=3;\n\tД=4; Если Е Тогда\n\tЖ=5;"
+        );
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+    }
+
+    /// BOM + CRLF line ending + indented first-line chain: the BOM must
+    /// survive byte-for-byte, CRLF is used as the inserted line ending,
+    /// and the tab indent after the BOM is preserved on the moved line.
+    #[test]
+    fn fix_bom_crlf_indented_first_line() {
+        let input = "\u{feff}\r\n\tА = 1; Б = 2;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(once, "\u{feff}\r\n\tА = 1;\r\n\tБ = 2;");
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+    }
+
     #[test]
     fn fix_bsl_ls_main_fixture_is_stable_after_two_runs_and_moves_all_violations() {
         let input = BSL_LS_MAIN_FIXTURE;
