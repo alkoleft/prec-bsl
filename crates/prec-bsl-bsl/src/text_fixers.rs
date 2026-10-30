@@ -15,6 +15,7 @@ pub const KEYWORD_SPACING_RULE: &str = "ДобавлениеПробеловПе
 pub const CANONICAL_SPELLING_RULE: &str = "ИсправлениеНеКаноническогоНаписания";
 pub const COMMENT_SPACING_RULE: &str = "ПробелыВКомментариях";
 pub const COMMA_SPACING_RULE: &str = "ПробелыПослеЗапятых";
+pub const OPERATOR_SPACING_RULE: &str = "ПробелыВокругОператоров";
 
 pub const COPYRIGHT_SCENARIO: ScenarioDefinition =
     ScenarioDefinition::required_v1(COPYRIGHT_RULE, "ВставкаКопирайтов.os", copyright);
@@ -45,6 +46,11 @@ pub const COMMENT_SPACING_SCENARIO: ScenarioDefinition = ScenarioDefinition::com
 );
 pub const COMMA_SPACING_SCENARIO: ScenarioDefinition =
     ScenarioDefinition::compatibility(COMMA_SPACING_RULE, "ПробелыПослеЗапятых.os", comma_spacing);
+pub const OPERATOR_SPACING_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    OPERATOR_SPACING_RULE,
+    "ПробелыВокругОператоров.os",
+    operator_spacing,
+);
 
 const COPYRIGHT_PATH_SETTING: &str = "ПутьКФайлуКопирайта";
 const EXCLUDED_TAGS_SETTING: &str = "ИсключаемыеТеги";
@@ -162,6 +168,14 @@ pub fn comment_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
 
 pub fn comma_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
     run_bsl_text_fixer(context, fix_comma_spacing, "added spaces after commas")
+}
+
+pub fn operator_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    run_bsl_text_fixer(
+        context,
+        fix_operator_spacing,
+        "added spaces around operators",
+    )
 }
 
 fn run_bsl_text_fixer(
@@ -616,6 +630,340 @@ pub fn fix_comma_spacing(input: &str) -> String {
     }
 
     output
+}
+
+pub fn fix_operator_spacing(input: &str) -> String {
+    apply_spans(input, &scan_operator_edits(input))
+}
+
+/// Событие лексического скана BSL-текста: единый трекер литералов и
+/// комментариев для новых span-фикссеров (`ПробелыВокругОператоров`,
+/// `ЛишниеЗапятыеВКонце`). События владеют только byte-индексами, поэтому
+/// lifetime-параметр не нужен (в плане — `ScanEvent<'a>`, но события не
+/// заимствуют текст).
+enum ScanEvent {
+    /// Кодовый байт вне строковых литералов, `//`-комментариев и
+    /// `#`-директив. `prev_code` — предыдущий не-пробельный кодовый байт,
+    /// `depth` — счётчик незакрытых `(`.
+    Code {
+        index: usize,
+        byte: u8,
+        prev_code: Option<u8>,
+        /// Читается только модульными тестами сканера сейчас; потребитель —
+        /// `scan_trailing_comma_edits` задачи `ЛишниеЗапятыеВКонце` (issue #9).
+        #[allow(dead_code)]
+        depth: u32,
+    },
+    /// Границы `//`-комментария до конца строки, включая терминатор строки.
+    /// Сейчас читается только модульными тестами; потребитель —
+    /// `scan_trailing_comma_edits` задачи `ЛишниеЗапятыеВКонце` (issue #9).
+    #[allow(dead_code)]
+    Comment { start: usize, end: usize },
+}
+
+/// Непересекающаяся byte-правка текста: вставка одиночного пробела на позиции
+/// или удаление полуоткрытого диапазона.
+#[derive(Debug, PartialEq)]
+enum SpanEdit {
+    InsertSpaceAt(usize),
+    /// Сейчас конструируется только модульными тестами `apply_spans`;
+    /// потребитель — `scan_trailing_comma_edits` задачи `ЛишниеЗапятыеВКонце`
+    /// (issue #9).
+    #[allow(dead_code)]
+    DeleteRange(usize, usize),
+}
+
+/// Сканирует `text` побайтово одним трекером литералов/комментариев.
+///
+/// Строковые литералы распознаются по `"` с `""`-эскейпом и `|`-продолжением
+/// на следующей строке; `//` завершает кодовую часть строки; `#`-директивы
+/// прекомпилятора не считаются кодом. BOM не является кодовым байтом.
+fn scan(text: &str) -> Vec<ScanEvent> {
+    let bytes = text.as_bytes();
+    let mut events = Vec::new();
+    let mut state = LiteralState::default();
+    let mut prev_code: Option<u8> = None;
+    let mut depth: u32 = 0;
+    let mut index = 0;
+
+    if bytes.starts_with(b"\xEF\xBB\xBF") {
+        index = 3;
+    }
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+
+        if state.in_string {
+            if byte == b'"' {
+                if state.skip_escaped_quote {
+                    state.skip_escaped_quote = false;
+                } else if bytes.get(index + 1) == Some(&b'"') {
+                    state.skip_escaped_quote = true;
+                } else {
+                    state.in_string = false;
+                }
+            }
+            index += 1;
+            continue;
+        }
+
+        match byte {
+            b'"' => {
+                state.in_string = true;
+                // Кавычка — кодовый байт: она открывает литерал и является
+                // предыдущим кодовым символом для последующих операторов.
+                push_code(&mut events, index, byte, prev_code, depth);
+                prev_code = Some(byte);
+                index += 1;
+            }
+            b'|' if line_starts_with_pipe_continuation(bytes, index) => {
+                // `|`-продолжение многострочного литерала: не кодовый байт.
+                index += 1;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                let start = index;
+                index = find_line_end(bytes, index);
+                events.push(ScanEvent::Comment { start, end: index });
+            }
+            b'#' if is_preprocessor_directive_start(bytes, index) => {
+                // `#`-директива прекомпилятора: до конца строки не код.
+                index = find_line_end(bytes, index);
+            }
+            b'(' => {
+                push_code(&mut events, index, byte, prev_code, depth);
+                prev_code = Some(byte);
+                depth += 1;
+                index += 1;
+            }
+            b')' if depth > 0 => {
+                push_code(&mut events, index, byte, prev_code, depth);
+                prev_code = Some(byte);
+                depth -= 1;
+                index += 1;
+            }
+            _ if is_code_byte(byte) => {
+                push_code(&mut events, index, byte, prev_code, depth);
+                prev_code = Some(byte);
+                index += 1;
+            }
+            _ => {
+                // Пробельные байты и прочие не-кодовые не меняют prev_code.
+                index += 1;
+            }
+        }
+    }
+
+    events
+}
+
+#[derive(Debug, Default)]
+struct LiteralState {
+    in_string: bool,
+    skip_escaped_quote: bool,
+}
+
+/// `|` продолжает литерал, если он стоит на физическом начале строки
+/// (после `\n`, `\r` или начала файла) — так же, как в BSL.
+fn line_starts_with_pipe_continuation(bytes: &[u8], index: usize) -> bool {
+    match index.checked_sub(1).map(|previous| bytes[previous]) {
+        None => true,
+        Some(b'\n') | Some(b'\r') => true,
+        Some(_) => false,
+    }
+}
+
+fn is_code_byte(byte: u8) -> bool {
+    !matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
+}
+
+fn is_preprocessor_directive_start(bytes: &[u8], index: usize) -> bool {
+    // `#` начинает директиву только на физическом начале строки (после
+    // незначащих пробелов): `А#Б` — обычный код, а код предыдущей строки
+    // (`А=Б;\n#Если`) не мешает директиве.
+    let line_start = bytes[..index]
+        .iter()
+        .rposition(|byte| matches!(byte, b'\n' | b'\r'))
+        .map_or(0, |position| position + 1);
+    bytes[line_start..index]
+        .iter()
+        .all(|byte| matches!(byte, b' ' | b'\t'))
+}
+
+fn find_line_end(bytes: &[u8], index: usize) -> usize {
+    let mut end = index;
+    while end < bytes.len() && !matches!(bytes[end], b'\n' | b'\r') {
+        end += 1;
+    }
+    // Терминатор строки входит в спан комментария; для CR-only это один `\r`,
+    // для CRLF — оба байта.
+    if bytes.get(end) == Some(&b'\r') && bytes.get(end + 1) == Some(&b'\n') {
+        end + 2
+    } else if end < bytes.len() {
+        end + 1
+    } else {
+        end
+    }
+}
+
+fn push_code(
+    events: &mut Vec<ScanEvent>,
+    index: usize,
+    byte: u8,
+    prev_code: Option<u8>,
+    depth: u32,
+) {
+    events.push(ScanEvent::Code {
+        index,
+        byte,
+        prev_code,
+        depth,
+    });
+}
+
+/// Операторный набор bsl-ls `DEFAULT_LIST_FOR_CHECK_LEFT_AND_RIGHT`:
+/// `+ - * / = % < > <> <= >=`. `<>`, `>=`, `<=` — один оператор по
+/// следующему байту.
+const OPERATOR_BYTES: &[u8] = b"+-*/%=<>";
+
+fn is_unary_operator(byte: u8, prev_code: Option<u8>) -> bool {
+    matches!(byte, b'-' | b'+')
+        && matches!(
+            prev_code,
+            None | Some(b'[') | Some(b'(') | Some(b',') | Some(b'=')
+        )
+}
+
+/// Собирает непересекающиеся span-правки `ПробелыВокругОператоров`:
+/// вставка одиночного пробела с каждой стороны бинарного оператора, где
+/// соседний байт — не пробел (space/`\t`/`\n`/`\r`; EOL считается пробелом).
+/// Unary `-`/`+` после `[ ( , =` или начала файла пропускаются.
+fn scan_operator_edits(text: &str) -> Vec<SpanEdit> {
+    let bytes = text.as_bytes();
+    let mut edits = Vec::new();
+    let events = scan(text);
+
+    // Кодовые события в порядке следования; комментарии исключены.
+    let code_positions: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(position, event)| match event {
+            ScanEvent::Code { .. } => Some(position),
+            ScanEvent::Comment { .. } => None,
+        })
+        .collect();
+
+    let mut cursor = 0;
+    while cursor < code_positions.len() {
+        let event_position = code_positions[cursor];
+        cursor += 1;
+        let ScanEvent::Code {
+            index,
+            byte,
+            prev_code,
+            ..
+        } = events[event_position]
+        else {
+            continue;
+        };
+        if !OPERATOR_BYTES.contains(&byte) {
+            continue;
+        }
+
+        // Многосимвольные операторы `<>`, `>=`, `<=` — один оператор по
+        // следующему смежному кодовому байту; вторая половина не сканируется
+        // как отдельный оператор.
+        let mut operator_end = index + 1;
+        if let Some(&next_position) = code_positions.get(cursor)
+            && let ScanEvent::Code {
+                index: next_index,
+                byte: next_byte,
+                ..
+            } = events[next_position]
+            && matches!(
+                (byte, next_byte),
+                (b'<', b'>') | (b'>', b'=') | (b'<', b'=')
+            )
+            && next_index == index + 1
+        {
+            operator_end = index + 2;
+            cursor += 1;
+        }
+
+        if is_unary_operator(byte, prev_code) {
+            continue;
+        }
+
+        // Слева: предыдущий байт текста (включая пробельные) или EOL/BOM.
+        if index > 0 && !is_space_byte(bytes[index - 1]) {
+            push_insert(&mut edits, index);
+        }
+
+        // Справа: байт сразу после оператора. Пробельный (включая EOL) —
+        // уже корректно, пробел не вставляется.
+        if operator_end < bytes.len() && !is_space_byte(bytes[operator_end]) {
+            push_insert(&mut edits, operator_end);
+        }
+    }
+
+    edits
+}
+
+/// Вставляет пробел на позицию, пропуская дубль от смежных операторов
+/// (`А==Б`: правая сторона первого `=` и левая сторона второго просят
+/// один и тот же байт).
+fn push_insert(edits: &mut Vec<SpanEdit>, index: usize) {
+    if edits.last() == Some(&SpanEdit::InsertSpaceAt(index)) {
+        return;
+    }
+    edits.push(SpanEdit::InsertSpaceAt(index));
+}
+
+fn is_space_byte(byte: u8) -> bool {
+    matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
+}
+
+/// Применяет отсортированные непересекающиеся span-правки за один проход.
+/// Непокрытые байты копируются байт-в-байт, включая CR-only и BOM.
+fn apply_spans(text: &str, spans: &[SpanEdit]) -> String {
+    debug_assert!(spans_are_sorted_and_disjoint(spans));
+
+    let bytes = text.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len() + spans.len());
+    let mut cursor = 0;
+
+    for span in spans {
+        match span {
+            SpanEdit::InsertSpaceAt(index) => {
+                output.extend_from_slice(&bytes[cursor..*index]);
+                output.push(b' ');
+                cursor = *index;
+            }
+            SpanEdit::DeleteRange(start, end) => {
+                output.extend_from_slice(&bytes[cursor..*start]);
+                cursor = *end;
+            }
+        }
+    }
+    output.extend_from_slice(&bytes[cursor..]);
+
+    String::from_utf8(output).expect("span edits must keep the text valid UTF-8")
+}
+
+fn spans_are_sorted_and_disjoint(spans: &[SpanEdit]) -> bool {
+    let mut previous_end: Option<usize> = None;
+    for span in spans {
+        let (start, end) = match span {
+            SpanEdit::InsertSpaceAt(index) => (*index, *index),
+            SpanEdit::DeleteRange(start, end) => (*start, *end),
+        };
+        // Правки упорядочены и не пересекаются: начало каждой не раньше
+        // конца предыдущей (для вставок «конец» — сама точка вставки).
+        if previous_end.is_some_and(|previous| start < previous) {
+            return false;
+        }
+        previous_end = Some(end);
+    }
+    true
 }
 
 #[derive(Debug, Default)]
@@ -1524,6 +1872,248 @@ mod tests {
             )
         );
         assert_eq!(second, first);
+    }
+
+    #[test]
+    fn operator_spacing_adds_single_spaces_around_binary_operators() {
+        let cases = [
+            ("60*60*24", "60 * 60 * 24"),
+            ("ГраницаСправа= Линия(1)", "ГраницаСправа = Линия(1)"),
+            ("А<=Б", "А <= Б"),
+            ("А<>Б", "А <> Б"),
+            ("А>=Б", "А >= Б"),
+            ("А=Б", "А = Б"),
+            ("А+Б", "А + Б"),
+            ("А-Б", "А - Б"),
+            ("А/Б", "А / Б"),
+            ("А%Б", "А % Б"),
+            ("А<Б", "А < Б"),
+            ("А>Б", "А > Б"),
+            ("А=-Б", "А = -Б"),
+            // По эмпирике bsl-ls: `А*-Б` → `А * - Б` (после `*` минус не унарный
+            // по правилу prev_code ∈ `[ ( , =`, bsl-ls пост-фикс чист).
+            ("А*-Б", "А * - Б"),
+            ("Возврат -Значение", "Возврат - Значение"),
+            ("Возврат-А", "Возврат - А"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(fix_operator_spacing(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn operator_spacing_skips_unary_minus_and_plus_after_openers() {
+        let cases = [
+            "Значения[-Инд]",
+            "Метод(-А)",
+            "Метод(+А)",
+            "А = -Б",
+            "-А + Б",
+            "Сумма = (-А + Б)",
+        ];
+        for input in cases {
+            assert_eq!(fix_operator_spacing(input), input, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn operator_spacing_treats_plus_after_plus_as_binary_per_prev_code_rule() {
+        // prev_code `+` не входит в unary-набор `[ ( , =` плана: второй плюс
+        // обрабатывается как бинарный оператор.
+        assert_eq!(
+            fix_operator_spacing("Сумма = (-А + +Б)"),
+            "Сумма = (-А + + Б)"
+        );
+    }
+
+    #[test]
+    fn operator_spacing_preserves_pipe_literals_byte_for_byte() {
+        let input = concat!(
+            "Текст = \"первая строка\n",
+            "|60*60*24 и А,Б < <=В\n",
+            "|\";\n",
+            "Сумма = 60*60*24;\n",
+        );
+        let output = fix_operator_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Текст = \"первая строка\n",
+                "|60*60*24 и А,Б < <=В\n",
+                "|\";\n",
+                "Сумма = 60 * 60 * 24;\n",
+            )
+        );
+    }
+
+    #[test]
+    fn operator_spacing_ignores_strings_comments_and_preprocessor_directives() {
+        let input = concat!(
+            "Строка = \"60*60*24\";\n",
+            "Строка2 = \"текст \"\"а*б\"\" кавычки\";\n",
+            "// 60*60*24 А<Б\n",
+            "#Если Сервер Тогда\n",
+            "\tА=Б;\n",
+            "#КонецЕсли\n",
+        );
+        let output = fix_operator_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Строка = \"60*60*24\";\n",
+                "Строка2 = \"текст \"\"а*б\"\" кавычки\";\n",
+                "// 60*60*24 А<Б\n",
+                "#Если Сервер Тогда\n",
+                "\tА = Б;\n",
+                "#КонецЕсли\n",
+            )
+        );
+    }
+
+    #[test]
+    fn operator_spacing_line_ending_matrix_and_bom_are_preserved() {
+        for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")] {
+            let input = format!("А=Б{line_ending}В<=Г{line_ending}Метод(-З){line_ending}");
+            let expected = format!("А = Б{line_ending}В <= Г{line_ending}Метод(-З){line_ending}");
+
+            let first = fix_operator_spacing(&input);
+            let second = fix_operator_spacing(&first);
+
+            assert_eq!(first, expected, "{name} rewrite must preserve line endings");
+            assert_eq!(second, expected, "{name} second rewrite must be clean");
+        }
+
+        let bom_input = "\u{feff}А=Б;\n";
+        let bom_output = fix_operator_spacing(bom_input);
+        assert_eq!(bom_output, "\u{feff}А = Б;\n");
+        assert_eq!(fix_operator_spacing(&bom_output), bom_output);
+    }
+
+    #[test]
+    fn operator_spacing_eol_satisfies_space_requirement() {
+        // EOL counts as the required space: no extra space is inserted before EOL.
+        let input = "А = Б+\nВ;\n";
+        let output = fix_operator_spacing(input);
+        assert_eq!(output, "А = Б +\nВ;\n");
+    }
+
+    #[test]
+    fn operator_spacing_is_idempotent_on_cyrillic_module() {
+        let input = concat!(
+            "Процедура Модуль()\n",
+            "\tГраницаСправа= Линия(1,2);\n",
+            "\tСекунды=60*60*24;\n",
+            "\tЕсли А<=Б И В<>Г Тогда\n",
+            "\t\tВозврат -Значение;\n",
+            "\tКонецЕсли;\n",
+            "КонецПроцедуры\n",
+        );
+
+        let first = fix_operator_spacing(input);
+        assert_eq!(
+            first,
+            concat!(
+                "Процедура Модуль()\n",
+                "\tГраницаСправа = Линия(1,2);\n",
+                "\tСекунды = 60 * 60 * 24;\n",
+                "\tЕсли А <= Б И В <> Г Тогда\n",
+                "\t\tВозврат - Значение;\n",
+                "\tКонецЕсли;\n",
+                "КонецПроцедуры\n",
+            )
+        );
+        assert_eq!(fix_operator_spacing(&first), first);
+    }
+
+    #[test]
+    fn operator_spacing_leaves_non_operator_missing_space_classes_alone() {
+        let input = concat!("Если(ИСТИНА)Тогда\n", "Метод(А,Б)\n", "Вызвать(1,2);\n",);
+        let output = fix_operator_spacing(input);
+
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn operator_spacing_scanner_reports_comment_span_with_line_terminator() {
+        let events = scan("A=B; // comment\nV=G");
+        let comment = events
+            .iter()
+            .find_map(|event| match event {
+                ScanEvent::Comment { start, end } => Some((*start, *end)),
+                _ => None,
+            })
+            .expect("comment event must be present");
+        // The comment span covers `//` through the line terminator (inclusive).
+        assert_eq!(
+            &"A=B; // comment\nV=G"[comment.0..comment.1],
+            "// comment\n"
+        );
+
+        let code = events
+            .iter()
+            .filter_map(|event| match event {
+                ScanEvent::Code { byte, .. } => Some(*byte),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        // Only non-whitespace code bytes are emitted; the space before `//`
+        // and the line terminator belong to the comment span.
+        assert_eq!(code, "A=B;V=G".as_bytes().to_vec());
+    }
+
+    #[test]
+    fn operator_spacing_scanner_tracks_depth_and_prev_code() {
+        let events = scan("Метод(А)=1");
+        let code: Vec<(u8, Option<u8>, u32)> = events
+            .iter()
+            .filter_map(|event| match event {
+                ScanEvent::Code {
+                    byte,
+                    prev_code,
+                    depth,
+                    ..
+                } => Some((*byte, *prev_code, *depth)),
+                _ => None,
+            })
+            .collect();
+
+        // `(` opens depth 1, `)` closes back to 0, `=` sees prev_code `)`.
+        let paren = code.iter().position(|(byte, ..)| *byte == b'(').unwrap();
+        assert_eq!(
+            code[paren].2, 0,
+            "opening paren itself is emitted at the outer depth"
+        );
+        let close = code.iter().position(|(byte, ..)| *byte == b')').unwrap();
+        assert_eq!(code[close].2, 1);
+        let equals = code.iter().position(|(byte, ..)| *byte == b'=').unwrap();
+        assert_eq!(code[equals].1, Some(b')'));
+        assert_eq!(code[equals].2, 0);
+    }
+
+    #[test]
+    fn operator_spacing_apply_spans_inserts_and_deletes_with_byte_offsets() {
+        // "А=Б" with edits: insert space before `=`, delete nothing.
+        let text = "А=Б";
+        let equals = text.find('=').unwrap();
+        let output = apply_spans(text, &[SpanEdit::InsertSpaceAt(equals)]);
+        assert_eq!(output, "А =Б");
+
+        // Insert on both sides of `=`: "А=Б" -> "А = Б"
+        let output = apply_spans(
+            text,
+            &[
+                SpanEdit::InsertSpaceAt(equals),
+                SpanEdit::InsertSpaceAt(equals + 1),
+            ],
+        );
+        assert_eq!(output, "А = Б");
+
+        // DeleteRange is half-open and composes with insertion.
+        let text = "A  =B";
+        let output = apply_spans(text, &[SpanEdit::DeleteRange(2, 3)]);
+        assert_eq!(output, "A =B");
     }
 
     #[test]
