@@ -676,8 +676,12 @@ enum SpanEdit {
 /// Сканирует `text` побайтово одним трекером литералов/комментариев.
 ///
 /// Строковые литералы распознаются по `"` с `""`-эскейпом и `|`-продолжением
-/// на следующей строке; `//` завершает кодовую часть строки; `#`-директивы
-/// прекомпилятора не считаются кодом. BOM не является кодовым байтом.
+/// на следующей строке; дата-литералы — по `'` до парного `'` в той же
+/// строке (апострофа-оператора в BSL нет, поэтому `'` вне строкового
+/// литерала обрабатывается безусловно; продолжения на следующую строку и
+/// эскейпа у дата-литерала нет). `//` завершает кодовую часть строки;
+/// `#`-директивы прекомпилятора не считаются кодом. BOM не является
+/// кодовым байтом.
 fn scan(text: &str) -> Vec<ScanEvent> {
     let bytes = text.as_bytes();
     let mut events = Vec::new();
@@ -707,11 +711,32 @@ fn scan(text: &str) -> Vec<ScanEvent> {
             continue;
         }
 
+        if state.in_date {
+            // Содержимое дата-литерала — не кодовые байты: операторы внутри
+            // не формируют спанов. Парный `'` закрывает литерал; EOL
+            // закрывает незакрытый (битый) литерал — продолжения на
+            // следующую строку нет. `"` внутри дата-литерала — содержимое.
+            if byte == b'\'' || matches!(byte, b'\n' | b'\r') {
+                state.in_date = false;
+            }
+            index += 1;
+            continue;
+        }
+
         match byte {
             b'"' => {
                 state.in_string = true;
                 // Кавычка — кодовый байт: она открывает литерал и является
                 // предыдущим кодовым символом для последующих операторов.
+                push_code(&mut events, index, byte, prev_code, depth);
+                prev_code = Some(byte);
+                index += 1;
+            }
+            b'\'' => {
+                state.in_date = true;
+                // Апостроф — кодовый байт по симметрии с кавычкой: открывает
+                // дата-литерал и является предыдущим кодовым символом для
+                // операторов после него (`Д='...'+1` — `+` бинарный).
                 push_code(&mut events, index, byte, prev_code, depth);
                 prev_code = Some(byte);
                 index += 1;
@@ -759,6 +784,7 @@ fn scan(text: &str) -> Vec<ScanEvent> {
 #[derive(Debug, Default)]
 struct LiteralState {
     in_string: bool,
+    in_date: bool,
     skip_escaped_quote: bool,
 }
 
@@ -779,11 +805,18 @@ fn is_code_byte(byte: u8) -> bool {
 fn is_preprocessor_directive_start(bytes: &[u8], index: usize) -> bool {
     // `#` начинает директиву только на физическом начале строки (после
     // незначащих пробелов): `А#Б` — обычный код, а код предыдущей строки
-    // (`А=Б;\n#Если`) не мешает директиве.
+    // (`А=Б;\n#Если`) не мешает директиве. Начало первой строки — после
+    // BOM-префикса (3 байта `EF BB BF`), иначе `#` после BOM не виден как
+    // первый байт строки.
+    let first_line_start = if bytes.starts_with(b"\xEF\xBB\xBF") {
+        3
+    } else {
+        0
+    };
     let line_start = bytes[..index]
         .iter()
         .rposition(|byte| matches!(byte, b'\n' | b'\r'))
-        .map_or(0, |position| position + 1);
+        .map_or(first_line_start, |position| position + 1);
     bytes[line_start..index]
         .iter()
         .all(|byte| matches!(byte, b' ' | b'\t'))
@@ -1970,6 +2003,68 @@ mod tests {
                 "#КонецЕсли\n",
             )
         );
+    }
+
+    #[test]
+    fn operator_spacing_preserves_date_literals_byte_for_byte() {
+        // `'` всегда открывает дата-литерал до парного `'` в той же строке
+        // (апострофа-оператора в BSL нет): операторы внутри литерала —
+        // содержимое, не код. Кавычки внутри дата-литерала не открывают
+        // строку: литерал уже открыт.
+        let cases = [
+            ("Д = '0001-01-01';", "Д = '0001-01-01';"),
+            ("Д='2026-05-01';", "Д = '2026-05-01';"),
+            ("Текст = 'А+Б внутри';", "Текст = 'А+Б внутри';"),
+            ("Если Д<>'0001-01-01' Тогда", "Если Д <> '0001-01-01' Тогда"),
+            ("А='дата \"X\"'+1;", "А = 'дата \"X\"' + 1;"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(fix_operator_spacing(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn operator_spacing_ignores_apostrophes_inside_string_literals() {
+        // Дата-литерал не открывается `'` внутри `"`-строки, включая
+        // `|`-продолжения многострочного литерала.
+        let input = concat!(
+            "Строка=\"текст ' внутри\"+Суффикс;\n",
+            "Текст = \"первая\n",
+            "|строка 'апостроф' литерала\n",
+            "|\";\n",
+        );
+        let output = fix_operator_spacing(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Строка = \"текст ' внутри\" + Суффикс;\n",
+                "Текст = \"первая\n",
+                "|строка 'апостроф' литерала\n",
+                "|\";\n",
+            )
+        );
+    }
+
+    #[test]
+    fn operator_spacing_unterminated_date_literal_ends_at_line_end() {
+        // Продолжения на следующую строку у дата-литерала нет: незакрытый
+        // `'` (битый код) кончается на EOL, следующая строка — обычный код.
+        let input = "Б = 'незакрытый\nВ=Г;\n";
+        let output = fix_operator_spacing(input);
+
+        assert_eq!(output, "Б = 'незакрытый\nВ = Г;\n");
+    }
+
+    #[test]
+    fn operator_spacing_keeps_bom_first_line_preprocessor_directive_intact() {
+        // BOM-префикс — не кодовые байты: `#`-директива первой строкой
+        // после BOM остаётся директивой и не переформатируется.
+        let input = "\u{feff}#Если Сервер=1 Тогда\nА=Б;\n";
+        let output = fix_operator_spacing(input);
+
+        assert_eq!(output, "\u{feff}#Если Сервер=1 Тогда\nА = Б;\n");
+        assert_eq!(fix_operator_spacing(&output), output);
     }
 
     #[test]
