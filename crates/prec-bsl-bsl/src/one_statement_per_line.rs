@@ -562,7 +562,7 @@ mod tests {
     /// allowed branch; this one keeps find_violations and the relevance
     /// check consistent on the same dropped state.)
     #[test]
-    fn stray_paren_error_drops_pending_violation_and_is_relevant() {
+    fn stray_paren_error_drops_pending_violation_and_is_not_relevant() {
         let input = "А = 1; Б = 2; )";
         assert!(find_violations(input).unwrap().is_empty());
         assert!(!has_relevant_parse_errors(input).unwrap());
