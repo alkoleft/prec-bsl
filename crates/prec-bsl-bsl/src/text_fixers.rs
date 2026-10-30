@@ -1121,7 +1121,7 @@ fn contains_line_comment(body: &str) -> bool {
     false
 }
 
-fn split_line_ending(line: &str) -> (&str, &str) {
+pub(crate) fn split_line_ending(line: &str) -> (&str, &str) {
     if let Some(body) = line.strip_suffix("\r\n") {
         (body, "\r\n")
     } else if let Some(body) = line.strip_suffix('\n') {

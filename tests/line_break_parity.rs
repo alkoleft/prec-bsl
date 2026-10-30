@@ -1,9 +1,10 @@
 //! Parity-приёмка `ПроверкаПереносовСтрок` на контрольном корпусе yaxunit
 //! (issue #5): прогон детектора `find_line_break_violations` на всех `.bsl`
 //! под `exts`, `tests`, `fixtures` корпуса и сравнение с закоммиченным
-//! baseline `tests/fixtures/parity/ilb-fingerprint.txt`.
+//! baseline `tests/fixtures/parity/ilb-fingerprint.txt`; плюс corpus-smoke
+//! фикстера `fix_line_breaks` (0 паник + идемпотентность на каждом файле).
 //!
-//! Корпус read-only: тест только читает файлы (никаких записей в корпус).
+//! Корпус read-only: тесты только читают файлы (никаких записей в корпус).
 //!
 //! Путь корпуса задаётся env `YAXUNIT_CORPUS` (default
 //! `/data/home/korav/projects/yaxunit`). Если каталог отсутствует, тест
@@ -51,13 +52,19 @@ fn collect_bsl_files(root: &Path, files: &mut Vec<PathBuf>) -> Option<()> {
     Some(())
 }
 
-/// Fingerprint-строки текущего прогона: `path|rule|message` на каждую находку,
-/// пути — относительные от корня корпуса, разделители нормализованы в `/`.
-fn collect_current_fingerprint(corpus: &Path) -> Vec<String> {
+/// Сбор `.bsl`-файлов корпуса (общий для parity- и smoke-тестов).
+fn corpus_bsl_files(corpus: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for root in ["exts", "tests", "fixtures"] {
         collect_bsl_files(&corpus.join(root), &mut files);
     }
+    files
+}
+
+/// Fingerprint-строки текущего прогона: `path|rule|message` на каждую находку,
+/// пути — относительные от корня корпуса, разделители нормализованы в `/`.
+fn collect_current_fingerprint(corpus: &Path) -> Vec<String> {
+    let files = corpus_bsl_files(corpus);
 
     let settings = prec_bsl::line_break::LineBreakSettings::default_settings();
     let mut fingerprint = Vec::new();
@@ -155,6 +162,49 @@ fn yaxunit_line_break_parity_matches_committed_baseline() {
              findings only in current ({}): {added:?}",
             missing.len(),
             added.len()
+        );
+    }
+}
+
+/// Corpus-smoke фикстера `fix_line_breaks` (ревью M3): на каждом `.bsl` файла
+/// корпуса (1) фикс не паникует и (2) идемпотентен — `fix(fix(x)) == fix(x)`.
+///
+/// Этот тест ловит регрессии вида C4 (паника мультибайтного среза после
+/// правки строки) и H2 (цепочки носителей, сходящиеся только за два прогона),
+/// которые не покрывает детекторный parity-baseline. Прогон read-only:
+/// результаты фикса живут только в памяти, корпус не изменяется.
+#[test]
+fn yaxunit_line_break_fix_corpus_smoke_idempotent() {
+    let Some(corpus) = yaxunit_corpus() else {
+        eprintln!(
+            "skipping yaxunit line-break fix smoke: corpus {} is not available; \
+             set YAXUNIT_CORPUS to run",
+            resolved_corpus_path().display()
+        );
+        return;
+    };
+
+    let settings = prec_bsl::line_break::LineBreakSettings::default_settings();
+    let files = corpus_bsl_files(&corpus);
+    assert!(
+        !files.is_empty(),
+        "yaxunit corpus must contain at least one .bsl file for the fix smoke test"
+    );
+
+    for file in &files {
+        let input = fs::read_to_string(file).unwrap_or_else(|error| {
+            panic!("failed to read corpus file {}: {error}", file.display())
+        });
+
+        // Паника внутри fix_line_breaks (напр. срез не по границе символа)
+        // напрямую валит тест с путём файла в контексте ниже.
+        let once = prec_bsl::line_break::fix_line_breaks(&input, &settings);
+        let twice = prec_bsl::line_break::fix_line_breaks(&once, &settings);
+        assert_eq!(
+            twice,
+            once,
+            "fix_line_breaks must be idempotent on corpus file {}",
+            file.display()
         );
     }
 }

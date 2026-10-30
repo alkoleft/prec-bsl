@@ -11,7 +11,7 @@
 
 use std::fs;
 
-use crate::text_fixers::is_identifier_char;
+use crate::text_fixers::{is_identifier_char, split_line_ending};
 use prec_bsl_pipeline::{
     ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun, SourceSpan,
     WritePolicy,
@@ -117,7 +117,7 @@ struct LineScanState {
 }
 
 /// Результат классификации одной строки (без окончания строки).
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct LineClassification {
     /// Диапазоны (byte_start, byte_end) частей строки внутри `"`-литералов
     /// (включая кавычки) — FIRST/END матчи внутри них игнорируются.
@@ -188,17 +188,28 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
     }
 
     let mut state = LineScanState::default();
-    // Каждая собранная строка хранит классификацию своего исходного тела:
-    // END-проверка prev должна знать строки/комментарии prev, а FIRST — что
-    // prev является код-строкой.
-    let mut fixed: Vec<(String, LineClassification)> = Vec::with_capacity(lines.len());
+    // Каждая собранная строка хранит классификацию СВОЕГО ТЕЛА КАК ОНО
+    // СОБРАНО: при мутации строки (снятие оператора, приклейка токена)
+    // классификация пересчитывается по новому телу, поэтому диапазоны
+    // никогда не протухают (ревью C4: укороченная prev-строка с диапазонами
+    // исходного тела роняла is_code_line не на границе символа). Состояние
+    // сканера для пересчёта — состояние на границе начала этой строки: оно
+    // сохраняется на строке при вставке и восстанавливается из предыдущей
+    // строки при мутациях.
+    let mut fixed: Vec<(String, LineClassification, LineScanState)> =
+        Vec::with_capacity(lines.len());
 
     for line in &lines {
+        // Состояние на границе начала исходной строки: classify_line ниже
+        // мутирует state, эта копия — база для пересчёта классификации
+        // собранной строки при её будущих мутациях.
+        let line_entry_state = state;
         let (body, ending) = split_line_ending(line);
         let classification = classify_line(body, &mut state);
 
-        let Some((previous, previous_classification)) = fixed.last_mut() else {
-            fixed.push((format!("{body}{ending}"), classification));
+        let Some((previous, previous_classification, previous_entry_state)) = fixed.last_mut()
+        else {
+            fixed.push((format!("{body}{ending}"), classification, line_entry_state));
             continue;
         };
 
@@ -209,26 +220,44 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
             &classification,
             settings,
         ) {
-            LineFix::None => fixed.push((format!("{body}{ending}"), classification)),
+            LineFix::None => {
+                fixed.push((format!("{body}{ending}"), classification, line_entry_state));
+            }
             LineFix::GlueFirstToken { token, remainder } => {
                 let previous_body = strip_line_ending(previous);
                 if remainder.is_empty() {
                     // Строка-носитель удалена целиком: её окончание
                     // переходит на объединённую строку.
                     *previous = format!("{previous_body}{token}{ending}");
+                    let mut state = *previous_entry_state;
+                    *previous_classification = classify_line(previous, &mut state);
                 } else {
                     // prev сохраняет своё окончание; строка-носитель
                     // (остаток-комментарий) — окончание cur.
                     let previous_ending = line_ending_of(previous);
                     *previous = format!("{previous_body}{token}{previous_ending}");
-                    fixed.push((format!("{remainder}{ending}"), classification));
+                    let mut state = *previous_entry_state;
+                    *previous_classification = classify_line(previous, &mut state);
+                    fixed.push((
+                        format!("{remainder}{ending}"),
+                        classification,
+                        line_entry_state,
+                    ));
                 }
+                // Приклейка токена к prev могла открыть на prev НОВОЕ
+                // FIRST-нарушение (токен-носитель: `Вызов(Арг)` + `\t)` +
+                // `\t;` — после приклейки `;` prev сам стал `\t);`-строкой).
+                // Каскад: повторно планируем фикс пары (prev-of-prev, prev),
+                // пока prev остаётся строкой-носителем с фиксируемым токеном
+                // (ревью H2: раньше цепочка сходилась только за второй прогон
+                // — не-идемпотентность).
+                cascade_carrier_glues(&mut fixed, settings);
             }
             LineFix::MoveOperatorForward { operator } => {
                 // Оператор отклеивается от rstrip-тела prev по фактической
                 // длине среза (план матчит оператор на rstrip-теле; от
                 // нетронутого тела `strip_suffix` молча проваливается на
-                // хвостовом пробеле и оператор остаётся на prev И попадает
+                // хвостовом пробеле и оператор остаётся на prev И попадается
                 // в cur — рост `+ + Б`). Хвост rstrip — иначе
                 // `УдалениеЛишнихКонцевыхПробелов` найдёт пробелы.
                 let previous_body = strip_line_ending(previous);
@@ -243,23 +272,100 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                     without_operator.trim_end_matches([' ', '\t']),
                     previous_ending
                 );
+                // Тело prev укорочено — классификация пересчитывается по
+                // новому телу от состояния на границе начала prev
+                // (ревью C4).
+                let mut state = *previous_entry_state;
+                *previous_classification = classify_line(previous, &mut state);
 
                 let indent_len = body.len() - body.trim_start_matches([' ', '\t']).len();
-                fixed.push((
-                    format!(
-                        "{}{} {}{}",
-                        &body[..indent_len],
-                        operator,
-                        &body[indent_len..],
-                        ending
-                    ),
-                    classification,
-                ));
+                let assembled = format!(
+                    "{}{} {}{}",
+                    &body[..indent_len],
+                    operator,
+                    &body[indent_len..],
+                    ending
+                );
+                // Тело собранной строки длиннее исходного (вставлен
+                // `оператор + пробел` после отступа) — её классификация
+                // тоже пересчитывается от entry-state исходной строки,
+                // иначе диапазоны исходного тела протухают (ревью C4 —
+                // вторая половина бага: паника падала именно на строке,
+                // СОБРАННОЙ этим правилом).
+                let mut state = line_entry_state;
+                let assembled_classification = classify_line(&assembled, &mut state);
+                fixed.push((assembled, assembled_classification, line_entry_state));
             }
         }
     }
 
-    fixed.into_iter().map(|(line, _)| line).collect()
+    fixed.into_iter().map(|(line, _, _)| line).collect()
+}
+
+/// Каскад приклеек FIRST-токенов по строкам-носителям (ревью H2).
+///
+/// Вызывается после того, как токен приклеен к последней собранной строке
+/// `fixed`. Если эта строка сама стала строкой-носителем с фиксируемым
+/// FIRST-токеном (напр. `\t)` после приклейки к нему `;` → `\t);`), её токен
+/// приклеивается к ЕЁ prev — и так вверх по цепочке носителей, пока план не
+/// вернёт GlueFirstToken. Каждый шаг пересчитывает классификацию мутированной
+/// строки от её entry-state (ревью C4: диапазоны всегда соответствуют телу).
+fn cascade_carrier_glues(
+    fixed: &mut Vec<(String, LineClassification, LineScanState)>,
+    settings: &LineBreakSettings,
+) {
+    while fixed.len() >= 2 {
+        // cur — последняя собранная строка (потенциальный носитель), её
+        // план строится относительно строки перед ней (grand).
+        let grand_index = fixed.len() - 2;
+        let cur_body = strip_line_ending(&fixed[grand_index + 1].0).to_owned();
+        let cur_classification = fixed[grand_index + 1].1.clone();
+        let cur_ending = line_ending_of(&fixed[grand_index + 1].0).to_owned();
+
+        let grand_line = fixed[grand_index].0.clone();
+        let grand_classification = fixed[grand_index].1.clone();
+        let grand_entry_state = fixed[grand_index].2;
+
+        let plan = plan_fix(
+            &grand_line,
+            &grand_classification,
+            &cur_body,
+            &cur_classification,
+            settings,
+        );
+        let LineFix::GlueFirstToken { token, remainder } = plan else {
+            return;
+        };
+
+        let grand_body = strip_line_ending(&grand_line).to_owned();
+        if remainder.is_empty() {
+            // Носитель удалён целиком: его окончание переходит на
+            // объединённую строку grand.
+            fixed.pop();
+            let (target, target_classification, _) = fixed.last_mut().expect("grand exists");
+            *target = format!("{grand_body}{token}{cur_ending}");
+            let mut state = grand_entry_state;
+            *target_classification = classify_line(target, &mut state);
+        } else {
+            // Носитель сохраняется (остаток-комментарий): grand хранит своё
+            // окончание, носитель — окончание cur. После замены носителя
+            // каскад останавливается: остаток-комментарий не может быть
+            // строкой-носителем фиксируемого токена.
+            let grand_ending = line_ending_of(&grand_line).to_owned();
+            let (target, target_classification, _) = fixed.last_mut().expect("grand exists");
+            *target = format!("{grand_body}{token}{grand_ending}");
+            let mut state = grand_entry_state;
+            *target_classification = classify_line(target, &mut state);
+
+            let carrier = (
+                format!("{remainder}{cur_ending}"),
+                cur_classification,
+                fixed[grand_index].2,
+            );
+            fixed.push(carrier);
+            return;
+        }
+    }
 }
 
 /// Какое изменение нужно текущей паре (prev, cur).
@@ -710,18 +816,6 @@ fn split_input_lines(input: &str) -> Vec<&str> {
     }
 
     lines
-}
-
-fn split_line_ending(line: &str) -> (&str, &str) {
-    if let Some(body) = line.strip_suffix("\r\n") {
-        (body, "\r\n")
-    } else if let Some(body) = line.strip_suffix('\n') {
-        (body, "\n")
-    } else if let Some(body) = line.strip_suffix('\r') {
-        (body, "\r")
-    } else {
-        (line, "")
-    }
 }
 
 /// Ключи настроек `НастройкиСценариев.ПроверкаПереносовСтрок.*`
@@ -1540,6 +1634,9 @@ mod tests {
                 "Процедура А()\n\tСтрока1(); // комм\n\t;\nКонецПроцедуры\n",
                 &defaults,
             ),
+            // Ревью H2: цепочка носителей `)`+`;` обязана сходиться за один
+            // прогон (повторный прогон — 0 изменений).
+            ("\tВызов(Арг)\n\t)\n\t;", &defaults),
         ];
 
         for (input, settings) in cases {
@@ -1591,6 +1688,55 @@ mod tests {
             fix_line_breaks(last_input, &last_disabled),
             last_input,
             "checkLastSymbol=false must gate last-symbol fixes"
+        );
+    }
+
+    // Ревью C4: паника мультибайтного среза после MoveOperatorForward.
+    //
+    // Прецедент — Помощник/Module.bsl:105-107 корпуса yaxunit: prev-строка с
+    // кириллическими НСтр-литералами укорачивается снятием `+`-оператора, а
+    // её классификация хранила байтовые диапазоны исходного (более длинного)
+    // тела → срез в is_code_line по протухшим диапазонам падал не на границе
+    // символа.
+    #[test]
+    fn fix_multibyte_line_after_operator_move() {
+        let input = concat!(
+            "\tТекст = НСтр(\"ru = 'раз в '\", \"ru\") +\n",
+            "\t\tНСтр(\"ru = 'день'\", \"ru\") +\n",
+            "\t\tСтрокаСЧислом(Арг);\n",
+        );
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        // Оба END-нарушения лечатся за один прогон: операторы переносятся в
+        // начало кода следующих строк, ничего не паникует и не теряется.
+        let expected = concat!(
+            "\tТекст = НСтр(\"ru = 'раз в '\", \"ru\")\n",
+            "\t\t+ НСтр(\"ru = 'день'\", \"ru\")\n",
+            "\t\t+ СтрокаСЧислом(Арг);\n",
+        );
+        assert_eq!(once, expected);
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "fixer must be idempotent on multibyte НСтр chains"
+        );
+    }
+
+    // Ревью H2: цепочка `)` + `;` фиксировалась за два прогона (первый
+    // приклеивал `;` к `\t)`, второй — составной хвост к вызову) — нарушение
+    // приёмки «повторный прогон — 0 изменений».
+    #[test]
+    fn fix_glues_close_paren_semicolon_chain_in_one_pass() {
+        let input = "\tВызов(Арг)\n\t)\n\t;";
+        let once = fix_line_breaks(input, &LineBreakSettings::default_settings());
+
+        assert_eq!(once, "\tВызов(Арг));");
+
+        let twice = fix_line_breaks(&once, &LineBreakSettings::default_settings());
+        assert_eq!(
+            twice, once,
+            "a `)`+`;` carrier chain must converge in a single pass"
         );
     }
 }

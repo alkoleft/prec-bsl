@@ -683,7 +683,20 @@ Fix mechanics (known, mechanically safe tokens only):
   `УдалениеЛишнихКонцевыхПробелов` stays clean.
 - The scan state advances over the original line bodies, so edits cannot
   break the classification of following lines (the detector is not reused
-  by the fixer; its positions go stale after edits).
+  by the fixer; its positions go stale after edits). Each assembled line
+  stores the scan state as of its original line start and the
+  classification of its body **as currently assembled**: whenever a line
+  is mutated (operator removal, token gluing, operator insertion after the
+  indent), its classification is recomputed from that entry state over the
+  new body, so string/comment ranges never go stale relative to the text
+  they describe.
+- FIRST gluing is cascaded over carrier lines within a single pass: when
+  gluing a token onto a previous line turns that line itself into a
+  fixable-token carrier (e.g. `Вызов(Арг)` + `\t)` + `\t;` — gluing `;`
+  onto `\t)` yields a `);` carrier), the carrier's token is immediately
+  glued onto its own previous line, and so on up the chain. A chain of
+  carriers converges in one run; a repeated fix run makes no further
+  changes (single-pass convergence, guarded by the corpus smoke test).
 - Fix skip conditions (violation remains for manual repair, still visible
   through check): the next line after a trailing operator is empty or a
   pure comment; gluing a `;` onto a previous line that already ends with
