@@ -31,6 +31,65 @@ Completed task T50 (resolved 2026-10-29, `УдалениеЛишнихПусты
 blank run at EOF, `alkoleft/prec-bsl` #11) is archived with the Milestone 11
 history below and in `spec/archive/completed-tasks-t1-t43-t47.md`.
 
+### T51. TODO: `ПроверкаПереносовСтрок` (IncorrectLineBreak parity, issue #5)
+
+prec-bsl issue: `alkoleft/prec-bsl` #5 (bsl-ls `IncorrectLineBreak` parity,
+parent tracking issue #3 — yaxunit migration).
+
+Current finding:
+
+- `bsl-ls` `IncorrectLineBreakDiagnostic` flags hanging `;` / `)` / `);` / `,`
+  at the start of a line and binary operators `И`/`ИЛИ`/`OR`/`AND`/`+`/`-`/`/`/
+  `%`/`*` at the end of a line. The corpus run over yaxunit `.bsl` files
+  reports ~317 findings (FIRST 268: `;` 259, `)` 9, `,` 1; END 49).
+- No built-in Rust scenario covers this class today; stateful line
+  classification (multi-line `"` strings with `""` escaping, query regions
+  inside string literals) is required to avoid the hundreds of false positives
+  a naive per-line grep produces.
+
+Task:
+
+- Implement `ПроверкаПереносовСтрок` (check + fix + settings) as a
+  `ScenarioSupport::Compatibility` scenario in
+  `crates/prec-bsl-bsl/src/line_break.rs`: a stateful line classifier
+  (`in_string` with `""` escaping, `in_query` from a query keyword to the
+  closing quote), a per-line violation detector, and a mechanically safe fixer
+  (glue `;`/`)`/`);` to the previous line, move a trailing operator to the next
+  line) with idempotence and line-ending preservation.
+- Settings `НастройкиСценариев.ПроверкаПереносовСтрок.*` (ASCII keys as in
+  bsl-ls): `checkFirstSymbol`, `listOfIncorrectFirstSymbol`, `checkLastSymbol`,
+  `listOfIncorrectLastSymbol`; invalid values produce per-file hard failures.
+- Deliberate non-parity with bsl-ls (to be captured in the
+  `spec/parser-strategy.md` contract section): the query region is skipped as a
+  whole, the violation position is included in the message, `""` escaping is
+  handled by the state machine, and the fixer semantics are invented by
+  prec-bsl (bsl-ls has no fixer).
+
+Acceptance criteria:
+
+- Check parity on the yaxunit control corpus (read-only) via a committed
+  fingerprint baseline (file + rule + message with line number), auto-skipped
+  when the corpus is absent.
+- Check mode does not modify files: warnings with source spans plus a
+  `modified_dry_run` diff preview; exit codes 0/1/2.
+- Fix is idempotent on fully fixable modules, preserves LF/CRLF/mixed/final
+  no-newline endings, and introduces no new findings of any other scenario
+  (cross-scenario invariant).
+- Skip cases (`,`-first runs, `;;` protection, operator before comment/empty
+  line, custom-pattern matches) stay check-visible and fix-untouched.
+
+Validation:
+
+- `cargo test -p prec-bsl-bsl line_break`
+- `cargo test --test line_break`
+- `YAXUNIT_CORPUS=... cargo test --test line_break_parity` (auto-skip without
+  the corpus)
+- `cargo test --workspace`
+
+Dependencies:
+
+- T6 (spec contract section), T30 (scenario boundary conventions).
+
 ### T44. TODO: Preserve OScript-only issue boundaries in diagnostics
 
 Upstream issues: `precommit4onec` #2, #42, #43.
