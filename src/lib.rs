@@ -81,6 +81,7 @@ pub const REFERENCE_SCENARIO_DEFINITIONS: &[scenario_pipeline::ScenarioDefinitio
     text_fixers::EXTRA_BLANK_LINES_SCENARIO,
     text_fixers::COMMENT_SPACING_SCENARIO,
     text_fixers::COMMA_SPACING_SCENARIO,
+    text_checkers::LINE_LENGTH_SCENARIO,
 ];
 
 pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
@@ -107,6 +108,7 @@ pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
     text_fixers::EXTRA_BLANK_LINES_SCENARIO.metadata,
     text_fixers::COMMENT_SPACING_SCENARIO.metadata,
     text_fixers::COMMA_SPACING_SCENARIO.metadata,
+    text_checkers::LINE_LENGTH_SCENARIO.metadata,
 ];
 
 pub fn reference_scenario_catalog() -> config::ScenarioCatalog<'static> {
@@ -150,6 +152,7 @@ mod tests {
         "СортировкаСоставаПодсистем",
         "ПробелыВКомментариях",
         "ПробелыПослеЗапятых",
+        "ПроверкаДлиныСтрок",
     ];
 
     #[test]
