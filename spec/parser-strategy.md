@@ -696,7 +696,13 @@ Fix mechanics (known, mechanically safe tokens only):
   onto `\t)` yields a `);` carrier), the carrier's token is immediately
   glued onto its own previous line, and so on up the chain. A chain of
   carriers converges in one run; a repeated fix run makes no further
-  changes (single-pass convergence, guarded by the corpus smoke test).
+  changes (single-pass convergence, guarded by the corpus smoke test). The
+  corpus smoke test and the parity baseline in `tests/line_break_parity.rs`
+  are validated against a `git archive` snapshot of the pinned corpus commit
+  `d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c`, not against the corpus working
+  tree: local edits in the corpus checkout never affect the parity result,
+  and a checkout that no longer contains the pinned commit skips the tests
+  with a baseline-refresh hint instead of failing.
 - Fix skip conditions (violation remains for manual repair, still visible
   through check): the next line after a trailing operator is empty or a
   pure comment; gluing a `;` onto a previous line that already ends with
