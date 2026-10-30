@@ -32,6 +32,13 @@
 //! - MISSING nodes do not invalidate a statement (ANTLR recovers missing
 //!   tokens inline).
 
+use std::fs;
+
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun,
+};
+use prec_bsl_source::SourceFileKind;
+
 use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError, ParsedBsl};
 
 /// Statement kinds from the grammar `_statement` (grammar.js:250).
@@ -73,12 +80,8 @@ const CONTAINER_KINDS: &[&str] = &[
 
 /// Compound keywords that lead an ERROR region wrapping an unterminated
 /// compound statement (`Если`/`Пока`/`Попытка`/`Для`).
-const COMPOUND_KEYWORD_KINDS: &[&str] = &[
-    "IF_KEYWORD",
-    "WHILE_KEYWORD",
-    "TRY_KEYWORD",
-    "FOR_KEYWORD",
-];
+const COMPOUND_KEYWORD_KINDS: &[&str] =
+    &["IF_KEYWORD", "WHILE_KEYWORD", "TRY_KEYWORD", "FOR_KEYWORD"];
 
 /// One flagged statement: several statements share its row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -528,6 +531,112 @@ pub fn fix_one_statement_per_line(input: &str) -> Result<String, BslParserError>
     Ok(apply_move_edits(input, edits, line_ending))
 }
 
+// --- Handler (plan Task 4): scenario boundary over finder + fixer ---
+//
+// The handler consumes exactly the module's two public functions
+// (`find_violations` for the violating rows of the message,
+// `fix_one_statement_per_line` for the fixed content); everything else
+// (`StatementViolation`, edits, indents) stays private to the module.
+
+/// Extension scenario id (`precommit4onec` name without `.os`).
+pub const ONE_STATEMENT_PER_LINE_RULE: &str = "ОдинОператорНаСтроку";
+
+pub const ONE_STATEMENT_PER_LINE_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    ONE_STATEMENT_PER_LINE_RULE,
+    "ОдинОператорНаСтроку.os",
+    one_statement_per_line,
+);
+
+/// Scenario handler: check + fix in one pass. DryRun (check mode) yields a
+/// single `modified_dry_run` result with the proposed fixed content and a
+/// message enumerating the violating rows; Apply writes the fixed file.
+/// Relevant parse errors degrade to a warning without modifying the file.
+pub fn one_statement_per_line(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    if context.file.kind != SourceFileKind::BslModule {
+        return ScenarioRun::single(ScenarioResult::skipped(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "scenario handles only BSL modules",
+        ));
+    }
+
+    let path = context.repo_root.join(&context.file.repo_path);
+    let input = match fs::read_to_string(&path) {
+        Ok(input) => input,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                format!("failed to read file: {error}"),
+            ));
+        }
+    };
+
+    let violations = match find_violations(&input) {
+        Ok(violations) => violations,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                error.to_string(),
+            ));
+        }
+    };
+    if violations.is_empty() {
+        return ScenarioRun::clean();
+    }
+
+    // Unreliable tree: report instead of silently fixing unreliable input.
+    if has_relevant_parse_errors(&input).unwrap_or(true) {
+        return ScenarioRun::single(ScenarioResult::warning(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "file has parse errors intersecting detected one-statement-per-line violations; fix them before running the scenario",
+        ));
+    }
+
+    let output = match fix_one_statement_per_line(&input) {
+        Ok(output) => output,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                error.to_string(),
+            ));
+        }
+    };
+    if output == input {
+        return ScenarioRun::clean();
+    }
+
+    let rows = violating_rows(&violations);
+    let message = format!("перенесены операторы на отдельные строки: {rows}");
+    crate::text_fixers::apply_text_modification(context, &path, output, &message)
+}
+
+/// 1-based rows of the violations, deduplicated in document order,
+/// formatted for the single modification message ("строка N" /
+/// "строки N, M").
+fn violating_rows(violations: &[StatementViolation]) -> String {
+    let mut rows: Vec<usize> = Vec::new();
+    for violation in violations {
+        let row = violation.row + 1;
+        if !rows.contains(&row) {
+            rows.push(row);
+        }
+    }
+    match rows.as_slice() {
+        [single] => format!("строка {single}"),
+        many => format!(
+            "строки {}",
+            many.iter()
+                .map(|row| row.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
 /// Collect error nodes (excluding MISSING) that intersect a violation row
 /// and are not of a safe form.
 fn has_unsafe_error_at_rows(parsed: &ParsedBsl, rows: &[usize]) -> bool {
@@ -594,7 +703,12 @@ mod tests {
         BslByteSpan::new(start, start + needle.len())
     }
 
-    fn violation(input: &str, needle: &str, row: usize, after_block_keyword: bool) -> StatementViolation {
+    fn violation(
+        input: &str,
+        needle: &str,
+        row: usize,
+        after_block_keyword: bool,
+    ) -> StatementViolation {
         StatementViolation {
             statement_span: span_of(input, needle),
             row,
@@ -661,10 +775,7 @@ mod tests {
         let input = "Если Истина Тогда\n  А = 0;А = 1; // comment\nКонецЕсли";
         let violations = find_violations(input).unwrap();
 
-        assert_eq!(
-            violations,
-            vec![violation(input, "А = 1;", 1, false)]
-        );
+        assert_eq!(violations, vec![violation(input, "А = 1;", 1, false)]);
     }
 
     #[test]

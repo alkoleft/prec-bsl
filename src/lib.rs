@@ -1,7 +1,9 @@
 pub mod app;
 pub mod cli;
 
-pub use prec_bsl_bsl::{bsl_checkers, bsl_parser, text_checkers, text_fixers};
+pub use prec_bsl_bsl::{
+    bsl_checkers, bsl_parser, one_statement_per_line, text_checkers, text_fixers,
+};
 pub use prec_bsl_git as git_index;
 pub use prec_bsl_output as output;
 pub use prec_bsl_pipeline as scenario_pipeline;
@@ -82,6 +84,7 @@ pub const REFERENCE_SCENARIO_DEFINITIONS: &[scenario_pipeline::ScenarioDefinitio
     text_fixers::COMMENT_SPACING_SCENARIO,
     text_fixers::COMMA_SPACING_SCENARIO,
     text_checkers::LINE_LENGTH_SCENARIO,
+    one_statement_per_line::ONE_STATEMENT_PER_LINE_SCENARIO,
 ];
 
 pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
@@ -109,6 +112,7 @@ pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
     text_fixers::COMMENT_SPACING_SCENARIO.metadata,
     text_fixers::COMMA_SPACING_SCENARIO.metadata,
     text_checkers::LINE_LENGTH_SCENARIO.metadata,
+    one_statement_per_line::ONE_STATEMENT_PER_LINE_SCENARIO.metadata,
 ];
 
 pub fn reference_scenario_catalog() -> config::ScenarioCatalog<'static> {
@@ -153,6 +157,7 @@ mod tests {
         "ПробелыВКомментариях",
         "ПробелыПослеЗапятых",
         "ПроверкаДлиныСтрок",
+        "ОдинОператорНаСтроку",
     ];
 
     #[test]
