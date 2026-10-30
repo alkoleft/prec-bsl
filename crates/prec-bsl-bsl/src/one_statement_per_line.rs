@@ -516,24 +516,46 @@ struct MoveEdit {
 /// the whitespace prefix before the statement start with
 /// `<line_ending><indent>`; the line ending is appended by the applier.
 fn plan_move_edits(violations: &[StatementViolation], input: &str) -> Vec<MoveEdit> {
-    // Rows holding a pattern-2 violation (statement right after a block
-    // opener's `Тогда`): every statement of that chain moves to the
-    // opener-line indent + one tab — the plan's mixed rule (pattern-2
-    // target of a row equals its line indent + tab, so propagating it to
-    // the whole row equals propagating along the chain).
-    let block_opener_rows: Vec<usize> = violations
-        .iter()
-        .filter(|violation| violation.after_block_keyword)
-        .map(|violation| violation.row)
-        .collect();
+    // Pattern-2 chains: on a row holding a statement right after a block
+    // opener's `Тогда` (`after_block_keyword`), the chain — that
+    // statement and every violation after it on the row — moves to the
+    // opener-line indent + one tab (the plan's mixed rule). Violations
+    // BEFORE the chain start (ordinary statements preceding an inline
+    // `Если ... Тогда` on the same row) are not part of the opener chain
+    // and keep the line indent, so the scope is the byte position of the
+    // first pattern-2 violation on the row, not row membership.
+    let mut block_opener_chain_starts: Vec<(usize, usize)> = Vec::new();
+    for violation in violations.iter().filter(|v| v.after_block_keyword) {
+        match block_opener_chain_starts
+            .iter_mut()
+            .find(|(row, _)| *row == violation.row)
+        {
+            Some((_, chain_start)) => {
+                *chain_start = (*chain_start).min(violation.statement_span.start_byte);
+            }
+            None => {
+                block_opener_chain_starts.push((violation.row, violation.statement_span.start_byte))
+            }
+        }
+    }
 
     let bytes = input.as_bytes();
     let mut edits = Vec::new();
     for violation in violations {
         let start = violation.statement_span.start_byte;
         let line_start = input[..start].rfind('\n').map_or(0, |at| at + 1);
+        // A UTF-8 BOM (`\u{FEFF}`, 3 bytes) may lead row 0: it is not
+        // whitespace, but it must be transparent for the row indent
+        // computation — the indent scan and the line-prefix bound start
+        // after it. The BOM itself always survives byte-for-byte: edits
+        // only replace whitespace prefixes at/after `indent_base`.
+        let indent_base = if line_start == 0 && bytes.starts_with(b"\xEF\xBB\xBF") {
+            line_start + 3
+        } else {
+            line_start
+        };
         // Indent prefix of the violation's own row (byte-for-byte).
-        let mut indent_end = line_start;
+        let mut indent_end = indent_base;
         while indent_end < start && (bytes[indent_end] == b' ' || bytes[indent_end] == b'\t') {
             indent_end += 1;
         }
@@ -549,19 +571,22 @@ fn plan_move_edits(violations: &[StatementViolation], input: &str) -> Vec<MoveEd
         // this range is exactly the whitespace to replace (collapses
         // double spaces, leaves no trailing whitespace).
         let mut prefix_start = start;
-        while prefix_start > line_start
+        while prefix_start > indent_base
             && (bytes[prefix_start - 1] == b' ' || bytes[prefix_start - 1] == b'\t')
         {
             prefix_start -= 1;
         }
-        if prefix_start == line_start {
+        if prefix_start == indent_base {
             // Whitespace run swallowed the whole line indent — the line
             // has no previous content; skip instead of blanking the line.
             continue;
         }
 
-        let line_indent = &input[line_start..indent_end];
-        let indent = if block_opener_rows.contains(&violation.row) {
+        let line_indent = &input[indent_base..indent_end];
+        let in_opener_chain = block_opener_chain_starts.iter().any(|(row, chain_start)| {
+            *row == violation.row && violation.statement_span.start_byte >= *chain_start
+        });
+        let indent = if in_opener_chain {
             format!("{line_indent}\t")
         } else {
             line_indent.to_owned()
@@ -1127,6 +1152,11 @@ mod tests {
             "А = 1; Б = Ф(x,\n y);",
             // double-space collapse before the statement
             "Если X Тогда  А = 1;",
+            // review findings: statements before an inline opener keep
+            // line indent (chain-scoped extra tab)
+            "А=1; Б=2; Если В Тогда Г=3;",
+            // review findings: BOM + first-row indent
+            "\u{feff}\tА = 1; Б = 2;",
         ]
     }
 
@@ -1158,6 +1188,29 @@ mod tests {
     fn fix_mixed_chain_moves_all_body_statements_to_opener_indent_plus_tab() {
         let output = fix_one_statement_per_line("Если X Тогда А = 1; Б = 2;").unwrap();
         assert_eq!(output, "Если X Тогда\n\tА = 1;\n\tБ = 2;");
+    }
+
+    /// Review finding (PR #18): `block_opener_rows` was row-based, not
+    /// chain-based. When ordinary statements PRECEDE an inline
+    /// `Если ... Тогда` on the same row, only the statements of the
+    /// block-opener chain (the pattern-2 target and the chain after it)
+    /// get opener indent + tab; earlier statements on the row keep the
+    /// line indent. Detection results stay unchanged — this is purely
+    /// fixer indent scoping.
+    #[test]
+    fn fix_statements_before_inline_if_keep_line_indent() {
+        let output = fix_one_statement_per_line("А=1; Б=2; Если В Тогда Г=3;").unwrap();
+        assert_eq!(output, "А=1;\nБ=2;\nЕсли В Тогда\n\tГ=3;");
+    }
+
+    /// Indented variant of the chain-scoping rule: `Д=4;` continues the
+    /// chain after the pattern-2 statement `Г=3;` and keeps the extra
+    /// tab; `А=1;`/`Б=2;` before the opener keep the line indent.
+    #[test]
+    fn fix_chain_after_opener_keeps_extra_tab_statements_before_keep_line_indent() {
+        let input = "\tА=1; Б=2; Если В Тогда Г=3; Д=4;";
+        let output = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(output, "\tА=1;\n\tБ=2;\n\tЕсли В Тогда\n\t\tГ=3;\n\t\tД=4;");
     }
 
     #[test]
@@ -1280,6 +1333,63 @@ mod tests {
         let input = "\u{feff}А = 1; Б = 2;";
         let once = fix_one_statement_per_line(input).unwrap();
         assert_eq!(once, "\u{feff}А = 1;\nБ = 2;");
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+    }
+
+    /// Review finding (PR #18): a BOM before an INDENTED first-line chain
+    /// lost the indent — the row-0 indent scan stops at the BOM bytes
+    /// (not whitespace), so `line_indent` came out empty and the moved
+    /// statement was dedented. The BOM is transparent for the indent
+    /// computation: the tab after it is the row indent and must be copied
+    /// byte-for-byte to the moved statement, while the BOM itself (and
+    /// the untouched first-line prefix) survives byte-for-byte.
+    #[test]
+    fn fix_bom_indented_first_line_keeps_tab_after_bom() {
+        let input = "\u{feff}\tА = 1; Б = 2;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(once, "\u{feff}\tА = 1;\n\tБ = 2;");
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+    }
+
+    /// Review finding (PR #18), BOM + pattern 2: the opener-line indent
+    /// after the BOM must be kept AND the block-opener tab appended to
+    /// it (`\t` line indent + one `\t` for the `Тогда` body).
+    #[test]
+    fn fix_bom_indented_if_then_keeps_tab_and_adds_extra_tab() {
+        let input = "\u{feff}\tЕсли X Тогда А = 1;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(once, "\u{feff}\tЕсли X Тогда\n\t\tА = 1;");
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+    }
+
+    /// Two inline `Если ... Тогда` openers on one row: the chain start is
+    /// the MIN pattern-2 start on the row, so statements between/after
+    /// both openers get opener indent + tab; the pre-opener `А=1;` keeps
+    /// the line indent; the second inline `Если` piggybacks on the row
+    /// (detection parity — it is not itself "fixed").
+    #[test]
+    fn fix_two_inline_openers_on_one_row_min_chain_start() {
+        let input = "А=1; Если В Тогда Г=3; Д=4; Если Е Тогда Ж=5;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(
+            once,
+            "А=1;\nЕсли В Тогда\n\tГ=3;\n\tД=4; Если Е Тогда\n\tЖ=5;"
+        );
+        let twice = fix_one_statement_per_line(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+    }
+
+    /// BOM + CRLF line ending + indented first-line chain: the BOM must
+    /// survive byte-for-byte, CRLF is used as the inserted line ending,
+    /// and the tab indent after the BOM is preserved on the moved line.
+    #[test]
+    fn fix_bom_crlf_indented_first_line() {
+        let input = "\u{feff}\r\n\tА = 1; Б = 2;";
+        let once = fix_one_statement_per_line(input).unwrap();
+        assert_eq!(once, "\u{feff}\r\n\tА = 1;\r\n\tБ = 2;");
         let twice = fix_one_statement_per_line(&once).unwrap();
         assert_eq!(once, twice, "second run must be a no-op");
     }

@@ -541,7 +541,11 @@ Fix contract (text splice, applied over original byte offsets):
 - Pattern 2 (the statement follows `Тогда` of `Если`/`ИначеЕсли` on the same
   row): target indent is the anchor line indent prefix plus one `\t`.
 - Mixed chain after a block opener (`Если X Тогда А = 1; Б = 2;`): all
-  statements of the chain get the anchor indent + one tab. `Иначе` is NOT
+  statements of the chain get the anchor indent + one tab. The extra tab is
+  scoped to the opener chain — the pattern-2 statement and every violation
+  after it on the row — not to the row as a whole: ordinary statements
+  preceding an inline `Если … Тогда` on the same row
+  (`А=1; Б=2; Если В Тогда Г=3;`) keep the line indent. `Иначе` is NOT
   pattern 2 (an `Иначе X = 1;` line with no other statement on the row is
   not a violation at all).
 - The edit replaces the whitespace prefix before the statement start (the
@@ -572,7 +576,9 @@ text. The scenario reports a single Warning ("файл использует
 неканонические переводы строк (CR); сценарий ОдинОператорНаСтроку
 пропущен") and makes no changes; such files are never normalized or fixed
 here. Pure CRLF and LF files remain fully in contract. A UTF-8 BOM
-survives the fix byte-for-byte and the fixed output stays idempotent.
+survives the fix byte-for-byte and the fixed output stays idempotent; on
+row 0 the BOM is transparent for the indent computation (an indent prefix
+after a BOM is still the row indent and is copied to moved statements).
 
 Check mode (`WritePolicy::DryRun`) yields a single dry-run result with the
 proposed fixed content and one message enumerating the 1-based violating
