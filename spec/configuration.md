@@ -525,6 +525,10 @@ Behavior:
 - If the default `COPYRIGHT` file is absent, the scenario reports a skipped
   result and does not block by itself.
 - The copyright file text is trimmed before insertion.
+- A leading UTF-8 BOM is a transparent prefix for this scenario: the BOM does
+  not disable marker detection on the first marker line, an inserted header
+  goes after the BOM, a replaced header keeps the BOM as the first byte
+  byte-for-byte, and a skip tag on the BOM line still skips the module.
 - BSL modules without a copyright block receive the configured copyright text,
   followed by one blank line and the trimmed original module text. If the
   original module ended with a line ending, the rewritten module keeps a final

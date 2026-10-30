@@ -100,6 +100,135 @@ fn copyright_replaces_existing_stale_header() {
 }
 
 #[test]
+fn copyright_updates_stale_header_in_bom_prefixed_crlf_module_and_preserves_bom() {
+    // Reproduces the yaxunit smoke corpus shape: UTF-8 BOM + CRLF module
+    // with a valid two-marker copyright block whose text is stale. The
+    // scenario must replace the block (like any non-BOM module) and keep
+    // the BOM as the first byte; the second run must be clean.
+    let input = concat!(
+        "\u{feff}//© BIA, 2021-2025\r\n",
+        "//\r\n",
+        "// Текст лицензии\r\n",
+        "//©\r\n",
+        "\r\n",
+        "Процедура Выполнить()\r\n",
+        "КонецПроцедуры\r\n"
+    );
+    let expected = concat!(
+        "\u{feff}//© ООО \"Пример\", 2024-2026\r\n",
+        "//\r\n",
+        "// Текст лицензии\r\n",
+        "//©\r\n",
+        "\r\n",
+        "Процедура Выполнить()\r\n",
+        "КонецПроцедуры\r\n"
+    );
+
+    let first = insert_or_update_copyright(input, copyright_text(), &[]);
+    assert_eq!(first, CopyrightFix::Modified(expected.to_owned()));
+
+    let second = insert_or_update_copyright(expected, copyright_text(), &[]);
+    assert_eq!(second, CopyrightFix::Clean, "second run must be a no-op");
+}
+
+#[test]
+fn copyright_inserts_header_after_leading_bom() {
+    // A BOM-prefixed module without a copyright block gets the header
+    // inserted AFTER the BOM: the BOM stays the first byte of the file.
+    let input = "\u{feff}Процедура Выполнить()\nКонецПроцедуры\n";
+    let expected = concat!(
+        "\u{feff}//© ООО \"Пример\", 2024-2026\n",
+        "//\n",
+        "// Текст лицензии\n",
+        "//©\n",
+        "\n",
+        "Процедура Выполнить()\n",
+        "КонецПроцедуры\n"
+    );
+
+    let first = insert_or_update_copyright(input, copyright_text(), &[]);
+    assert_eq!(first, CopyrightFix::Modified(expected.to_owned()));
+
+    let second = insert_or_update_copyright(expected, copyright_text(), &[]);
+    assert_eq!(second, CopyrightFix::Clean, "second run must be a no-op");
+}
+
+#[test]
+fn copyright_detects_excluded_tag_on_bom_prefixed_first_line() {
+    let input = "\u{feff}// IMPORT generated\nПроцедура A()\nКонецПроцедуры\n";
+
+    assert_eq!(
+        insert_or_update_copyright(input, copyright_text(), &["// IMPORT".to_owned()]),
+        CopyrightFix::Skipped
+    );
+}
+
+#[test]
+fn copyright_bom_crlf_module_round_trips_through_hook_pipeline() {
+    let repo = temp_repo("bom_crlf");
+    let repo_path = PathBuf::from("src/Модуль.bsl");
+    let input = concat!(
+        "\u{feff}//© BIA, 2021-2025\r\n",
+        "//\r\n",
+        "// Текст лицензии\r\n",
+        "//©\r\n",
+        "\r\n",
+        "Процедура Выполнить()\r\n",
+        "КонецПроцедуры\r\n"
+    );
+    let expected = concat!(
+        "\u{feff}//© ООО \"Пример\", 2024-2026\r\n",
+        "//\r\n",
+        "// Текст лицензии\r\n",
+        "//©\r\n",
+        "\r\n",
+        "Процедура Выполнить()\r\n",
+        "КонецПроцедуры\r\n"
+    );
+    write_file(repo.join(&repo_path), input);
+    write_file(repo.join("COPYRIGHT"), copyright_text());
+
+    let roots = resolve_source_roots(&repo, &[PathBuf::from("src")]).roots;
+    let file = classify_repo_path(&roots, repo_path.clone(), None).unwrap();
+    let config = copyright_config(r#""ПутьКФайлуКопирайта": "COPYRIGHT""#);
+
+    let first_report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file.clone()],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
+    assert_eq!(first_report.results.len(), 1);
+    assert_eq!(
+        first_report.results[0].status,
+        ScenarioResultStatus::Modified
+    );
+    assert_eq!(first_report.modified_paths(), vec![repo_path.clone()]);
+    assert_eq!(first_report.hook_exit_code(), 1);
+
+    let second_report = run_pipeline(
+        &prec_bsl::reference_registry(),
+        PipelineRequest {
+            repo_root: &repo,
+            source_roots: &roots,
+            config: &config,
+            files: vec![file],
+            mode: PipelineMode::Hook,
+        },
+    );
+
+    assert!(second_report.results.is_empty());
+    assert_eq!(fs::read_to_string(repo.join(&repo_path)).unwrap(), expected);
+    assert_eq!(second_report.hook_exit_code(), 0);
+}
+
+#[test]
 fn copyright_line_ending_matrix_is_idempotent() {
     for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n")] {
         let input = format!("Процедура Выполнить(){line_ending}КонецПроцедуры{line_ending}");

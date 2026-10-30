@@ -377,6 +377,15 @@ pub fn insert_or_update_copyright(
     copyright: &str,
     excluded_tags: &[String],
 ) -> CopyrightFix {
+    // A leading UTF-8 BOM is a transparent prefix: `\u{feff}` is not Rust
+    // whitespace, so line-level marker detection would miss a first-line
+    // `//©` (and a bare insertion would push the BOM behind the new
+    // header). Strip it once, analyze the body, re-prefix it byte-for-byte
+    // on rewritten output.
+    let (bom, input) = match input.strip_prefix('\u{feff}') {
+        Some(body) => ("\u{feff}", body),
+        None => ("", input),
+    };
     if trim_text(input).is_empty() {
         return CopyrightFix::Clean;
     }
@@ -397,7 +406,7 @@ pub fn insert_or_update_copyright(
                 CopyrightFix::Clean
             } else {
                 CopyrightFix::Modified(format!(
-                    "{}{}{}{}{}",
+                    "{bom}{}{}{}{}{}",
                     copyright,
                     line_ending,
                     line_ending,
@@ -407,7 +416,7 @@ pub fn insert_or_update_copyright(
             }
         }
         Ok(None) => CopyrightFix::Modified(format!(
-            "{}{}{}{}{}",
+            "{bom}{}{}{}{}{}",
             copyright,
             line_ending,
             line_ending,
