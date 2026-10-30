@@ -465,8 +465,10 @@ fn corpus_walk_errors_must_fail_not_skip() {
 }
 
 // Root-safety (PR #17 round 2): зонд-путь «каталог читается → skip Unix-часть,
-// не паниковать» покрыт отдельным кейсом с намеренно читаемым каталогом —
-// тот же fs::read_dir(...).is_ok(), который гейтит chmod-000 кейс выше.
+// не паниковать» покрыт отдельным кейсом с намеренно читаемым каталогом.
+// Project-контракт зонда: читаемый каталог обязан обходиться без ошибок и
+// отдавать свои файлы (тот же walk `corpus_bsl_files`, которым parity-тест
+// собирает корпус).
 #[cfg(unix)]
 #[test]
 fn corpus_walk_probe_treats_readable_dir_as_readable() {
@@ -477,12 +479,6 @@ fn corpus_walk_probe_treats_readable_dir_as_readable() {
     fs::write(readable.join("exts").join("module.bsl"), "А = 1;\n")
         .expect("probe module must be written");
 
-    // Зонд читаемого каталога: is_ok() → walk обязан вернуть файл, не ошибку
-    // (зонд не принимает читаемый каталог за недоступный).
-    assert!(
-        fs::read_dir(readable.join("exts")).is_ok(),
-        "a readable dir must probe as readable"
-    );
     let files =
         corpus_bsl_files(&readable).expect("a readable corpus root must walk without errors");
     assert_eq!(

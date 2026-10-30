@@ -617,8 +617,11 @@ The prec-bsl classifier carries the state between lines:
 - a query region is opened by a query keyword (`ВЫБРАТЬ`/`ВЫБОРКА`/
   `ВЫБОРКИ`/`SELECT`, case-insensitive, word immediately after the opening
   `"`) inside a `"` literal and closed by the closing `"` of that literal
-  (same line or a later line); every line inside the region is skipped
-  entirely by both the detector and the fixer;
+  (same line or a later line); interior and closing lines of the region
+  (entry state `in_query` = true) are skipped entirely by the detector, and
+  the fixer's END branch is gated by the same entry state of the previous
+  line; the FIRST branch can still repair a diagnosed token on such a line
+  (see fix mechanics below);
 - `//` outside strings terminates the code part of a line.
 
 FIRST violations are matches of the first-symbol pattern at the start of the
@@ -632,8 +635,13 @@ inside query regions are not violations. A match is not a violation when
 any part of it crosses into a `//` comment either: the default
 first-symbol pattern `,\s*\S+` can match the `//` of a comment as "code
 after the comma" (`\t, // пояснение` matches `\t, //`), and such a match is
-rejected — the comma must lead to code, not into comment text. A match
-that ends strictly before the comment start (e.g. `\t; // комм`) remains a
+rejected — the comma must lead to code, not into comment text. When the line
+carries a `//` comment, the first-symbol pattern is matched against the code
+part of the line only (up to `comment_start`), so a match can never swallow
+comment text; code glued directly to the comment without a space
+(`\t,Арг//комм`) still matches the code part (`\t,Арг`) and stays a
+violation, with the span ending at the comment start. A match
+that ends at or before the comment start (e.g. `\t; // комм`) remains a
 violation.
 
 Deliberate non-parity with bsl-ls, by design:
@@ -702,11 +710,18 @@ Fix mechanics (known, mechanically safe tokens only):
   END branch is gated on the previous line's `in_query` entry state — the
   same field the detector uses to skip the line — so a line that closes a
   query region (e.g. `|ИЗ Т" +`, where `+` follows the closing quote of a
-  region opened on an earlier line) is never touched by the fixer. The
-  fixer only repairs a subset of what the detector diagnoses; it never
-  edits a line the detector skips as a whole (query-region lines,
-  including the opening and closing lines of the region). When the previous
-  line ends with a comment, the operator detaches from the code part and
+  region opened on an earlier line) is never touched by the END branch.
+  The fixer only repairs a subset of what the detector diagnoses; within
+  the END branch it never edits a line whose previous line carries the
+  query-region entry state (the interior and closing lines of the region).
+  The FIRST branch is not gated by that state: it can glue a known token
+  onto the closing line of a query region (e.g. `|А" И` followed by `\t);`
+  glues `);` onto the region's closing line). This is still a repair of a
+  diagnosed violation — the token's own violation was reported on the
+  carrier line carrying the token — so the fix⊆check invariant holds; the
+  detector skips the region's interior and closing lines only as whole-line
+  units, while a diagnosed token on such a line remains repairable. When the
+  previous line ends with a comment, the operator detaches from the code part and
   the comment stays on the previous line; the spaces between the code and
   `//` are preserved (the previous line's code part is rstripped, not the
   comment) so

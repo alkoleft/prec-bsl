@@ -791,7 +791,20 @@ fn detect_first_violation(
         return;
     }
 
-    let Some(matched) = settings.first_pattern.find(body) else {
+    // При наличии `//`-комментария FIRST-паттерн матчится по кодовой части
+    // строки — до comment_start (PR #17 round 3): жадный `\S+` дефолтного
+    // паттерна `,\s*\S+` на полном теле съедает и код, и текст комментария
+    // одним матчем (`\t,Арг//комм` → матч `\t,Арг//комм`), пересекает
+    // comment_start и отвергается целиком — true-positive терялся, хотя
+    // запятая ведёт в код. Матч по code-part возвращает нарушение со span,
+    // останавливающимся на comment_start; фантом `\t, // пояснение`
+    // (code-part `\t, ` — кода после запятой нет) по-прежнему не матчится.
+    // Смещения code-part совпадают со смещениями body (префиксный срез).
+    let code_part = match classification.comment_start {
+        Some(comment_start) => &body[..comment_start],
+        None => body,
+    };
+    let Some(matched) = settings.first_pattern.find(code_part) else {
         return;
     };
     if !classification.has_code_in(matched.start(), matched.end()) {
@@ -2045,5 +2058,47 @@ mod tests {
             &input[violations[0].byte_start..violations[0].byte_end],
             "\t;"
         );
+    }
+
+    // PR #17 round 3 (детектор): код, приклеенный к `//`-комментарию без
+    // пробела (`\t,Арг//комм`), — реальное FIRST-нарушение, а не фантом:
+    // жадный `\S+` дефолтного паттерна `,\s*\S+` съедал и код, и текст
+    // комментария одним матчем, матч пересекал comment_start и отвергался
+    // целиком — true-positive терялся, хотя запятая ведёт в код.
+    #[test]
+    fn detect_flags_comma_code_glued_to_comment() {
+        let input = "\tОповещение(\n\t,Арг//комм\n\t);";
+        let violations = find_line_break_violations(input, &LineBreakSettings::default_settings());
+
+        // Строка 2 — нарушение (запятая ведёт в код `Арг` до комментария);
+        // строка 3 (`\t)`) — отдельное FIRST-нарушение.
+        let lines: Vec<usize> = violations.iter().map(|violation| violation.line).collect();
+        assert_eq!(lines, vec![2, 3]);
+
+        // Span не тянет за собой текст комментария: только матч по кодовой
+        // части строки.
+        let line2 = &violations[0];
+        assert_eq!(
+            &input[line2.byte_start..line2.byte_end],
+            "\t,Арг",
+            "glued-comment match span must stop at the comment start"
+        );
+    }
+
+    // PR #17 round 3 (green-пин, регрессия): хвостовой оператор на
+    // ОТКРЫВАЮЩЕЙ строке query-региона (`Текст = "ВЫБРАТЬ И` — `И` после
+    // незакрытого запросного литерала) не диагностируется и не переносится.
+    // Механизм — string_ranges: незакрытый запросный литерал пушит
+    // (quote, body.len()) в string_ranges открывающей строки, `И` — внутри
+    // литерала, has_code_in отвергает матч. Это НЕ query-гейт: открывающая
+    // строка региона имеет entry-state in_query = false (регион открывается
+    // на ней самой), и защита работает только через строковые диапазоны.
+    #[test]
+    fn fix_keeps_end_operator_on_query_opening_line() {
+        let input = "\tТекст = \"ВЫБРАТЬ И\n\t|А\";";
+        let settings = LineBreakSettings::default_settings();
+
+        assert!(find_line_break_violations(input, &settings).is_empty());
+        assert_eq!(fix_line_breaks(input, &settings), input);
     }
 }
