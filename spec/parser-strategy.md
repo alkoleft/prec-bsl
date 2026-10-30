@@ -624,7 +624,11 @@ The prec-bsl classifier carries the state between lines:
   diagnosed token from the next line (the token's carrier line is the next
   line after the region's closing line and carries entry state `in_query` =
   false, so the gluing targets the region's closing line as the previous
-  line — see fix mechanics below);
+  line — see fix mechanics below); the opening line of the region (entry
+  state `in_query` = false when the line starts) remains FIRST-checkable —
+  the region is skipped starting from the following lines, so a comma
+  leading into the query-opening literal (`Запрос(\n\t, "ВЫБРАТЬ…`) is
+  flagged on that opening line;
 - `//` outside strings terminates the code part of a line.
 
 FIRST violations are matches of the first-symbol pattern at the start of the

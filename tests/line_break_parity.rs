@@ -39,12 +39,13 @@ const BASELINE_PATH: &str = "tests/fixtures/parity/ilb-fingerprint.txt";
 const PINNED_CORPUS_COMMIT: &str = "d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c";
 
 /// Непредсказуемый суффикс для временных каталогов теста (PR #17 round 5,
-/// замечание 4429045928): pid + монотонные наносекунды. Предсказуемое имя
-/// (`readable-<pid>`) в общем temp-каталоге позволяло заранее создать
-/// symlink на месте записываемого `module.bsl` и перезаписать его цель
-/// правами тестового процесса. Без новой зависимости (tempfile в
-/// workspace-депендах отсутствует) — прецедент `TempRatCopy` в
-/// `tests/support/rat.rs`.
+/// замечание 4429045928): pid + wall-clock наносекунды SystemTime
+/// (SKEP-002: SystemTime — не монотонные часы; для непредсказуемости имени
+/// достаточно и wall-clock). Предсказуемое имя (`readable-<pid>`) в общем
+/// temp-каталоге позволяло заранее создать symlink на месте записываемого
+/// `module.bsl` и перезаписать его цель правами тестового процесса. Без
+/// новой зависимости (tempfile в workspace-депендах отсутствует) — прецедент
+/// `TempRatCopy` в `tests/support/rat.rs`.
 fn unique_suffix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -98,12 +99,14 @@ impl Deref for SnapshotDir {
 }
 
 /// Извлечение снапшота запиненного коммита корпуса (`git archive` + `tar`) во
-/// временный каталог `prec-bsl-ilb-parity-<pid>-<tag>`; тег различает parity-
-/// и smoke-тесты, которые cargo запускает потоками одного процесса (pid
-/// совпадает). Возвращает гвард с корнем извлечённых `exts`/`tests`/
-/// `fixtures` (каталог чистится при drop, включая паники). `None` — skip:
-/// коммит отсутствует в локальном репозитории (corpus drift), `git`/`tar`
-/// недоступны или упали; в skip-путях каталог тоже подчищается.
+/// временный каталог `prec-bsl-ilb-parity-<pid>-<наносекунды>-<tag>`; тег
+/// различает parity- и smoke-тесты, которые cargo запускает потоками одного
+/// процесса (pid совпадает), непредсказуемый суффикс исключает заранее
+/// созданный symlink на месте `corpus.tar` (SKEP-001). Возвращает гвард с
+/// корнем извлечённых `exts`/`tests`/`fixtures` (каталог чистится при drop,
+/// включая паники). `None` — skip: коммит отсутствует в локальном репозитории
+/// (corpus drift), `git`/`tar` недоступны или упали; в skip-путях каталог тоже
+/// подчищается.
 ///
 /// CR5 (PR #17 round 5, замечание 4426569120): при явно заданном env
 /// `YAXUNIT_CORPUS` ни один из этих путей не является допустимым skip —
@@ -113,8 +116,12 @@ impl Deref for SnapshotDir {
 /// default-корпуса без env (CI без корпуса).
 fn extract_pinned_snapshot(corpus: &Path, tag: &str) -> Option<SnapshotDir> {
     let explicit = std::env::var_os("YAXUNIT_CORPUS").is_some();
+    // SKEP-001 (PR #17 round 6): имя каталога непредсказуемо (pid +
+    // наносекунды), иначе предсказуемый `prec-bsl-ilb-parity-<pid>-<tag>`
+    // позволял заранее создать symlink на месте `corpus.tar`, и `git
+    // archive -o` перезаписывал цель symlink'а правами тестового процесса.
     let snapshot_dir =
-        std::env::temp_dir().join(format!("prec-bsl-ilb-parity-{}-{tag}", std::process::id()));
+        std::env::temp_dir().join(format!("prec-bsl-ilb-parity-{}-{tag}", unique_suffix()));
     if let Err(error) = fs::create_dir_all(&snapshot_dir) {
         if explicit {
             panic!(
@@ -276,6 +283,15 @@ fn corpus_bsl_files(corpus: &Path) -> io::Result<Vec<PathBuf>> {
 fn collect_current_fingerprint(corpus: &Path) -> Vec<String> {
     let files = corpus_bsl_files(corpus)
         .unwrap_or_else(|error| panic!("failed to walk corpus {}: {error}", corpus.display()));
+    // SKEP-003 (PR #17 round 6): пустой корпус при явно заданном env —
+    // причина падения должна быть видна сразу, а не маскироваться под
+    // «finding count changed: baseline 318 vs current 0».
+    if files.is_empty() && std::env::var_os("YAXUNIT_CORPUS").is_some() {
+        panic!(
+            "YAXUNIT_CORPUS is set explicitly, but the pinned commit {PINNED_CORPUS_COMMIT} \
+             contains no .bsl files under exts/tests/fixtures"
+        );
+    }
 
     let settings = prec_bsl::line_break::LineBreakSettings::default_settings();
     let mut fingerprint = Vec::new();
@@ -410,6 +426,14 @@ fn yaxunit_line_break_fix_corpus_smoke_idempotent() {
             snapshot_dir.display()
         )
     });
+    // SKEP-003: при явно заданном env пустой корпус — ошибка окружения с
+    // явной причиной (тот же текст, что в parity-пути).
+    if files.is_empty() && std::env::var_os("YAXUNIT_CORPUS").is_some() {
+        panic!(
+            "YAXUNIT_CORPUS is set explicitly, but the pinned commit {PINNED_CORPUS_COMMIT} \
+             contains no .bsl files under exts/tests/fixtures"
+        );
+    }
     assert!(
         !files.is_empty(),
         "yaxunit corpus must contain at least one .bsl file for the fix smoke test"
