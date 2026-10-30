@@ -405,6 +405,20 @@ fn text_message(message: &str) -> String {
             return format!("найдено слово из словаря '{word}' в строке {line}");
         }
     }
+    if let Some(value) = message.strip_prefix("String length ") {
+        if let Some((length, rest)) = value.split_once(" exceeded maximum ") {
+            if let Some((limit, line)) = rest.split_once(" at line ") {
+                return format!(
+                    "длина строки {length} превышает максимально допустимую {limit} (строка {line})"
+                );
+            }
+        }
+    }
+    if let Some(value) = message.strip_prefix("max line length setting ") {
+        if let Some(setting) = value.strip_suffix(" must be a positive integer") {
+            return format!("настройка {setting} должна быть целым положительным числом");
+        }
+    }
     if let Some(value) = message.strip_prefix("failed to read file: ") {
         return format!("не удалось прочитать файл: {value}");
     }

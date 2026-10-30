@@ -217,6 +217,37 @@ fn output_text_localizes_real_xml_messages() {
 }
 
 #[test]
+fn output_text_localizes_line_length_messages() {
+    let report = PipelineReport {
+        mode: PipelineMode::Check,
+        processed_files: vec![PathBuf::from("src/Модуль.bsl")],
+        results: vec![
+            ScenarioResult::warning(
+                "ПроверкаДлиныСтрок",
+                "src/Модуль.bsl",
+                "String length 160 exceeded maximum 150 at line 3",
+            ),
+            ScenarioResult::hard_failure(
+                "ПроверкаДлиныСтрок",
+                "src/Модуль.bsl",
+                "max line length setting МаксимальнаяДлинаСтроки must be a positive integer",
+            ),
+        ],
+    };
+
+    let output = render_text_report(&report);
+
+    assert!(output.contains(
+        "предупреждение: длина строки 160 превышает максимально допустимую 150 (строка 3)"
+    ));
+    assert!(!output.contains("String length 160"));
+    assert!(output.contains(
+        "настройка МаксимальнаяДлинаСтроки должна быть целым положительным числом"
+    ));
+    assert!(!output.contains("must be a positive integer"));
+}
+
+#[test]
 fn output_json_contains_stable_contract_fields_and_source_span() {
     let report = sample_report();
 
