@@ -244,3 +244,112 @@ Completion evidence:
 Dependencies:
 
 - T38, T39 (crate layout and scenario definition binding).
+
+### T52. DONE: Implement `ОдинОператорНаСтроку` (OneStatementPerLine) check-and-fix scenario
+
+prec-bsl issue: `alkoleft/prec-bsl` #6 (part of the Sonar/bsl-ls scenario
+tracking issue #3). Implementation plan (kept in the main checkout outside
+version control, `docs/superpowers/plans/`):
+`2026-10-30-issue-6-one-statement-per-line.md`, tasks 1-5.
+
+Current finding:
+
+- The scenario set lacked a one-statement-per-line diagnostic and fixer
+  equivalent to the `bsl-language-server` OneStatementPerLine check, with
+  the fix indent contract (+1 tab after `Тогда`) from the issue.
+
+Resolution (implemented per the contract in `spec/parser-strategy.md`,
+section "One statement per line contract"):
+
+- Tree-sitter detection transliterating the bsl-ls
+  `OneStatementPerLineDiagnostic` `previousLineNumber` semantics:
+  statement walk in document order, violation when a statement's start row
+  equals the previous statement's start row, first statement on a line
+  never flagged; preprocessor statements, exception/ERROR-reset forms and
+  bare `;` reset the tracking and are not flagged; `elseif_clause` is a
+  track-only slot that is never flagged itself. Parity proven in module
+  tests against both bsl-ls test fixtures (5 and 2 violations with exact
+  LSP ranges).
+- Text-splice fixer moving every flagged statement to its own line:
+  pattern 1 = statement line indent byte-for-byte; pattern 2 (statement on
+  a `Тогда` row of `Если`/`ИначеЕсли`) = anchor line indent + one tab;
+  mixed chains after a block opener all get anchor + 1 tab; `Иначе` is not
+  pattern 2; the edit replaces the whitespace prefix with the file line
+  ending + indent (no trailing whitespace), multiline statements move
+  whole, `;` is never added or removed, empty statements produce no blank
+  lines; second run is a no-op (idempotence).
+- Parse-error policy: known safe ERROR forms do not block; other errors
+  intersecting violation rows degrade to a Warning result without
+  modification.
+- Handler: check + fix in one pass through `apply_text_modification`
+  (`WritePolicy::DryRun` gives check mode: a single dry-run result with
+  proposed content and the violating rows enumerated). Non-BSL files are
+  skipped.
+- Registered with `ScenarioSupport::Compatibility` (opt-in through
+  `ГлобальныеСценарии`, `.os`-suffix lookup supported), captured in
+  `spec/reference-scenario-inventory.md`.
+- Deliberate non-parity with bsl-ls is fixed in the contract: fix indent
+  after `Тогда` = +1 tab (vs the bsl-ls quickfix same-indent), `;` not
+  added to moved statements (issue #10 territory), check mode = single
+  dry-run result (not per-statement diagnostics).
+
+Acceptance criteria:
+
+- Detection parity with bsl-ls OneStatementPerLine on both reference
+  fixtures (embedded verbatim in unit tests).
+- Hook mode modifies and reports the violating rows; the second hook run
+  is clean; check mode never writes files.
+- Golden fixtures cover chain, if-then, mixed, crlf, spaces, multiline and
+  strings-comments cases with idempotence.
+- The scenario is opt-in and absent from default configuration.
+
+Validation:
+
+- `cargo test -p prec-bsl-bsl one_statement`
+- `cargo test --test one_statement_per_line`
+- `cargo test --workspace`
+
+Completion evidence:
+
+- 2026-10-30: grammar facts gate (plan Task 1, tree-dump artifact outside
+  git) confirmed the 0.1.6 tree shapes and proved the algorithm parity by
+  simulation before implementation. Finder and unit tests landed in commit
+  `063ad96` (test rename follow-up `5a8a3ac`); fixer in commit `4c3959f`;
+  handler, registration and integration/golden tests in commit `2746317`; CR-only guard in commit `783fc9c`;
+  specs in this commit (branch `issue-6-one-statement-per-line`).
+- 2026-10-30 (tree-sitter-bsl 0.1.7 adaptation, Cargo.lock bump kept):
+  probed 0.1.7 deltas with the standalone probe crate
+  (`/tmp/opencode/dateprobe2/probe`, depends on the workspace crate):
+  date literals parse as a clean `date` node; a bare `;` is a real
+  `_empty_statement` node (kind `";"`, prec(-1)) in statement position,
+  not an ERROR; `#Область … #КонецОбласти` parses as ONE `preprocessor`
+  node whose body holds the region's statements (the old walk returned
+  after the region reset and lost the region-body violations — main
+  bsl-ls fixture regained rows 8/8); `while_statement` still lacks
+  `optional(';')` (its trailing `;` is a sibling node and must not reset
+  tracking); the trailing `;` of if/try/for/for_each is held inside the
+  compound node after `ENDIF/ENDTRY/ENDDO` and must not be treated as an
+  empty statement. `call_statement` was already in STATEMENT_KINDS (the
+  task prompt's claim was wrong — no change needed). Module updated:
+  `preprocessor` added to containers with a fall-through descent after
+  the region reset; `is_empty_statement` decides statement position via
+  parent container kind plus prev-sibling exclusions
+  (`COMPOUND_TERMINATOR_KEYWORDS`, `while_statement`). ANTLR/bsl-ls
+  traces: `А=1; А=2;; А=3;` yields exactly one violation (`А=3`) and the
+  fix moves only it — replacing the old 0.1.6 guess that moved `А=1`.
+  Parse-error integration input replaced with the unterminated-procedure
+  form (`Процедура А()\nА=1; А=2;`): ERROR region led by
+  PROCEDURE_KEYWORD, not compound-led, no PREPROC children → relevant.
+  The 0.1.7 bump also changed `ПроверкаКорректностиИнструкцийПрепроцессора`
+  and `ПроверкаКорректностиОбластей`: unterminated `#Если` blocks and
+  stray region directives now parse as single ERROR regions led by the
+  directive keyword, and the tree walk double-reported the lexical
+  balance diagnostics — both checkers now skip those ERROR regions (the
+  balance stack owns the directive family; unit RED/GREEN tests added in
+  `bsl_checkers.rs`). Gates: `cargo test --workspace` 435 passed / 0
+  failed; `cargo fmt --check` clean; clippy introduces no new warnings
+  in touched files (one `needless_option_as_deref` in new code fixed).
+
+Dependencies:
+
+- T38, T39 (crate layout and scenario definition binding).

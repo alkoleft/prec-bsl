@@ -80,11 +80,12 @@ generic repository-local `.os` execution.
 - `ПробелыВКомментариях`
 - `ПробелыПослеЗапятых`
 - `ПроверкаДлиныСтрок`
+- `ОдинОператорНаСтроку`
 
 These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
-`SpaceAtStartComment`, `MissingSpace` (comma subset), and `LineLength`. They are
-NOT part of the required v1 `precommit4onec` inventory and are registered with
-`ScenarioSupport::Compatibility` so that:
+`SpaceAtStartComment`, `MissingSpace` (comma subset), `LineLength`, and
+`OneStatementPerLine`. They are NOT part of the required v1 `precommit4onec`
+inventory and are registered with `ScenarioSupport::Compatibility` so that:
 
 - the required v1 inventory list check in `src/lib.rs` stays unchanged;
 - `built_in_defaults` does not enable them implicitly (only `RequiredV1`
@@ -101,6 +102,18 @@ Warning-severity diagnostics, never modifies files, and never blocks hook
 mode. Line-break guidance for authors lives in `spec/line-break-rules.md`;
 the counting semantics contract lives in `spec/parser-strategy.md`. The
 lexical detector is implemented in `crates/prec-bsl-bsl/src/text_checkers.rs`.
+
+`ОдинОператорНаСтроку` (prec-bsl issue #6) is a check-and-fix scenario
+modeled on the `bsl-language-server` OneStatementPerLine diagnostic:
+detection is the `previousLineNumber` statement-walk semantics
+transliterated to `tree-sitter-bsl`, and the fix moves every flagged
+statement to its own line with a computed indent. It modifies BSL modules
+(hook mode reports modified paths and restaging is explicit), never adds or
+removes `;`, and degrades to a Warning without modification when parse
+errors intersect the detected violation rows. The full detection, fix and
+deliberate non-parity contract lives in `spec/parser-strategy.md`, section
+"One statement per line contract". The scenario is implemented in
+`crates/prec-bsl-bsl/src/one_statement_per_line.rs`.
 
 ## Explicit Unsupported Scenarios
 
