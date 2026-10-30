@@ -32,6 +32,11 @@ pub const LINE_BREAK_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatib
 /// `(:?` исправлена на `(?:`; кейс-инсенситивность задаётся при компиляции).
 const DEFAULT_FIRST_SYMBOL_PATTERN: &str = r"\)|;|,\s*\S+|\);";
 /// Паттерн конца строки из bsl-ls `listOfIncorrectLastSymbol`.
+///
+/// Keep in lockstep with [`FIXABLE_LAST_OPERATORS`]: один список операторов
+/// в двух представлениях (regex-альтернативы детектора / литеральный список
+/// фикстера). Порядок альтернатив критичен — `ИЛИ` до `И`, иначе хвост
+/// `ИЛИ` ложно матчится как `И`.
 const DEFAULT_LAST_SYMBOL_PATTERN: &str = r"ИЛИ|И|OR|AND|\+|-|/|%|\*";
 
 /// Настройки `НастройкиСценариев.ПроверкаПереносовСтрок.*` (ASCII-ключи bsl-ls).
@@ -116,12 +121,58 @@ struct LineScanState {
     skip_escaped_quote: bool,
 }
 
+/// Собранная строка фикстера (тело + окончание): владеет классификацией
+/// своего тела и инвариантом её свежести — классификация всегда соответствует
+/// текущему тексту и вычислена от [`LineScanState`] на границе начала этой
+/// строки (`entry_state`, стабилен на время сборки: мутации меняют текст
+/// строки, но не состояние входа её исходного тела). Раньше это была тройка
+/// `(String, LineClassification, LineScanState)` с ручным ритуалом
+/// «пересчитай классификацию после каждой мутации» — инвариант нарушался
+/// (ревью C4/CR1/H2 PR #17), теперь пересчёт спрятан в сеттер.
+#[derive(Debug, Clone)]
+struct AssembledLine {
+    text: String,
+    classification: LineClassification,
+    entry_state: LineScanState,
+}
+
+impl AssembledLine {
+    /// Собрать строку из тела с окончанием; классификация вычисляется в
+    /// конструкторе от `entry_state` — состояния на границе начала
+    /// исходной строки.
+    fn new(text: String, entry_state: LineScanState) -> Self {
+        let mut scan = entry_state;
+        let classification = classify_line(strip_line_ending(&text), &mut scan);
+        Self {
+            text,
+            classification,
+            entry_state,
+        }
+    }
+
+    /// Заменить текст строки; классификация пересчитывается от того же
+    /// `entry_state` — диапазоны и comment_start всегда соответствуют
+    /// новому телу.
+    fn set_text(&mut self, text: String) {
+        let mut scan = self.entry_state;
+        self.classification = classify_line(strip_line_ending(&text), &mut scan);
+        self.text = text;
+    }
+}
+
+/// Диапазон `[start, end)` (байтовые смещения в теле строки).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LineRange {
+    start: usize,
+    end: usize,
+}
+
 /// Результат классификации одной строки (без окончания строки).
 #[derive(Debug, Clone, Default)]
 struct LineClassification {
-    /// Диапазоны (byte_start, byte_end) частей строки внутри `"`-литералов
-    /// (включая кавычки) — FIRST/END матчи внутри них игнорируются.
-    string_ranges: Vec<(usize, usize)>,
+    /// Диапазоны частей строки внутри `"`-литералов (включая кавычки) —
+    /// FIRST/END матчи внутри них игнорируются.
+    string_ranges: Vec<LineRange>,
     /// Смещение `//`-комментария вне строк — матчи от него и далее игнорируются.
     comment_start: Option<usize>,
     /// Строка находится внутри query-региона — FIRST/END проверки отключены.
@@ -142,10 +193,12 @@ impl LineClassification {
         {
             return false;
         }
-        !self
-            .string_ranges
-            .iter()
-            .any(|&(string_start, string_end)| start < string_end && end > string_start)
+        !self.string_ranges.iter().any(
+            |&LineRange {
+                 start: string_start,
+                 end: string_end,
+             }| { start < string_end && end > string_start },
+        )
     }
 
     /// Конец код-части диапазона `[start, end)` — до первого строкового
@@ -162,7 +215,11 @@ impl LineClassification {
     /// код: `\t, Арг`).
     fn code_prefix_in_match(&self, start: usize, end: usize) -> Option<usize> {
         let mut code_end = end;
-        for &(string_start, string_end) in &self.string_ranges {
+        for &LineRange {
+            start: string_start,
+            end: string_end,
+        } in &self.string_ranges
+        {
             if start < string_end && end > string_start {
                 // Диапазон пересекает литерал: код-часть заканчивается
                 // на его начале, если начинается до него.
@@ -186,6 +243,10 @@ const FIXABLE_FIRST_TOKENS: &[&str] = &[");", ";", ")"];
 /// Известные фикстеру END-операторы (дефолтный список bsl-ls; `ИЛИ` раньше
 /// `И`, иначе хвост `ИЛИ` ложно матчится как `И`; словные операторы
 /// сравниваются кейс-инсенситивно).
+///
+/// Keep in lockstep with [`DEFAULT_LAST_SYMBOL_PATTERN`]: один список
+/// операторов в двух представлениях (литеральный список фикстера /
+/// regex-альтернативы детектора). Порядок критичен — `ИЛИ` до `И`.
 const FIXABLE_LAST_OPERATORS: &[&str] = &["ИЛИ", "И", "OR", "AND", "+", "-", "/", "%", "*"];
 
 /// Исправить IncorrectLineBreak-нарушения механически безопасным способом.
@@ -222,16 +283,14 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
     }
 
     let mut state = LineScanState::default();
-    // Каждая собранная строка хранит классификацию СВОЕГО ТЕЛА КАК ОНО
-    // СОБРАНО: при мутации строки (снятие оператора, приклейка токена)
-    // классификация пересчитывается по новому телу, поэтому диапазоны
-    // никогда не протухают (ревью C4: укороченная prev-строка с диапазонами
-    // исходного тела роняла is_code_line не на границе символа). Состояние
-    // сканера для пересчёта — состояние на границе начала этой строки: оно
-    // сохраняется на строке при вставке и восстанавливается из предыдущей
-    // строки при мутациях.
-    let mut fixed: Vec<(String, LineClassification, LineScanState)> =
-        Vec::with_capacity(lines.len());
+    // Каждая собранная строка — [`AssembledLine`]: классификация СВОЕГО ТЕЛА
+    // КАК ОНО СОБРАНО, пересчитывается в сеттере при каждой мутации, поэтому
+    // диапазоны никогда не протухают (ревью C4: укороченная prev-строка с
+    // диапазонами исходного тела роняла is_code_line не на границе символа).
+    // Состояние сканера для пересчёта — состояние на границе начала этой
+    // строки: оно сохраняется на строке при вставке и стабильно при
+    // мутациях текста.
+    let mut fixed: Vec<AssembledLine> = Vec::with_capacity(lines.len());
 
     for line in &lines {
         // Состояние на границе начала исходной строки: classify_line ниже
@@ -241,49 +300,47 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
         let (body, ending) = split_line_ending(line);
         let classification = classify_line(body, &mut state);
 
-        let Some((previous, previous_classification, previous_entry_state)) = fixed.last_mut()
-        else {
-            fixed.push((format!("{body}{ending}"), classification, line_entry_state));
+        let Some(previous) = fixed.last_mut() else {
+            fixed.push(AssembledLine::new(
+                format!("{body}{ending}"),
+                line_entry_state,
+            ));
             continue;
         };
 
         match plan_fix(
-            previous,
-            previous_classification,
+            &previous.text,
+            &previous.classification,
             body,
             &classification,
             settings,
         ) {
             LineFix::None => {
-                fixed.push((format!("{body}{ending}"), classification, line_entry_state));
+                fixed.push(AssembledLine::new(
+                    format!("{body}{ending}"),
+                    line_entry_state,
+                ));
             }
             LineFix::GlueFirstToken { token, remainder } => {
-                let previous_body = strip_line_ending(previous);
+                let previous_body = strip_line_ending(&previous.text);
                 if remainder.is_empty() {
                     // Строка-носитель удалена целиком: её окончание
                     // переходит на объединённую строку.
-                    *previous = format!("{previous_body}{token}{ending}");
-                    let mut state = *previous_entry_state;
-                    *previous_classification = classify_line(previous, &mut state);
+                    previous.set_text(format!("{previous_body}{token}{ending}"));
                 } else {
                     // prev сохраняет своё окончание; строка-носитель
                     // (остаток-комментарий) — окончание cur.
-                    let previous_ending = line_ending_of(previous);
-                    *previous = format!("{previous_body}{token}{previous_ending}");
-                    let mut state = *previous_entry_state;
-                    *previous_classification = classify_line(previous, &mut state);
-                    // Классификация строки-носителя пересчитывается по её
+                    let previous_ending = line_ending_of(&previous.text);
+                    previous.set_text(format!("{previous_body}{token}{previous_ending}"));
+                    // Классификация строки-носителя вычисляется по её
                     // НОВОМУ телу (остаток-комментарий) от entry-state ЕЁ
                     // исходной строки: классификация исходного тела
                     // (`\t;   // И` с comment_start после токена) протухает
                     // — comment_start остатка другой, и следующая итерация
                     // plan_fix считала кодом содержимое комментария (CR1
                     // PR #17: `И` вырывался из `// И` в код).
-                    let mut carrier_state = line_entry_state;
-                    let carrier_classification = classify_line(&remainder, &mut carrier_state);
-                    fixed.push((
+                    fixed.push(AssembledLine::new(
                         format!("{remainder}{ending}"),
-                        carrier_classification,
                         line_entry_state,
                     ));
                 }
@@ -306,9 +363,10 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                 // `//`-комментарий остаётся на prev в конце: оператор
                 // отклеивается от кодовой части, а пробелы между кодом и `//`
                 // сохраняются (минимальная порча форматирования комментария).
-                let previous_body = strip_line_ending(previous);
-                let previous_ending = line_ending_of(previous);
-                let code_limit = previous_classification
+                let previous_body = strip_line_ending(&previous.text);
+                let previous_ending = line_ending_of(&previous.text);
+                let code_limit = previous
+                    .classification
                     .comment_start
                     .unwrap_or(previous_body.len());
                 let operator_start = previous_body[..code_limit]
@@ -320,16 +378,11 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                     &previous_body[..operator_start],
                     &previous_body[code_limit..]
                 );
-                *previous = format!(
+                previous.set_text(format!(
                     "{}{}",
                     without_operator.trim_end_matches([' ', '\t']),
                     previous_ending
-                );
-                // Тело prev укорочено — классификация пересчитывается по
-                // новому телу от состояния на границе начала prev
-                // (ревью C4).
-                let mut state = *previous_entry_state;
-                *previous_classification = classify_line(previous, &mut state);
+                ));
 
                 let indent_len = body.len() - body.trim_start_matches([' ', '\t']).len();
                 let assembled = format!(
@@ -340,19 +393,17 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
                     ending
                 );
                 // Тело собранной строки длиннее исходного (вставлен
-                // `оператор + пробел` после отступа) — её классификация
-                // тоже пересчитывается от entry-state исходной строки,
-                // иначе диапазоны исходного тела протухают (ревью C4 —
+                // `оператор + пробел` после отступа): AssembledLine::new
+                // классифицирует собранное тело от entry-state исходной
+                // строки — диапазоны исходного тела не протухают (ревью C4 —
                 // вторая половина бага: паника падала именно на строке,
                 // СОБРАННОЙ этим правилом).
-                let mut state = line_entry_state;
-                let assembled_classification = classify_line(&assembled, &mut state);
-                fixed.push((assembled, assembled_classification, line_entry_state));
+                fixed.push(AssembledLine::new(assembled, line_entry_state));
             }
         }
     }
 
-    fixed.into_iter().map(|(line, _, _)| line).collect()
+    fixed.into_iter().map(|line| line.text).collect()
 }
 
 /// Каскад приклеек FIRST-токенов по строкам-носителям (ревью H2).
@@ -363,22 +414,19 @@ pub fn fix_line_breaks(input: &str, settings: &LineBreakSettings) -> String {
 /// приклеивается к ЕЁ prev — и так вверх по цепочке носителей, пока план не
 /// вернёт GlueFirstToken. Каждый шаг пересчитывает классификацию мутированной
 /// строки от её entry-state (ревью C4: диапазоны всегда соответствуют телу).
-fn cascade_carrier_glues(
-    fixed: &mut Vec<(String, LineClassification, LineScanState)>,
-    settings: &LineBreakSettings,
-) {
+fn cascade_carrier_glues(fixed: &mut Vec<AssembledLine>, settings: &LineBreakSettings) {
     while fixed.len() >= 2 {
         // cur — последняя собранная строка (потенциальный носитель), её
         // план строится относительно строки перед ней (grand).
-        let grand_index = fixed.len() - 2;
-        let cur_body = strip_line_ending(&fixed[grand_index + 1].0).to_owned();
-        let cur_classification = fixed[grand_index + 1].1.clone();
-        let cur_entry_state = fixed[grand_index + 1].2;
-        let cur_ending = line_ending_of(&fixed[grand_index + 1].0).to_owned();
+        let cur = fixed.last().expect("fixed.len() >= 2");
+        let cur_body = strip_line_ending(&cur.text).to_owned();
+        let cur_classification = cur.classification.clone();
+        let cur_entry_state = cur.entry_state;
+        let cur_ending = line_ending_of(&cur.text).to_owned();
 
-        let grand_line = fixed[grand_index].0.clone();
-        let grand_classification = fixed[grand_index].1.clone();
-        let grand_entry_state = fixed[grand_index].2;
+        let grand_index = fixed.len() - 2;
+        let grand_line = fixed[grand_index].text.clone();
+        let grand_classification = fixed[grand_index].classification.clone();
 
         let plan = plan_fix(
             &grand_line,
@@ -396,31 +444,21 @@ fn cascade_carrier_glues(
             // Носитель удалён целиком: его окончание переходит на
             // объединённую строку grand.
             fixed.pop();
-            let (target, target_classification, _) = fixed.last_mut().expect("grand exists");
-            *target = format!("{grand_body}{token}{cur_ending}");
-            let mut state = grand_entry_state;
-            *target_classification = classify_line(target, &mut state);
+            let target = fixed.last_mut().expect("grand exists");
+            target.set_text(format!("{grand_body}{token}{cur_ending}"));
         } else {
             // Носитель сохраняется (остаток-комментарий): grand хранит своё
             // окончание, носитель — окончание cur. После замены носителя
             // каскад останавливается: остаток-комментарий не может быть
             // строкой-носителем фиксируемого токена. Классификация остатка
-            // пересчитывается по его новому телу от entry-state носителя
+            // вычисляется по его новому телу от entry-state носителя
             // (CR1 PR #17: протухший comment_start исходного тела ел код
             // следующей строки).
             let grand_ending = line_ending_of(&grand_line).to_owned();
-            let (target, target_classification, _) = fixed.last_mut().expect("grand exists");
-            *target = format!("{grand_body}{token}{grand_ending}");
-            let mut state = grand_entry_state;
-            *target_classification = classify_line(target, &mut state);
+            let target = fixed.last_mut().expect("grand exists");
+            target.set_text(format!("{grand_body}{token}{grand_ending}"));
 
-            let mut carrier_state = cur_entry_state;
-            let carrier_classification = classify_line(&remainder, &mut carrier_state);
-            let carrier = (
-                format!("{remainder}{cur_ending}"),
-                carrier_classification,
-                cur_entry_state,
-            );
+            let carrier = AssembledLine::new(format!("{remainder}{cur_ending}"), cur_entry_state);
             fixed.pop();
             fixed.push(carrier);
             return;
@@ -561,7 +599,7 @@ fn starts_in_string(cur_body: &str, classification: &LineClassification) -> bool
         && classification
             .string_ranges
             .iter()
-            .any(|&(start, _)| start == 0)
+            .any(|&LineRange { start, .. }| start == 0)
 }
 
 /// Строка — код: не пустая, не чистый `//`-комментарий, содержит код вне
@@ -575,7 +613,11 @@ fn is_code_line(body: &str, classification: &LineClassification) -> bool {
 
     let limit = classification.comment_start.unwrap_or(body.len());
     let mut cursor = 0;
-    for &(range_start, range_end) in &classification.string_ranges {
+    for &LineRange {
+        start: range_start,
+        end: range_end,
+    } in &classification.string_ranges
+    {
         let segment_end = range_start.min(limit);
         if segment_end > cursor && !body[cursor..segment_end].trim().is_empty() {
             return true;
@@ -667,9 +709,10 @@ fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
                 } else if body[index + char.len_utf8()..].starts_with('"') {
                     state.skip_escaped_quote = true;
                 } else {
-                    classification
-                        .string_ranges
-                        .push((query_start.unwrap_or(0), index + 1));
+                    classification.string_ranges.push(LineRange {
+                        start: query_start.unwrap_or(0),
+                        end: index + 1,
+                    });
                     state.in_query = false;
                     query_start = None;
                 }
@@ -689,7 +732,10 @@ fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
                             // Первая кавычка пары `""` внутри литерала.
                             state.skip_escaped_quote = true;
                         } else {
-                            classification.string_ranges.push((start, index + 1));
+                            classification.string_ranges.push(LineRange {
+                                start,
+                                end: index + 1,
+                            });
                             string_start = None;
                         }
                     }
@@ -728,13 +774,19 @@ fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
     // in_string переносится на следующую строку. Для запросного литерала
     // in_string не нужен: регион переносится через state.in_query.
     if let Some(start) = string_start {
-        classification.string_ranges.push((start, body.len()));
+        classification.string_ranges.push(LineRange {
+            start,
+            end: body.len(),
+        });
         state.in_string = true;
     }
     // Незакрытый на этой строке запросный литерал: остаток строки-открытия —
     // строковый контент (строки региона детектор пропускает целиком).
     if let Some(start) = query_start {
-        classification.string_ranges.push((start, body.len()));
+        classification.string_ranges.push(LineRange {
+            start,
+            end: body.len(),
+        });
     }
 
     classification
@@ -1046,11 +1098,10 @@ pub fn line_break_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun
         }
     };
 
-    let violations = find_line_break_violations(&input, &settings);
-
     if context.write_policy == WritePolicy::Apply {
         // Apply: только modified — невылеченные skip-нарушения видны через
-        // `check`, не ломают exit-0 идемпотентность фикса.
+        // `check`, не ломают exit-0 идемпотентность фикса. Violations здесь
+        // не нужны (без предупреждений) — детектор не запускается вовсе.
         let output = fix_line_breaks(&input, &settings);
         if output == input {
             return ScenarioRun::clean();
@@ -1065,6 +1116,7 @@ pub fn line_break_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun
     }
 
     // DryRun: per-violation warnings + опциональный modified_dry_run.
+    let violations = find_line_break_violations(&input, &settings);
     let mut results = violations
         .into_iter()
         .map(|violation| {
