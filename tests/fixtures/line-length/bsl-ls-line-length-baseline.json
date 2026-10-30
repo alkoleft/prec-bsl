@@ -1,0 +1,359 @@
+{
+ "source": "bsl-language-server v1.0.7 exec jar, analyze -r json",
+ "config": "yaxunit .bsl-language-server.json: LineLength.maxLineLength=150",
+ "corpus": "/data/home/korav/projects/yaxunit",
+ "corpus_commit": "d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c",
+ "bsl_files_analyzed": 1808,
+ "tracked_bsl_files": 350,
+ "count": 58,
+ "diagnostics": [
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/ИсходящиеПисьма/Commands/КомандаОтправитьПисьмоКонтрагенту/CommandModule.bsl",
+   "line": 5,
+   "chars": 184,
+   "message": "Длина строки 184 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/ХранимыеФайлы/Forms/СписокСертификатов/Module.bsl",
+   "line": 123,
+   "chars": 186,
+   "message": "Длина строки 186 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonCommands/ОбщиеНастройки/CommandModule.bsl",
+   "line": 5,
+   "chars": 218,
+   "message": "Длина строки 218 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonForms/НастройкиМобильногоУстройства/Module.bsl",
+   "line": 52,
+   "chars": 177,
+   "message": "Длина строки 177 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/ГеопозиционированиеКлиент/Module.bsl",
+   "line": 77,
+   "chars": 167,
+   "message": "Длина строки 167 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/ГеопозиционированиеСервер/Module.bsl",
+   "line": 26,
+   "chars": 175,
+   "message": "Длина строки 175 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/АдминистративныйСервис/Commands/АдминистративныйСервис/CommandModule.bsl",
+   "line": 4,
+   "chars": 169,
+   "message": "Длина строки 169 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/Путеводитель/Commands/ПутеводительПоКонфигурации/CommandModule.bsl",
+   "line": 5,
+   "chars": 173,
+   "message": "Длина строки 173 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/УдалениеПомеченныхОбъектов/Forms/ОсновнаяФорма/Module.bsl",
+   "line": 150,
+   "chars": 168,
+   "message": "Длина строки 168 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/УдалениеПомеченныхОбъектов/Forms/ОсновнаяФорма/Module.bsl",
+   "line": 209,
+   "chars": 165,
+   "message": "Длина строки 165 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/УдалениеПомеченныхОбъектов/Forms/ОсновнаяФорма/Module.bsl",
+   "line": 213,
+   "chars": 158,
+   "message": "Длина строки 158 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/УправлениеНастройкамиФорм/Forms/Форма/Module.bsl",
+   "line": 172,
+   "chars": 194,
+   "message": "Длина строки 194 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Reports/ОстаткиТоваровНаСкладах/Commands/ОстаткиПоСкладу/CommandModule.bsl",
+   "line": 5,
+   "chars": 165,
+   "message": "Длина строки 165 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Reports/ОстаткиТоваровНаСкладах/Commands/ОстаткиПоСкладу/CommandModule.bsl",
+   "line": 6,
+   "chars": 180,
+   "message": "Длина строки 180 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/SettingsStorages/ХранилищеВариантовОтчетов/Forms/ФормаЗагрузки/Module.bsl",
+   "line": 112,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/SettingsStorages/ХранилищеВариантовОтчетов/Forms/ФормаСохранения/Module.bsl",
+   "line": 125,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/WebServices/MAExchange/Module.bsl",
+   "line": 6,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "fixtures/demo-configuration/src/WebServices/MAExchange/Module.bsl",
+   "line": 23,
+   "chars": 170,
+   "message": "Длина строки 170 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТГенераторКодаСлужебныйСервер/Module.bsl",
+   "line": 49,
+   "chars": 157,
+   "message": "Длина строки 157 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТИсполнительСлужебныйКлиент/Module.bsl",
+   "line": 184,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТОбщий/Module.bsl",
+   "line": 346,
+   "chars": 232,
+   "message": "Длина строки 232 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТОбщий/Module.bsl",
+   "line": 348,
+   "chars": 187,
+   "message": "Длина строки 187 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТПредикатыСлужебныйКлиентСервер/Module.bsl",
+   "line": 112,
+   "chars": 167,
+   "message": "Длина строки 167 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТРаботаСТекстом/Module.bsl",
+   "line": 27,
+   "chars": 161,
+   "message": "Длина строки 161 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТРаботаСТекстом/Module.bsl",
+   "line": 28,
+   "chars": 220,
+   "message": "Длина строки 220 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТРаботаСТекстом/Module.bsl",
+   "line": 38,
+   "chars": 154,
+   "message": "Длина строки 154 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТестовыеДанные/Module.bsl",
+   "line": 383,
+   "chars": 168,
+   "message": "Длина строки 168 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТестовыеДанные/Module.bsl",
+   "line": 459,
+   "chars": 167,
+   "message": "Длина строки 167 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТестовыеДанные/Module.bsl",
+   "line": 466,
+   "chars": 167,
+   "message": "Длина строки 167 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТесты/Module.bsl",
+   "line": 104,
+   "chars": 155,
+   "message": "Длина строки 155 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТесты/Module.bsl",
+   "line": 106,
+   "chars": 155,
+   "message": "Длина строки 155 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТесты/Module.bsl",
+   "line": 112,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТТесты/Module.bsl",
+   "line": 138,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 158,
+   "chars": 153,
+   "message": "Длина строки 153 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 897,
+   "chars": 155,
+   "message": "Длина строки 155 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 1199,
+   "chars": 166,
+   "message": "Длина строки 166 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 1629,
+   "chars": 176,
+   "message": "Длина строки 176 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 1958,
+   "chars": 159,
+   "message": "Длина строки 159 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 2000,
+   "chars": 159,
+   "message": "Длина строки 159 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 2530,
+   "chars": 155,
+   "message": "Длина строки 155 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 2548,
+   "chars": 161,
+   "message": "Длина строки 161 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 74,
+   "chars": 154,
+   "message": "Длина строки 154 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 86,
+   "chars": 177,
+   "message": "Длина строки 177 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 140,
+   "chars": 172,
+   "message": "Длина строки 172 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 216,
+   "chars": 162,
+   "message": "Длина строки 162 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 218,
+   "chars": 202,
+   "message": "Длина строки 202 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 268,
+   "chars": 204,
+   "message": "Длина строки 204 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 277,
+   "chars": 157,
+   "message": "Длина строки 157 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 293,
+   "chars": 199,
+   "message": "Длина строки 199 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 336,
+   "chars": 188,
+   "message": "Длина строки 188 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 350,
+   "chars": 165,
+   "message": "Длина строки 165 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 375,
+   "chars": 163,
+   "message": "Длина строки 163 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 419,
+   "chars": 151,
+   "message": "Длина строки 151 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 441,
+   "chars": 176,
+   "message": "Длина строки 176 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения_Предикаты/Module.bsl",
+   "line": 463,
+   "chars": 175,
+   "message": "Длина строки 175 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтвержденияИБ/Module.bsl",
+   "line": 228,
+   "chars": 153,
+   "message": "Длина строки 153 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтвержденияИБ/Module.bsl",
+   "line": 231,
+   "chars": 155,
+   "message": "Длина строки 155 превышает максимально допустимую 150"
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтвержденияИБ/Module.bsl",
+   "line": 234,
+   "chars": 156,
+   "message": "Длина строки 156 превышает максимально допустимую 150"
+  }
+ ]
+}

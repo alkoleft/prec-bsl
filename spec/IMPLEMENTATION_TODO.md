@@ -228,10 +228,18 @@ Completion evidence:
 - 2026-10-30: Detector, handler, and unit tests landed in commit `b4b28f0`;
   registry registration and message translations in commit `36a37a5`;
   integration/CLI tests in commit `1f25c43`; rustfmt pass in commit
-  `d65ff99` (branch `issue-4-line-length`). Implementation plan (kept in the
-  main checkout outside version control, `docs/superpowers/plans/`):
-  `2026-10-30-issue-4-line-length.md`.
-- bsl-ls parity snapshot validation is tracked separately (plan Task 5).
+  `d65ff99`; specs in commit `ed91514` (branch `issue-4-line-length`).
+  Implementation plan (kept in the main checkout outside version control,
+  `docs/superpowers/plans/`): `2026-10-30-issue-4-line-length.md`.
+- 2026-10-30: bsl-ls parity snapshot validation landed with the committed
+  baseline `tests/fixtures/line-length/bsl-ls-line-length-baseline.json`
+  (58 diagnostics, bsl-ls v1.0.7, yaxunit `d21ce6ff`, limit 150) and the
+  env-gated `tests/line_length_parity.rs` (run with
+  `PREC_BSL_PARITY_CORPUS=<yaxunit checkout>`; skips on corpus drift). The
+  validation run found and fixed a real detector gap: lone `\r` (CR-only
+  legacy Designer endings) is now a line terminator matching the bsl-ls
+  reader. Final parity: 58/58 fingerprints matched, 0 missing, 0 unexpected
+  over all 350 tracked `.bsl` files.
 
 Dependencies:
 

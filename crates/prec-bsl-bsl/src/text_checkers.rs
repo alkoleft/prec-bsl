@@ -289,7 +289,7 @@ pub fn find_long_lines(input: &str, limit: usize) -> Vec<LongLineMatch> {
     let mut matches = Vec::new();
     let mut in_string_literal = false;
 
-    for (line_index, raw_line) in input.lines().enumerate() {
+    for (line_index, raw_line) in logical_lines(input).enumerate() {
         let line = if line_index == 0 {
             raw_line.strip_prefix('\u{feff}').unwrap_or(raw_line)
         } else {
@@ -324,6 +324,29 @@ pub fn find_long_lines(input: &str, limit: usize) -> Vec<LongLineMatch> {
     }
 
     matches
+}
+
+/// Source lines split on `\r\n`, `\n`, and a lone `\r`, mirroring the
+/// `bsl-language-server` reader (Java `readLine` semantics). A lone `\r`
+/// terminates a line in legacy Designer dumps with CR-only endings, where
+/// `str::lines()` would treat the whole file as one line.
+fn logical_lines(input: &str) -> impl Iterator<Item = &str> {
+    let mut rest = input;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let Some(index) = rest.find(['\n', '\r']) else {
+            let line = rest;
+            rest = "";
+            return Some(line);
+        };
+        let line = &rest[..index];
+        let after = &rest[index..];
+        let terminator = if after.starts_with("\r\n") { 2 } else { 1 };
+        rest = &rest[index + terminator..];
+        Some(line)
+    })
 }
 
 /// Remainder of a `|`-continuation line after its closing quote (`""` escapes
@@ -517,6 +540,30 @@ mod tests {
                 length: 151
             }]
         );
+    }
+
+    #[test]
+    fn find_long_lines_lone_cr_terminates_line() {
+        // Designer-выгрузки со старыми CR-only окончаниями строк: одиночный `\r`
+        // завершает строку (семантика bsl-ls/Java readLine), а не склеивает файл
+        // в одну мегастроку. Реальный случай из parity-корпуса yaxunit
+        // (РасходТовара/ObjectModule.bsl: 327 CR-only строк, ни одной > 150).
+        let short_a = "СтрокаОдна = 1;";
+        let short_b = "СтрокаДве = 2;";
+        let long = "Б".repeat(151);
+        let input = format!("{short_a}\r{short_b}\r{long}\r");
+        assert_eq!(
+            find_long_lines(&input, 150),
+            vec![LongLineMatch {
+                line: 3,
+                length: 151
+            }]
+        );
+
+        // CR-only файл без длинных строк — чист, и строка ровно в лимит не
+        // флагается.
+        let exact = "В".repeat(150);
+        assert_eq!(find_long_lines(&format!("{exact}\r"), 150), Vec::new());
     }
 
     #[test]

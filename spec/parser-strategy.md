@@ -389,8 +389,10 @@ Length semantics (per source line, mirroring `bsl-language-server` LineLength):
   counting. Leading whitespace (indentation) is counted.
 - The line is flagged when its length is strictly greater than the limit
   (`length > limit`); a line of exactly the limit length is clean.
-- A line-1 BOM (`\u{feff}`) is stripped and not counted; `\r` of a CRLF
-  ending never enters the counted text (iteration over `lines()`).
+- A line-1 BOM (`\u{feff}`) is stripped and not counted; line endings are
+  split on `\r\n`, `\n`, and a lone `\r` (Java `readLine` semantics, mirroring
+  the `bsl-language-server` reader), so the terminator never enters the
+  counted text and legacy CR-only Designer dumps are still split into lines.
 - Comment lines (`//` ...) and preprocessor directive lines are counted as
   ordinary lines; quotes inside a `//` comment never open a string literal.
 - Multiline string literal continuations: while a string literal stays open
@@ -445,10 +447,22 @@ multiline string literals.
 Parity scope statement:
 
 - Parity with bsl-ls is validated as a snapshot on a pinned corpus commit
-  (baseline fixture capturing 58 diagnostics from bsl-ls v1.0.7 at yaxunit
-  `d21ce6ff`, limit 150). There is no continuous parity guarantee against
-  upstream changes; the semantic contract is carried by the unit and
-  integration tests.
+  (committed baseline fixture
+  `tests/fixtures/line-length/bsl-ls-line-length-baseline.json` capturing 58
+  diagnostics from bsl-ls v1.0.7 at yaxunit `d21ce6ff`, limit 150). There is
+  no continuous parity guarantee against upstream changes; the semantic
+  contract is carried by the unit and integration tests.
+- The env-gated regression test `tests/line_length_parity.rs` re-validates the
+  snapshot when `PREC_BSL_PARITY_CORPUS` points at a readable yaxunit checkout
+  whose `git rev-parse HEAD` equals the baseline `corpus_commit`; on corpus
+  drift it skips with baseline-refresh instructions rather than failing. The
+  detector runs over all tracked `.bsl` files of the corpus
+  (`git -c core.quotePath=false ls-files`) and compares fingerprint sets
+  `(path, line, chars)` in both directions, so it catches both false
+  negatives and false positives. The 2026-10-30 validation run found and
+  fixed one real detector gap: legacy CR-only Designer endings were not
+  treated as line terminators (58/58 matched after the fix, 0 missing,
+  0 unexpected).
 - The string-literal state tracker is private to the LineLength checker.
   It is extracted for reuse only when a second consumer appears.
 
