@@ -140,15 +140,18 @@ Discovery:
 
 `v8config.json` is optional. If neither repository discovery nor an explicit
 `--config v8config.json` path finds that file, `prec-bsl` uses built-in
-defaults: the supported v1 scenario set is enabled and scenario settings are
-empty/default. A missing explicit custom config path, for example
+defaults: all supported scenarios are enabled (required v1 plus compatibility
+scenarios) and scenario settings are empty/default. Unsupported scenarios
+(`РазборОбычныхФормНаИсходники`, `ОбработкаЮнитТестов`, and other
+platform-dependent or repository-local ids) stay excluded from the defaults.
+A missing explicit custom config path, for example
 `--config custom-v8config.json`, remains a configuration error.
 
 Inside a present `v8config.json`, the `ГлобальныеСценарии` key distinguishes
 three states:
 
 - key absent — the built-in default scenario set is enabled (the same list as
-  when the whole file is absent: required v1 scenarios);
+  when the whole file is absent: all supported scenarios);
 - key present with an empty array `[]` — the deliberate opt-out that enables
   no scenarios;
 - key present with a non-empty list — exactly those scenarios are enabled.
@@ -158,7 +161,10 @@ The same contract applies to each `Проекты` section: a project without it
 `Precommt4onecСценарии` section (which is the built-in default set when the
 top-level key is absent too), while `[]` inside the project section disables
 all scenarios for that project only. `ОтключенныеСценарии` entries are
-subtracted from the resulting set at every level.
+subtracted from the resulting set at every level, so disabling individual
+scenarios from the default set is the opt-out path: list them in
+`ОтключенныеСценарии` instead of restating the full `ГлобальныеСценарии`
+list.
 
 This removes the historic trap where a config file that only tuned `GLOBAL` or
 `ОтключенныеСценарии` silently resolved to zero enabled scenarios, so `check`

@@ -99,11 +99,14 @@ pub fn parse_config_str_with_catalog(
     Ok(config)
 }
 
-/// Built-in defaults used when no `v8config.json` is discovered: the
-/// required v1 scenario set is enabled. The same list is applied inside
+/// Built-in defaults used when no `v8config.json` is discovered: all
+/// supported scenarios (required v1 plus compatibility) are enabled, while
+/// unsupported scenarios stay excluded. The same list is applied inside
 /// `RawScenarioConfig::into_domain` when a present config file omits the
 /// `ГлобальныеСценарии` key, so "no file" and "file without the key"
-/// resolve to the same default scenario set.
+/// resolve to the same default scenario set. Users opt out through
+/// `ОтключенныеСценарии` or narrow with an explicit `ГлобальныеСценарии`
+/// list.
 pub fn built_in_defaults_with_catalog(catalog: ScenarioCatalog<'_>) -> ResolvedConfig {
     ResolvedConfig {
         source: ConfigSource::BuiltInDefaults,
@@ -118,7 +121,7 @@ pub fn built_in_defaults_with_catalog(catalog: ScenarioCatalog<'_>) -> ResolvedC
                 local_scenarios_dir: None,
             },
             global_scenarios: catalog
-                .required_v1()
+                .supported()
                 .map(|scenario| scenario.id.to_owned())
                 .collect(),
             disabled_scenarios: Vec::new(),

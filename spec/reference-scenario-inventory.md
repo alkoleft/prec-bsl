@@ -88,9 +88,11 @@ These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
 inventory and are registered with `ScenarioSupport::Compatibility` so that:
 
 - the required v1 inventory list check in `src/lib.rs` stays unchanged;
-- `built_in_defaults` does not enable them implicitly (only `RequiredV1`
-  scenarios are enabled by default);
-- users opt in by listing the ids in `ГлобальныеСценарии`.
+- `built_in_defaults` enables them implicitly together with every other
+  supported scenario (all supported = RequiredV1 + Compatibility), while
+  unsupported scenarios stay excluded;
+- users can turn them off through `ОтключенныеСценарии` or narrow the set with
+  an explicit `ГлобальныеСценарии` list.
 
 `ПробелыВКомментариях` and `ПробелыПослеЗапятых` are lexical text fixers with
 string/comment state tracking; see `crates/prec-bsl-bsl/src/text_fixers.rs`.

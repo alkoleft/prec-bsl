@@ -190,14 +190,14 @@ fn line_length_zero_and_negative_settings_fail() {
 }
 
 #[test]
-fn line_length_not_enabled_by_default() {
-    let repo = temp_repo("not_enabled_by_default");
+fn line_length_not_enabled_by_explicit_narrowed_config() {
+    let repo = temp_repo("not_enabled_by_explicit_list");
     let repo_path = PathBuf::from("src/Модуль.bsl");
     let input = format!("{}\n", bsl_line_of_length(160));
     write_file(repo.join(&repo_path), &input);
 
-    // A config without the scenario in ГлобальныеСценарии (the shape used
-    // when only other scenarios are enabled) must not run it.
+    // An explicit ГлобальныеСценарии list narrows the enabled set to
+    // exactly the listed scenarios: the scenario not listed must not run.
     let config = parse_config_str(
         r#"{
             "Precommt4onecСценарии": {
@@ -214,7 +214,7 @@ fn line_length_not_enabled_by_default() {
             .results
             .iter()
             .all(|result| result.rule_id != LINE_LENGTH_RULE),
-        "scenario must be opt-in only: {:?}",
+        "explicit scenario list must narrow the enabled set: {:?}",
         report.results
     );
     assert!(
