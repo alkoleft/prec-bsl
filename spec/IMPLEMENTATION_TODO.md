@@ -349,6 +349,23 @@ Completion evidence:
   `bsl_checkers.rs`). Gates: `cargo test --workspace` 435 passed / 0
   failed; `cargo fmt --check` clean; clippy introduces no new warnings
   in touched files (one `needless_option_as_deref` in new code fixed).
+- 2026-10-30 (post-merge review of PR #18, branch
+  `fix-ospl-review-findings`): two confirmed fixer bugs, both reproduced
+  by RED tests before the fix. (1) A UTF-8 BOM before an indented row-0
+  chain broke the indent scan (`line_start`/`indent_end`/`prefix_start`
+  stopped at the BOM bytes): the moved statement was dedented. Row 0 now
+  computes `indent_base` after a leading `\xEF\xBB\xBF`, keeping the BOM
+  byte-for-byte and the indent after it. (2) `block_opener_rows` was
+  row-based: with ordinary statements before an inline
+  `Если … Тогда` (`А=1; Б=2; Если В Тогда Г=3;`) every violation on the
+  row wrongly got the extra tab. The extra tab is now scoped to the
+  opener chain: the pattern-2 statement and later violations on the row
+  (byte-start >= the first pattern-2 violation's start on that row);
+  earlier statements keep the line indent. Detection semantics unchanged
+  (both bsl-ls parity fixtures still 5/2). Gates: `cargo test -p
+  prec-bsl-bsl one_statement` 36/36 (4 new), `cargo test --workspace`
+  439 passed / 0 failed, `cargo fmt --check` clean, clippy clean in the
+  touched file. Idempotence loop extended with both review inputs.
 
 Dependencies:
 
