@@ -1,0 +1,1 @@
+modified|ПробелыВокругОператоров|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|added spaces around operators
