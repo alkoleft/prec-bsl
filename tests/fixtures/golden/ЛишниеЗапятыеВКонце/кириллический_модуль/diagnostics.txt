@@ -1,0 +1,1 @@
+modified|ЛишниеЗапятыеВКонце|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|removed trailing commas

@@ -16,6 +16,7 @@ pub const CANONICAL_SPELLING_RULE: &str = "ИсправлениеНеКанон�
 pub const COMMENT_SPACING_RULE: &str = "ПробелыВКомментариях";
 pub const COMMA_SPACING_RULE: &str = "ПробелыПослеЗапятых";
 pub const OPERATOR_SPACING_RULE: &str = "ПробелыВокругОператоров";
+pub const EXTRA_TRAILING_COMMAS_RULE: &str = "ЛишниеЗапятыеВКонце";
 
 pub const COPYRIGHT_SCENARIO: ScenarioDefinition =
     ScenarioDefinition::required_v1(COPYRIGHT_RULE, "ВставкаКопирайтов.os", copyright);
@@ -50,6 +51,11 @@ pub const OPERATOR_SPACING_SCENARIO: ScenarioDefinition = ScenarioDefinition::co
     OPERATOR_SPACING_RULE,
     "ПробелыВокругОператоров.os",
     operator_spacing,
+);
+pub const EXTRA_TRAILING_COMMAS_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    EXTRA_TRAILING_COMMAS_RULE,
+    "ЛишниеЗапятыеВКонце.os",
+    extra_trailing_commas,
 );
 
 const COPYRIGHT_PATH_SETTING: &str = "ПутьКФайлуКопирайта";
@@ -175,6 +181,14 @@ pub fn operator_spacing(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
         context,
         fix_operator_spacing,
         "added spaces around operators",
+    )
+}
+
+pub fn extra_trailing_commas(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    run_bsl_text_fixer(
+        context,
+        fix_extra_trailing_commas,
+        "removed trailing commas",
     )
 }
 
@@ -636,6 +650,10 @@ pub fn fix_operator_spacing(input: &str) -> String {
     apply_spans(input, &scan_operator_edits(input))
 }
 
+pub fn fix_extra_trailing_commas(input: &str) -> String {
+    apply_spans(input, &scan_trailing_comma_edits(input))
+}
+
 /// Событие лексического скана BSL-текста: единый трекер литералов и
 /// комментариев для новых span-фикссеров (`ПробелыВокругОператоров`,
 /// `ЛишниеЗапятыеВКонце`). События владеют только byte-индексами, поэтому
@@ -649,16 +667,16 @@ enum ScanEvent {
         index: usize,
         byte: u8,
         prev_code: Option<u8>,
-        /// Читается только модульными тестами сканера сейчас; потребитель —
-        /// `scan_trailing_comma_edits` задачи `ЛишниеЗапятыеВКонце` (issue #9).
-        #[allow(dead_code)]
         depth: u32,
     },
     /// Границы `//`-комментария до конца строки, включая терминатор строки.
-    /// Сейчас читается только модульными тестами; потребитель —
-    /// `scan_trailing_comma_edits` задачи `ЛишниеЗапятыеВКонце` (issue #9).
-    #[allow(dead_code)]
-    Comment { start: usize, end: usize },
+    /// `start` читается модульными тестами сканера; потребители фикссеров
+    /// используют `end` как границу сохраняемого комментария.
+    Comment {
+        #[allow(dead_code)]
+        start: usize,
+        end: usize,
+    },
 }
 
 /// Непересекающаяся byte-правка текста: вставка одиночного пробела на позиции
@@ -666,10 +684,6 @@ enum ScanEvent {
 #[derive(Debug, PartialEq)]
 enum SpanEdit {
     InsertSpaceAt(usize),
-    /// Сейчас конструируется только модульными тестами `apply_spans`;
-    /// потребитель — `scan_trailing_comma_edits` задачи `ЛишниеЗапятыеВКонце`
-    /// (issue #9).
-    #[allow(dead_code)]
     DeleteRange(usize, usize),
 }
 
@@ -953,6 +967,107 @@ fn push_insert(edits: &mut Vec<SpanEdit>, index: usize) {
 
 fn is_space_byte(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
+}
+
+/// Собирает непересекающиеся span-правки `ЛишниеЗапятыеВКонце`.
+///
+/// Хвостовой регион — максимальная последовательность запятых, пробелов
+/// (включая переводы строк) и `//`-комментариев, идущая после запятой на
+/// глубине `(`>0 и завершающаяся `)` на согласующей глубине без иных
+/// кодовых токенов между. В регионе удаляются все запятые и пробелы;
+/// комментарии (включая их терминаторы строк) сохраняются. Каждая запятая
+/// региона — отдельный DeleteRange-спан; пробелы объединяются в один спан
+/// на максимальный непрерывный чисто-пробельный отрезок региона.
+///
+/// `Метод(А,\n Б)` (после запятой есть кодовый токен) и `Метод(А, , Б)`
+/// (средняя пустота перед кодовым токеном) — не хвостовые, не меняются.
+/// Запятые на глубине 0 не затрагиваются.
+fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
+    let events = scan(text);
+    let mut edits = Vec::new();
+
+    let mut cursor = 0;
+    while cursor < events.len() {
+        let ScanEvent::Code {
+            index,
+            byte: b',',
+            depth,
+            ..
+        } = events[cursor]
+        else {
+            cursor += 1;
+            continue;
+        };
+        cursor += 1;
+        if depth == 0 {
+            continue;
+        }
+
+        // Ищем конец хвостового региона: события запятых, пробелов и
+        // комментариев до `)` на глубине этой запятой. `(` или иной кодовый
+        // байт прерывает поиск — запятая не хвостовая.
+        let mut region_cursor = cursor;
+        let mut gap_start = index + 1;
+        let mut region_edits = vec![SpanEdit::DeleteRange(index, index + 1)];
+        let mut is_trailing = false;
+        while region_cursor < events.len() {
+            match events[region_cursor] {
+                ScanEvent::Code {
+                    index: next_index,
+                    byte: b',',
+                    depth: next_depth,
+                    ..
+                } if next_depth == depth => {
+                    // Запятая региона: пробелы между ней и предыдущим
+                    // элементом входят в регион и удаляются.
+                    push_space_deletion(&mut region_edits, gap_start, next_index);
+                    region_edits.push(SpanEdit::DeleteRange(next_index, next_index + 1));
+                    gap_start = next_index + 1;
+                    region_cursor += 1;
+                }
+                ScanEvent::Comment { end, .. } => {
+                    // Комментарий сохраняется целиком (с терминатором
+                    // строки); пробелы перед ним — не часть удаляемого
+                    // хвоста, они отделяют код от комментария
+                    // (`Метод(А, // к\n,)` → `Метод(А // к\n)`).
+                    gap_start = end;
+                    region_cursor += 1;
+                }
+                ScanEvent::Code {
+                    index: close_index,
+                    byte: b')',
+                    depth: close_depth,
+                    ..
+                } if close_depth == depth => {
+                    push_space_deletion(&mut region_edits, gap_start, close_index);
+                    is_trailing = true;
+                    break;
+                }
+                _ => break,
+            }
+        }
+
+        if !is_trailing {
+            // Хвостовой регион не закрылся `)` на согласующей глубине:
+            // запятая не хвостовая, правки региона отбрасываются.
+            continue;
+        }
+
+        // Запятые подтверждённого региона уже покрыты его правками —
+        // внешний цикл продолжает после `)`.
+        cursor = region_cursor;
+        edits.extend(region_edits);
+    }
+
+    edits
+}
+
+/// Удаляет максимальный непрерывный чисто-пробельный отрезок региона
+/// (между запятой/комментарием и следующим элементом) одним спаном.
+fn push_space_deletion(edits: &mut Vec<SpanEdit>, start: usize, end: usize) {
+    if end > start {
+        edits.push(SpanEdit::DeleteRange(start, end));
+    }
 }
 
 /// Применяет отсортированные непересекающиеся span-правки за один проход.
@@ -2211,6 +2326,147 @@ mod tests {
         let text = "A  =B";
         let output = apply_spans(text, &[SpanEdit::DeleteRange(2, 3)]);
         assert_eq!(output, "A =B");
+    }
+
+    #[test]
+    fn trailing_commas_removes_trailing_comma_runs_in_calls() {
+        let cases = [
+            ("Область(Имя, КонецВывода, )", "Область(Имя, КонецВывода)"),
+            ("Метод2(Парам1, Парам2,,,)", "Метод2(Парам1, Парам2)"),
+            ("Метод4(Парам1, , Парам2,,,,)", "Метод4(Парам1, , Парам2)"),
+            ("Метод(А,,)", "Метод(А)"),
+            ("Метод(А, )", "Метод(А)"),
+            ("Метод(А, Б,)", "Метод(А, Б)"),
+            ("МетодЛитерал(А, \"текст\",)", "МетодЛитерал(А, \"текст\")"),
+            ("МетодДата(А, '0001-01-01',)", "МетодДата(А, '0001-01-01')"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(fix_extra_trailing_commas(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn trailing_commas_removes_multiline_trailing_runs() {
+        let cases = [
+            ("Метод(А,\n)", "Метод(А)"),
+            ("Метод(А,\n,,\n)", "Метод(А)"),
+            ("Метод(А,\r\n,\r\n)", "Метод(А)"),
+            ("Метод(А,\r)", "Метод(А)"),
+            ("Метод(А,\n\t,\n)", "Метод(А)"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(fix_extra_trailing_commas(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn trailing_commas_keeps_commas_before_code_tokens_and_at_depth_zero() {
+        let cases = [
+            "Метод(А,\n Б)",
+            "Метод(А, , Б)",
+            "Метод4(Парам1, , Парам2)",
+            "А, Б, В",
+        ];
+        for input in cases {
+            assert_eq!(fix_extra_trailing_commas(input), input, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn trailing_commas_preserves_comments_in_trailing_region() {
+        // Правило плана: в хвостовом регионе комментарии сохраняются, каждая
+        // запятая (до и после комментария) удаляется отдельным спаном,
+        // пробел перед комментарием сохраняется, пробелы чистого хвоста
+        // (после последнего комментария) удаляются.
+        let cases = [
+            ("Метод(А, // комм\n)", "Метод(А // комм\n)"),
+            ("Метод(А, // к\n,)", "Метод(А // к\n)"),
+            ("Метод(А, // к\n, )", "Метод(А // к\n)"),
+            ("Метод(А, // к1\n, // к2\n)", "Метод(А // к1\n // к2\n)"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(fix_extra_trailing_commas(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn trailing_commas_protects_literals_and_preprocessor_directives() {
+        let input = concat!(
+            "Строка = \"запятая,,, и ,) внутри литерала\";\n",
+            "Текст = \"первая строка\n",
+            "|А,,,Б,,) внутри литерала\n",
+            "|\";\n",
+            "// комментарий с запятыми ,,,)\n",
+            "МетодДата(А, '0001-01-01');\n",
+            "#Если Сервер Тогда\n",
+            "\tМетод(А,,,);\n",
+            "#КонецЕсли\n",
+        );
+        let output = fix_extra_trailing_commas(input);
+
+        assert_eq!(
+            output,
+            concat!(
+                "Строка = \"запятая,,, и ,) внутри литерала\";\n",
+                "Текст = \"первая строка\n",
+                "|А,,,Б,,) внутри литерала\n",
+                "|\";\n",
+                "// комментарий с запятыми ,,,)\n",
+                "МетодДата(А, '0001-01-01');\n",
+                "#Если Сервер Тогда\n",
+                "\tМетод(А);\n",
+                "#КонецЕсли\n",
+            )
+        );
+    }
+
+    #[test]
+    fn trailing_commas_line_ending_matrix_bom_and_cyrillic_are_preserved() {
+        for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")] {
+            let input = format!("Метод(А,,{line_ending}){line_ending}Ф(Б, В,,){line_ending}");
+            let expected = format!("Метод(А){line_ending}Ф(Б, В){line_ending}");
+
+            let first = fix_extra_trailing_commas(&input);
+            assert_eq!(first, expected, "{name} rewrite must preserve line endings");
+            assert_eq!(
+                fix_extra_trailing_commas(&first),
+                expected,
+                "{name} must be clean"
+            );
+        }
+
+        let bom_input = "\u{feff}Метод(А,,,);\n";
+        let bom_output = fix_extra_trailing_commas(bom_input);
+        assert_eq!(bom_output, "\u{feff}Метод(А);\n");
+        assert_eq!(fix_extra_trailing_commas(&bom_output), bom_output);
+    }
+
+    #[test]
+    fn trailing_commas_is_idempotent_on_cyrillic_module() {
+        let input = concat!(
+            "Процедура Модуль()\n",
+            "\tОбласть(Имя, КонецВывода, );\n",
+            "\tМетод2(Парам1, Парам2,,,);\n",
+            "\tМетод4(Парам1, , Парам2,,,,);\n",
+            "\tМетод(А,\n\t\t,,\n\t);\n",
+            "\tМетод(А, // комм\n\t,);\n",
+            "КонецПроцедуры\n",
+        );
+
+        let first = fix_extra_trailing_commas(input);
+        assert_eq!(
+            first,
+            concat!(
+                "Процедура Модуль()\n",
+                "\tОбласть(Имя, КонецВывода);\n",
+                "\tМетод2(Парам1, Парам2);\n",
+                "\tМетод4(Парам1, , Парам2);\n",
+                "\tМетод(А);\n",
+                "\tМетод(А // комм\n);\n",
+                "КонецПроцедуры\n",
+            )
+        );
+        assert_eq!(fix_extra_trailing_commas(&first), first);
     }
 
     #[test]
