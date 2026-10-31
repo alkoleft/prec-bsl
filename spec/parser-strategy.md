@@ -554,7 +554,7 @@ Fix contract (text splice, applied over original byte offsets):
   ending is used, no trailing whitespace remains (double spaces collapse),
   and multiline statements move as a whole with continuation rows untouched.
 - `;` is never added to or removed from a moved statement (missing `;`
-  is handled by the `ПроверкаТочекЗапятой` contract above/below), and empty
+  is handled by the `ПроверкаТочекЗапятой` contract below), and empty
   statements (`;;`) produce no blank lines.
 - The fix is idempotent: a second run over fixed output produces zero
   changes (unit `fix(fix(x))`, golden `assert_fixer_fixture` and the
@@ -596,7 +596,7 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
    are implemented by the `ПроверкаТочекЗапятой` contract (see below).
 3. Check mode reports one dry-run result enumerating the violating rows,
    not one diagnostic per flagged statement as bsl-ls does.
-=======
+
 ### Semicolon presence contract (`ПроверкаТочекЗапятой`)
 
 `ПроверкаТочекЗапятой` (prec-bsl issue #10) is a tree-sitter check + fix
@@ -675,14 +675,16 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
    excluded by construction (bsl-ls: not statements / disabled contexts).
 2. Statements inside tree-sitter ERROR regions may diverge from ANTLR
    error-recovery shapes; both engines skip errored statements, but the
-   shapes differ. Divergences are classified as residue in the parity
-   baseline (MISSING-node and ERROR-region classes). A representative
-   case: a label-MISSING input (`~Метка` without `:`) parses as a
-   MISSING-decorated node whose post-fix shape is an ERROR — the fix
-   refuses the fixed output as unsafe, so idempotence for that input is
-   a no-op refusal; bsl-ls leaves the same input unflagged (its
-   `ParseError` diagnostic fires instead, before and after). Accepted
-   as documented behavior, kept in the residue list.
+   shapes differ. A representative case: a label-MISSING input (`~Метка`
+   without `:`). On the pristine input both engines agree — bsl-ls
+   reports `ParseError` and `SemicolonPresence` at the same stop token
+   (`Метка`), and the detector flags it too. After the fix inserts `;`,
+   the engines diverge: bsl-ls stops flagging it (`ParseError` remains),
+   while the tree-sitter parse of `~Метка;` becomes an ERROR region, so
+   the fixer refuses its own output as unsafe and idempotence for that
+   input is a no-op refusal. Accepted as documented behavior; the case
+   is pinned in the module's unit tests (`fix_is_idempotent` label
+   exclusion and the detector's label probe).
 3. Check-mode diagnostics carry the stop-token span (bsl-ls reports the
    stop-token range); message text is a stable EN template with the
    1-based line, not an LSP range object.
@@ -698,8 +700,10 @@ Parity scope statement:
   assertion. Post-fix guarantee: after applying the fix to a disposable
   corpus clone, `SemicolonPresence` diagnostics are zero outside (a) files
   the fix refused by documented policy and (b) detector residue classes.
-- Baseline recipe (reproducible): run
-  `java -jar <bsl-ls v1.0.7> analyze -s <corpus> -r json` with the corpus
+- Baseline recipe (reproducible; canonical invocation lives in
+  `tests/semicolon_parity.rs::run_bsl_ls`): run
+  `java -jar <bsl-ls v1.0.7> analyze -s <corpus> -r json -o <outdir> -q`
+  (the output dir must be created first) with the corpus
   `.bsl-language-server.json`, filter `SemicolonPresence` diagnostics over
   tracked `.bsl` files only (untracked `build/` dump dirs are excluded),
   normalize LSP 0-based lines to 1-based. The env-gated parity test
@@ -727,6 +731,7 @@ Extraction of a shared statement-walking helper is deferred; trigger: the
 third tree-sitter statement-walking scenario. `has_lone_cr` is shared via
 `bsl_parser` (`pub(crate)`) instead of being copied.
 
+### `ПроверкаПереносовСтрок` (IncorrectLineBreak parity) contract
 
 `ПроверкаПереносовСтрок` is a lexical, stateful check + fix scenario modeled
 on the `bsl-language-server` `IncorrectLineBreak` diagnostic. It is a
