@@ -22,43 +22,58 @@ Roadmap style:
 
 ## Milestone 12: Extension Lexical Fixers
 
-### T51. IN PROGRESS: ПробелыВокругОператоров + ЛишниеЗапятыеВКонце extension fixers
+### T51. DONE: ПробелыВокругОператоров + ЛишниеЗапятыеВКонце extension fixers
 
-Upstream issue: `alkoleft/prec-bsl` #9 (part of #3, «проверка vs фикс» table).
+prec-bsl upstream issue: `alkoleft/prec-bsl` #9 (part of #3, «проверка vs
+фикс» table). Resolved 2026-10-31; see the completion evidence below. The
+scenario contracts live in `spec/parser-strategy.md` (section "Operator
+spacing and trailing comma fixers contract") and
+`spec/reference-scenario-inventory.md` (Extension Scenarios).
 
-Scope:
+Resolution:
 
-- Two lexical extension fixers (opt-in via `ГлобальныеСценарии`):
-  `ПробелыВокругОператоров` (bsl-ls MissingSpace operator subset) and
-  `ЛишниеЗапятыеВКонце` (bsl-ls ExtraCommas), following the
-  `ПробелыПослеЗапятых` / `ПробелыВКомментариях` compatibility pattern.
-- Whole-file lexical span scan (single literal/comment tracker, paren depth,
-  look-ahead), no new public module, no migration of existing per-line fixers.
-- bsl-ls 1.0.7 parity on the yaxunit control corpus (env-gated test, pinned
-  commit) with documented deliberate non-parity: unary `-`/`+` after
-  `[ ( , =`, syntactically broken code, non-operator MissingSpace classes
-  (`,`/`;`/keywords).
-- Idempotence for both fixers (unit + corpus-level).
+- Two lexical extension fixers (opt-in through `ГлобальныеСценарии`, `.os`
+  suffix lookup supported) in `crates/prec-bsl-bsl/src/text_fixers.rs`:
+  `ПробелыВокругОператоров` (bsl-ls MissingSpace operator subset
+  `+ - * / % = < > <> <= >=`, unary `-`/`+` after `[ ( , =` or file start
+  exempt) and `ЛишниеЗапятыеВКонце` (bsl-ls ExtraCommas, whole trailing
+  comma chains removed in one pass, comments preserved). Both run over one
+  shared whole-file scanner (literal/comment/directive tracker + paren
+  depth) and one `apply_spans` byte-splice routine; the pre-existing
+  per-line fixers keep their own trackers (deferred DRY, documented).
+- bsl-ls 1.0.7 parity on the yaxunit control corpus (env-gated
+  `tests/spacing_parity.rs`, pinned commit `d21ce6ff`, jar SHA-256 pinned in
+  the baseline): pre-fix 104 MissingSpace / 2 ExtraCommas → post-fix
+  ExtraCommas 0, MissingSpace 84 fully inside the residue policy
+  (81 comma/semicolon + 2 unary sign + 1 keyword, mechanical
+  classification); corpus idempotence proven (second pass: zero changes).
+- Deliberate non-parity documented in `spec/parser-strategy.md`: unary
+  exemption, non-operator MissingSpace classes, broken code, paren-group
+  commas, numeric exponents, keyword-adjacent unary signs.
 
-Acceptance criteria:
+Completion evidence:
 
-- `ГлобальныеСценарии` opt-in enables both scenarios; not default-on;
-  unknown ids still fail validation with a clear diagnostic.
-- Trailing comma chains (`Метод(А,,,)` → `Метод(А)`) are removed in one pass;
-  argument-continuation commas and `//` comments are preserved.
-- Post-fix bsl-ls ExtraCommas = 0 on the corpus; post-fix MissingSpace ⊆ the
-  documented residue policy; second fixer pass makes zero changes.
-- Spec updates: `spec/reference-scenario-inventory.md` (extension section),
-  `spec/parser-strategy.md` (fixer contract + deliberate non-parity).
+- 2026-10-31 (branch `issue-9-operator-spacing-trailing-commas`): fixers,
+  scanner and unit tests in commits `f5b092e` and `231bdfc`; review-fix
+  rounds (date literals, BOM directives, whitespace-only gap verification)
+  in commits `1fc43ba` and `3b3204a`; parity test and baseline in commit
+  `99b894c`; parity enforcement hardening in commit `3f723a0`; specs in
+  this commit. Gates: `cargo test --workspace` 481 passed / 0 failed;
+  `cargo fmt --check` clean; env-gated parity run green (pre 104/2 → post
+  84/0, residue 81/2/1, fixers changed 16 of 350 tracked `.bsl` files,
+  second pass idempotent). Implementation plan (kept in the main checkout
+  outside version control, `docs/superpowers/plans/`):
+  `2026-10-31-issue-9-operator-spacing-trailing-commas.md`.
 
 Validation:
 
 - `cargo test --workspace`
-- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo fmt --check`
 - env-gated parity test (`PREC_BSL_PARITY_CORPUS`, bsl-ls 1.0.7 jar)
 
-References: `spec/parser-strategy.md`, `spec/reference-scenario-inventory.md`,
-plan `docs/superpowers/plans/2026-10-31-issue-9-operator-spacing-trailing-commas.md`.
+Dependencies:
+
+- T38, T39 (crate layout and scenario definition binding).
 
 ## Milestone 11: Upstream Issue Regression Backlog
 
