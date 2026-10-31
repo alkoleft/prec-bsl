@@ -186,6 +186,36 @@ fn trailing_commas_line_ending_matrix_is_idempotent() {
 }
 
 #[test]
+fn trailing_commas_directives_and_closing_indentation_survive() {
+    // PR #21 review: регионы с `#`-директивами в gap (до комментария или до
+    // запятой) не меняются вовсе, запятые отклонённого региона не ретраятся;
+    // ведущий отступ строки с `)` после комментария сохраняется.
+    let cases = [
+        // Директивы в gap перед комментарием: регион отклонён, запятая
+        // перед ним сохраняется.
+        (
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n// к\n)",
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n// к\n)",
+        ),
+        // Директивы в gap перед запятой: регион отклонён, вторая запятая
+        // не ретраится.
+        (
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, )",
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, )",
+        ),
+        // Отступ строки с `)` после комментария сохраняется; запятые
+        // финального gap удаляются.
+        ("Метод(А, // к\n\t);", "Метод(А // к\n\t);"),
+        ("Метод(А, // к\n\t,,);", "Метод(А // к\n\t);"),
+    ];
+    for (input, expected) in cases {
+        let first = fix_extra_trailing_commas(input);
+        assert_eq!(first, expected, "input: {input:?}");
+        assert_eq!(fix_extra_trailing_commas(&first), first, "input: {input:?}");
+    }
+}
+
+#[test]
 fn trailing_commas_is_not_enabled_without_explicit_scenario_list() {
     let repo = temp_repo("not_enabled");
     let repo_path = PathBuf::from("src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl");

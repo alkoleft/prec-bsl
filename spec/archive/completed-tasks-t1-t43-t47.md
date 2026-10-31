@@ -1,9 +1,10 @@
-# Completed implementation tasks: T1-T43, T47-T51
+# Completed implementation tasks: T1-T43, T47-T51, T54
 
 Archived from `spec/IMPLEMENTATION_TODO.md` on 2026-05-26 to keep the active
 implementation ledger focused on open work. Task text below preserves the
 original acceptance criteria, validation notes, completion evidence and
-dependencies.
+dependencies. Records completed later (T50 on 2026-10-29, T51 and T54 on
+2026-10-31) are appended below in their original form.
 
 ## Milestone 0: Bootstrap Hook Package
 
@@ -2021,3 +2022,76 @@ Completion evidence:
   42702e8, d5101be, 5cbdb57, 23ab28a); the yaxunit parity baseline was
   committed as `tests/fixtures/parity/ilb-fingerprint.txt` with the
   auto-skipping corpus test `tests/line_break_parity.rs`.
+
+## Milestone 15: Extension Lexical Fixers
+
+> Task id note: the first draft of this record used id T51, which collided
+> with the already-merged LineLength task in Milestone 14. This record is
+> renumbered to T54; no other ledger entry references the old id.
+
+### T54. DONE: ПробелыВокругОператоров + ЛишниеЗапятыеВКонце extension fixers
+
+prec-bsl upstream issue: `alkoleft/prec-bsl` #9 (part of #3, «проверка vs
+фикс» table). Resolved 2026-10-31; see the completion evidence below. The
+scenario contracts live in `spec/parser-strategy.md` (section "Operator
+spacing and trailing comma fixers contract") and
+`spec/reference-scenario-inventory.md` (Extension Scenarios).
+
+Resolution:
+
+- Two lexical extension fixers (Compatibility support: enabled through
+  `ГлобальныеСценарии`, `.os`
+  suffix lookup supported; since T53 the built-in defaults also enable every
+  supported scenario, so they are default-on with opt-out through
+  `ОтключенныеСценарии`) in `crates/prec-bsl-bsl/src/text_fixers.rs`:
+  `ПробелыВокругОператоров` (bsl-ls MissingSpace operator subset
+  `+ - * / % = < > <> <= >=`, unary `-`/`+` after an operator byte, `(`, `[`,
+  `,`, the keyword `Возврат`/`Return` case-insensitively or file start
+  exempt) and `ЛишниеЗапятыеВКонце` (bsl-ls ExtraCommas, whole trailing
+  comma chains removed in one pass, comments preserved). Both run over one
+  shared whole-file scanner (literal/comment/directive tracker + paren
+  depth) and one `apply_spans` byte-splice routine; the pre-existing
+  per-line fixers keep their own trackers (deferred DRY, documented).
+- bsl-ls 1.0.7 parity on the yaxunit control corpus (env-gated
+  `tests/spacing_parity.rs`, pinned commit `d21ce6ff`, jar SHA-256 pinned in
+  the baseline): pre-fix 104 MissingSpace / 2 ExtraCommas → post-fix
+  ExtraCommas 0, MissingSpace 84 fully inside the residue policy
+  (81 comma/semicolon + 2 unary sign + 1 keyword, mechanical
+  classification); corpus idempotence proven (second pass: zero changes).
+- Deliberate non-parity documented in `spec/parser-strategy.md`: unary
+  exemption, non-operator MissingSpace classes, broken code, paren-group
+  commas, numeric exponents, unary signs after non-Возврат keywords.
+
+Completion evidence:
+
+- 2026-10-31 (branch `issue-9-operator-spacing-trailing-commas`): fixers,
+  scanner and unit tests in commits `f5b092e` and `231bdfc`; review-fix
+  rounds (date literals, BOM directives, whitespace-only gap verification)
+  in commits `1fc43ba` and `3b3204a`; parity test and baseline in commit
+  `99b894c`; parity enforcement hardening in commit `3f723a0`; specs in
+  this commit. Gates: `cargo test --workspace` 481 passed / 0 failed;
+  `cargo fmt --check` clean; env-gated parity run green (pre 104/2 → post
+  84/0, residue 81/2/1, fixers changed 16 of 350 tracked `.bsl` files,
+  second pass idempotent). Implementation plan (kept in the main checkout
+  outside version control, `docs/superpowers/plans/`):
+  `2026-10-31-issue-9-operator-spacing-trailing-commas.md`.
+- 2026-10-31 unary-context bugfix (human report after a `fix` run on
+  yaxunit: `Возврат -1;` was rewritten to `Возврат - 1;`): the unary set was
+  realigned with the bsl-ls 1.0.7 UNARY semantics — an operator byte
+  (`+ - * / % = < >`), `(`, `[`, `,`, the keyword `Возврат`/`Return`
+  case-insensitively, or file start; the scanner Code event grew
+  `prev_code_index` so the fixer can scan the preceding word backwards.
+  Unary signs are now left fully untouched (no space to the right, matching
+  `checkSpaceToRightOfUnary = false`). Gates after the fix:
+  `cargo test --workspace` 482 passed / 0 failed; env-gated parity run
+  green with unchanged counts (pre 104/2 → post 84/0, residue 81/2/1).
+
+Validation:
+
+- `cargo test --workspace`
+- `cargo fmt --check`
+- env-gated parity test (`PREC_BSL_PARITY_CORPUS`, bsl-ls 1.0.7 jar)
+
+Dependencies:
+
+- T38, T39 (crate layout and scenario definition binding).

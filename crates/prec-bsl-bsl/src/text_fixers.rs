@@ -673,13 +673,9 @@ enum ScanEvent {
         depth: u32,
     },
     /// Границы `//`-комментария до конца строки, включая терминатор строки.
-    /// `start` читается модульными тестами сканера; потребители фикссеров
-    /// используют `end` как границу сохраняемого комментария.
-    Comment {
-        #[allow(dead_code)]
-        start: usize,
-        end: usize,
-    },
+    /// `start` используется фикссером хвостовых запятых для валидации gap
+    /// перед комментарием; `end` — граница сохраняемого комментария.
+    Comment { start: usize, end: usize },
 }
 
 /// Непересекающаяся byte-правка текста: вставка одиночного пробела на позиции
@@ -1048,13 +1044,25 @@ fn is_space_byte(byte: u8) -> bool {
 /// Хвостовой регион — максимальная последовательность запятых, пробелов
 /// (включая переводы строк) и `//`-комментариев, идущая после запятой на
 /// глубине `(`>0 и завершающаяся `)` на согласующей глубине без иных
-/// кодовых токенов между. В регионе удаляются все запятые и пробелы;
-/// комментарии (включая их терминаторы строк) сохраняются. Каждая запятая
-/// региона — отдельный DeleteRange-спан; пробелы объединяются в один спан
-/// на максимальный непрерывный чисто-пробельный отрезок региона. Каждый
-/// удаляемый gap обязан состоять только из пробельных байтов: сканер не
-/// эмитит события для `#`-директив и висячих `|`-строк, их байты попадают
-/// в gap — регион с не-пробельным gap не хвостовой и не меняется.
+/// кодовых токенов между. В регионе удаляются все запятые; комментарии
+/// (включая их терминаторы строк) сохраняются. Каждая запятая региона —
+/// отдельный DeleteRange-спан.
+///
+/// Каждый gap региона (между соседними запятыми, перед `//` и перед `)`)
+/// обязан состоять только из пробельных байтов: сканер не эмитит события
+/// для `#`-директив и висячих `|`-строк, их байты попадают в gap. Регион
+/// с не-пробельным gap — до или после комментария — не хвостовой и не
+/// меняется вовсе: скан отклонённого региона доходит до его конца, а
+/// внешний цикл продолжает после последней исследованной запятой, так что
+/// запятые отклонённого региона не пересматриваются как свежие кандидаты.
+///
+/// Удаление пробелов: gap после запятой — часть удаляемого пробельного
+/// хвоста (на каждый gap — один спан: запятые разбивают пробельный хвост
+/// на отрезки); gap сразу после комментария не удаляется — это ведущий
+/// отступ строки следующего элемента региона, он сохраняется
+/// (`Метод(А, // к\n\t);` → `Метод(А // к\n\t);`). Запятая — кодовый байт
+/// с собственным событием и спаном, поэтому из post-comment gap удаляются
+/// только сами запятые (`Метод(А, // к\n\t,,);` → `Метод(А // к\n\t);`).
 ///
 /// `Метод(А,\n Б)` (после запятой есть кодовый токен) и `Метод(А, , Б)`
 /// (средняя пустота перед кодовым токеном) — не хвостовые, не меняются.
@@ -1080,16 +1088,25 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
             continue;
         }
 
-        // Ищем конец хвостового региона: события запятых, пробелов и
-        // комментариев до `)` на глубине этой запятой. `(` или иной кодовый
-        // байт прерывает поиск — запятая не хвостовая. Удаляемые gap-спаны
-        // должны быть чисто пробельными: байты, которые сканер не эмитит как
-        // события (`#`-директивы, висячие `|`-строки), попадают в gap —
-        // не-пробельный gap делает регион нехостовым.
         let mut region_cursor = cursor;
         let mut gap_start = index + 1;
+        // Индекс события последней исследованной запятой региона. После
+        // отклонения региона внешняя петля продолжает с события после неё:
+        // запятые отклонённого региона не пересматриваются как свежие
+        // кандидаты, а не-запятые события между ними внешний цикл
+        // пропустит сам. Курсор не продвигается за `)` — события после
+        // закрывающей скобки лежат вне региона.
+        let mut last_comma_event = cursor - 1;
+        // Текущий gap следует за комментарием: он состоит из пробельных
+        // байтов ведущего отступа строки следующего элемента региона и не
+        // удаляется. Gap после запятой — удаляемый пробельный хвост.
+        let mut gap_after_comment = false;
         let mut region_edits = vec![SpanEdit::DeleteRange(index, index + 1)];
         let mut is_trailing = false;
+        // Регион отклонён (не-пробельный gap): правки больше не
+        // собираются, но скан доходит до конца региона, чтобы no-retry
+        // курсор покрыл все его запятые.
+        let mut rejected = false;
         while region_cursor < events.len() {
             match events[region_cursor] {
                 ScanEvent::Code {
@@ -1098,21 +1115,38 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
                     depth: next_depth,
                     ..
                 } if next_depth == depth => {
-                    // Запятая региона: пробелы между ней и предыдущим
-                    // элементом входят в регион и удаляются.
-                    if !push_space_deletion(&mut region_edits, text, gap_start, next_index) {
-                        break;
+                    last_comma_event = region_cursor;
+                    if !rejected {
+                        let gap_is_clean = try_delete_gap(
+                            &mut region_edits,
+                            text,
+                            gap_start,
+                            next_index,
+                            gap_after_comment,
+                        );
+                        if gap_is_clean {
+                            region_edits.push(SpanEdit::DeleteRange(next_index, next_index + 1));
+                        } else {
+                            rejected = true;
+                        }
                     }
-                    region_edits.push(SpanEdit::DeleteRange(next_index, next_index + 1));
                     gap_start = next_index + 1;
+                    gap_after_comment = false;
                     region_cursor += 1;
                 }
-                ScanEvent::Comment { end, .. } => {
+                ScanEvent::Comment { start, end } => {
                     // Комментарий сохраняется целиком (с терминатором
                     // строки); пробелы перед ним — не часть удаляемого
                     // хвоста, они отделяют код от комментария
-                    // (`Метод(А, // к\n,)` → `Метод(А // к\n)`).
+                    // (`Метод(А, // к\n,)` → `Метод(А // к\n)`). Gap между
+                    // прошлым элементом региона и `//` обязан быть чисто
+                    // пробельным: директива или висячая `|`-строка перед
+                    // комментарием делают регион нехостовым.
+                    if !rejected {
+                        rejected = !gap_is_whitespace_only(text, gap_start, start);
+                    }
                     gap_start = end;
+                    gap_after_comment = true;
                     region_cursor += 1;
                 }
                 ScanEvent::Code {
@@ -1121,8 +1155,14 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
                     depth: close_depth,
                     ..
                 } if close_depth == depth => {
-                    if push_space_deletion(&mut region_edits, text, gap_start, close_index) {
-                        is_trailing = true;
+                    if !rejected {
+                        is_trailing = try_delete_gap(
+                            &mut region_edits,
+                            text,
+                            gap_start,
+                            close_index,
+                            gap_after_comment,
+                        );
                     }
                     break;
                 }
@@ -1131,8 +1171,12 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
         }
 
         if !is_trailing {
-            // Хвостовой регион не закрылся `)` на согласующей глубине:
-            // запятая не хвостовая, правки региона отбрасываются.
+            // Хвостовой регион не закрылся `)` на согласующей глубине или
+            // его gap не чисто пробельный: запятая не хвостовая, правки
+            // региона отбрасываются, внешний цикл продолжает после
+            // последней исследованной запятой региона — её запятые не
+            // ретраятся.
+            cursor = last_comma_event + 1;
             continue;
         }
 
@@ -1145,20 +1189,48 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
     edits
 }
 
+/// Проверяет, что gap между двумя элементами региона состоит только из
+/// пробельных байтов. Не-пробельные байты в gap (`#`-директивы, висячие
+/// `|`-строки — сканер не эмитит их как события) нельзя удалять как
+/// пробельный хвост и нельзя пропускать: регион с таким gap не хвостовой.
+fn gap_is_whitespace_only(text: &str, start: usize, end: usize) -> bool {
+    text.as_bytes()[start..end]
+        .iter()
+        .all(|&byte| is_space_byte(byte))
+}
+
+/// Центральная политика gap-ов региона: gap обязан состоять только из
+/// пробельных байтов, иначе регион не хвостовой (возвращает `false`).
+/// Gap после запятой — удаляемый пробельный хвост (валидируется и
+/// удаляется одним спаном через `push_space_deletion`). Gap сразу после
+/// комментария — ведущий отступ строки следующего элемента региона:
+/// валидируется, но не удаляется.
+fn try_delete_gap(
+    edits: &mut Vec<SpanEdit>,
+    text: &str,
+    start: usize,
+    end: usize,
+    after_comment: bool,
+) -> bool {
+    if after_comment {
+        gap_is_whitespace_only(text, start, end)
+    } else {
+        push_space_deletion(edits, text, start, end)
+    }
+}
+
 /// Удаляет максимальный непрерывный чисто-пробельный отрезок региона
 /// (между запятой/комментарием и следующим элементом) одним спаном.
 /// Возвращает `false`, если диапазон содержит не-пробельные байты
 /// (`#`-директивы, висячие `|`-строки не эмитятся сканером как события):
 /// такой gap нельзя удалять как пробельный — регион не хвостовой.
 fn push_space_deletion(edits: &mut Vec<SpanEdit>, text: &str, start: usize, end: usize) -> bool {
-    let gap = &text.as_bytes()[start..end];
-    if gap.is_empty() {
-        return true;
-    }
-    if !gap.iter().all(|&byte| is_space_byte(byte)) {
+    if !gap_is_whitespace_only(text, start, end) {
         return false;
     }
-    edits.push(SpanEdit::DeleteRange(start, end));
+    if end > start {
+        edits.push(SpanEdit::DeleteRange(start, end));
+    }
     true
 }
 
@@ -2509,6 +2581,34 @@ mod tests {
     }
 
     #[test]
+    fn trailing_commas_keeps_comment_region_terminated_by_code_token() {
+        // PR #21 review: регион с комментарием терминируется кодовым
+        // токеном, а не `)` — работают все три новых правила: gap перед
+        // `//` валидируется, post-comment отступ не удаляется, запятая
+        // региона не ретраится. Правки такого региона отбрасываются
+        // целиком, текст остаётся байт-в-байт.
+        let input = "Метод(А, // к\n\t, Б)";
+        assert_eq!(
+            fix_extra_trailing_commas(input),
+            input,
+            "comment region terminated by a code token must stay byte-identical"
+        );
+    }
+
+    #[test]
+    fn trailing_commas_keeps_comma_run_terminated_by_code_token() {
+        // PR #21 review: серия запятых перед кодовым токеном (не `)`)
+        // отклоняет регион целиком, и ни одна запятая серии не ретраится
+        // внешним циклом как свежий кандидат.
+        let input = "Метод(А,\n,, Б)";
+        assert_eq!(
+            fix_extra_trailing_commas(input),
+            input,
+            "comma run terminated by a code token must stay byte-identical"
+        );
+    }
+
+    #[test]
     fn trailing_commas_preserves_comments_in_trailing_region() {
         // Правило плана: в хвостовом регионе комментарии сохраняются, каждая
         // запятая (до и после комментария) удаляется отдельным спаном,
@@ -2602,6 +2702,99 @@ mod tests {
     }
 
     #[test]
+    fn trailing_commas_rejects_regions_with_non_whitespace_gap_before_comment() {
+        // PR #21 review: gap между прошлым элементом региона и `//` не
+        // проверялся — директивы и висячие `|`-строки в нём молча
+        // пропускались, запятая перед ними удалялась. Не-пробельный gap
+        // перед комментарием отклоняет регион целиком, текст не меняется.
+        let cases = [
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n// к\n)",
+            "Метод(А,\r\n#Если Сервер Тогда\r\n#КонецЕсли\r\n// к\r\n)",
+            "Метод(А,\n|\n// к\n)",
+            "Метод(А,\n#Область Х\n// к\n)",
+        ];
+        for input in cases {
+            assert_eq!(
+                fix_extra_trailing_commas(input),
+                input,
+                "region with non-whitespace gap before comment must stay byte-identical: \
+                 {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn trailing_commas_does_not_retry_commas_of_rejected_region() {
+        // PR #21 review: после отклонения региона (не-пробельный gap)
+        // внешняя петля ретраила его последующие запятые как свежие
+        // кандидаты и удаляла их. Запятые отклонённого региона не
+        // пересматриваются — регион с директивами не меняется вовсе.
+        let cases = [
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, )",
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n,,)",
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n,,\n)",
+            "Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, // к\n)",
+            "Метод(А, // к\n#Область Х\n,)",
+        ];
+        for input in cases {
+            assert_eq!(
+                fix_extra_trailing_commas(input),
+                input,
+                "commas of a rejected region must not be retried as fresh candidates: {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn trailing_commas_keeps_closing_line_indentation_after_comment() {
+        // PR #21 review: ведущий отступ строки с `)` после комментария
+        // сохраняется — из gap после комментария удаляются только запятые,
+        // пробельные байты остаются. Пробелы между запятыми региона —
+        // по-прежнему часть удаляемого хвоста.
+        let cases = [
+            ("Метод(А, // к\n\t,,);", "Метод(А // к\n\t);"),
+            ("Метод(А, // к\n\t, , );", "Метод(А // к\n\t);"),
+            ("Метод(А, // к\n\n)", "Метод(А // к\n\n)"),
+            (
+                "Метод(А, // к1\n\t, // к2\n\t);",
+                "Метод(А // к1\n\t // к2\n\t);",
+            ),
+        ];
+        for (input, expected) in cases {
+            let first = fix_extra_trailing_commas(input);
+            assert_eq!(first, expected, "input: {input}");
+            assert_eq!(fix_extra_trailing_commas(&first), first, "input: {input}");
+        }
+
+        // Базовый кейс с отступом закрывающей строки — для всех окончаний
+        // строк: терминатор строки входит в сохраняемый комментарий, а
+        // отступ `\t` — в post-comment gap, оба переживают правку.
+        for (name, line_ending) in [("lf", "\n"), ("crlf", "\r\n"), ("cr", "\r")] {
+            let input = format!("Метод(А, // к{line_ending}\t);");
+            let expected = format!("Метод(А // к{line_ending}\t);");
+
+            let first = fix_extra_trailing_commas(&input);
+            assert_eq!(
+                first, expected,
+                "{name} closing indent must survive the rewrite"
+            );
+            assert_eq!(
+                fix_extra_trailing_commas(&first),
+                expected,
+                "{name} must be clean"
+            );
+        }
+
+        // BOM не является кодовым байтом и не входит ни в один gap региона:
+        // сканер стартует после него, правки не задевают, BOM и отступ
+        // сохраняются.
+        let bom_input = "\u{feff}Метод(А, // к\n\t);";
+        let bom_output = fix_extra_trailing_commas(bom_input);
+        assert_eq!(bom_output, "\u{feff}Метод(А // к\n\t);");
+        assert_eq!(fix_extra_trailing_commas(&bom_output), bom_output);
+    }
+
+    #[test]
     fn trailing_commas_is_idempotent_on_cyrillic_module() {
         let input = concat!(
             "Процедура Модуль()\n",
@@ -2622,7 +2815,7 @@ mod tests {
                 "\tМетод2(Парам1, Парам2);\n",
                 "\tМетод4(Парам1, , Парам2);\n",
                 "\tМетод(А);\n",
-                "\tМетод(А // комм\n);\n",
+                "\tМетод(А // комм\n\t);\n",
                 "КонецПроцедуры\n",
             )
         );

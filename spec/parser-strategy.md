@@ -898,17 +898,31 @@ non-parity below).
 sequence of commas, whitespace (including line endings) and `//` comments that
 starts at a comma with `depth > 0` and ends at the `)` closing that paren
 depth, with no other code token in between. In a confirmed region all commas
-and the purely whitespace gaps are deleted (each comma is its own delete
-span); comments, including their line terminators, are preserved
-(`Метод(А, // к\n,)` → `Метод(А // к\n)`; the space before a comment is kept as
-it separates code from the comment). A comma followed by a code token
-(`Метод(А,\n Б)`), an empty middle parameter before a code token
-(`Метод(А, , Б)`), a region that does not close with `)` at the matching
-depth, and depth-0 commas are never touched. Because the scanner emits no
-events for `#` directives and dangling `|` lines, their bytes land in region
-gaps; every deleted gap must consist solely of whitespace bytes, so a region
-containing a directive or any non-whitespace gap is not trailing and stays
-byte-identical (protection for `#` directives inside broken calls).
+are deleted (each comma is its own delete span) and the whitespace gap after a
+comma is deleted as one span; comments, including their line terminators, are
+preserved, and so is the space before a comment (it separates code from the
+comment: `Метод(А, // к\n,)` → `Метод(А // к\n)`). The gap immediately after a
+comment is verified as whitespace but never deleted: everything from the
+comment's line terminator to the next region element — blank lines and the
+leading indent of the closing line — survives, and from a post-comment gap
+only comma bytes are removed (`Метод(А, // к\n\t,,);` → `Метод(А // к\n\t);`).
+A comma followed by a code token (`Метод(А,\n Б)`), an empty middle parameter
+before a code token (`Метод(А, , Б)`), a region that does not close with `)`
+at the matching depth, and depth-0 commas are never touched. Because the
+scanner emits no events for `#` directives and dangling `|` lines, their bytes
+land in region gaps; every gap of a region — before a comment, after a
+comment, between commas, before the closing `)` — must consist solely of
+whitespace bytes, so a region containing a directive or any other
+non-whitespace gap is rejected as a whole and stays byte-identical, commas
+included (protection for `#` directives inside broken calls:
+`Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n// к\n)` and
+`Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, )` both remain unchanged).
+Commas of a rejected region are never retried as start candidates: the scan
+walks a rejected region to its end — up to the `)` closing the region's depth
+or to the first non-region code token, whichever comes first — and the outer
+loop resumes after the last examined comma of that region, so any comma after
+such a terminating token is seen by the outer loop as its own fresh start
+candidate.
 
 Deliberate non-parity with `bsl-language-server` (explicit, accepted; all
 items are enforced or documented by `tests/spacing_parity.rs` and the
