@@ -809,15 +809,16 @@ fn is_query_keyword(literal_text: &str) -> bool {
     // Ключевые слова в нижнем регистре для сравнения через to_lowercase().
     const QUERY_KEYWORDS: &[&str] = &["выбрать", "выборка", "выборки", "select"];
 
-    let text = literal_text.trim_start();
-    if text.is_empty() {
+    // Ключевое слово — строго СРАЗУ после открывающей `"` (без trim_start:
+    // `" ВЫБРАТЬ…"` — обычный строковый литерал, не запросный регион).
+    if literal_text.is_empty() {
         return false;
     }
 
-    let keyword_end = text
+    let keyword_end = literal_text
         .find(|char: char| !is_identifier_char(char))
-        .unwrap_or(text.len());
-    let keyword = text[..keyword_end].to_lowercase();
+        .unwrap_or(literal_text.len());
+    let keyword = literal_text[..keyword_end].to_lowercase();
 
     QUERY_KEYWORDS.iter().any(|candidate| keyword == *candidate)
 }
@@ -2230,6 +2231,30 @@ mod tests {
 
         let fixed = fix_line_breaks(input, &settings);
         assert_eq!(fixed, "\tА = \"стр\"\n\t+ Б = В;");
+    }
+
+    // Ревью PR #17 (CodeRabbit): is_query_keyword делал trim_start() перед
+    // сравнением — литерал с пробелом перед ключевым словом (`" ВЫБРАТЬ…"`)
+    // ошибочно открывал query-регион. Контракт: ключевое слово — строго
+    // сразу после открывающей кавычки; пробел после `"` — обычный
+    // строковый литерал.
+    #[test]
+    fn query_region_requires_keyword_right_after_quote() {
+        // Литерал с пробелом после `"` — НЕ запрос: строка 2 (`|А" И`)
+        // закрывает обычный литерал, хвостовой `И` — обычный END-кейс.
+        let input = "\tТекст = \" ВЫБРАТЬ\n\t|А\" И\n\t\tБ = В;";
+        let settings = LineBreakSettings::default_settings();
+
+        let violations = find_line_break_violations(input, &settings);
+        assert_eq!(
+            violations.len(),
+            1,
+            "space before keyword: ordinary literal"
+        );
+        assert_eq!(violations[0].line, 2);
+
+        let fixed = fix_line_breaks(input, &settings);
+        assert_eq!(fixed, "\tТекст = \" ВЫБРАТЬ\n\t|А\"\n\t\tИ Б = В;");
     }
 
     // PR #17 round 3 (green-пин, регрессия): хвостовой оператор на
