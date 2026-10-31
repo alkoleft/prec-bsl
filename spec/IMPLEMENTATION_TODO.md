@@ -20,9 +20,13 @@ Roadmap style:
   platform-dependent work.
 - This file is the implementation ledger, not a replacement for the specs.
 
-## Milestone 12: Extension Lexical Fixers
+## Milestone 15: Extension Lexical Fixers
 
-### T51. DONE: ПробелыВокругОператоров + ЛишниеЗапятыеВКонце extension fixers
+> Task id note: the first draft of this record used id T51, which collided
+> with the already-merged LineLength task in Milestone 14. This record is
+> renumbered to T54; no other ledger entry references the old id.
+
+### T54. DONE: ПробелыВокругОператоров + ЛишниеЗапятыеВКонце extension fixers
 
 prec-bsl upstream issue: `alkoleft/prec-bsl` #9 (part of #3, «проверка vs
 фикс» table). Resolved 2026-10-31; see the completion evidence below. The
