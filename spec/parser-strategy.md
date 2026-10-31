@@ -733,6 +733,14 @@ Fix mechanics (known, mechanically safe tokens only):
   same field the detector uses to skip the line — so a line that closes a
   query region (e.g. `|ИЗ Т" +`, where `+` follows the closing quote of a
   region opened on an earlier line) is never touched by the END branch.
+  The next line's gate uses the line's *entry state* `in_string` (the
+  unclosed-literal state carried from the previous line), not the shape of
+  its string ranges: a next line that *opens a fresh* string literal at
+  column 0 (e.g. `А = Б +` followed by `"строка";`) also has a string range
+  starting at byte 0, but it is code from the line's own start and is a
+  valid target — the operator moves there (`А = Б` / `+ "строка";`). A next
+  line that continues an unclosed literal (entry state `in_string`) is
+  never touched, matching the detector's whole-line skip.
   The fixer repairs a subset of what the detector diagnoses **under the
   default settings**; under a custom pattern that excludes a known token,
   Apply can fix a token the check does not report (see the settings note

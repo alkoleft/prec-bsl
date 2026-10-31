@@ -177,6 +177,13 @@ struct LineClassification {
     comment_start: Option<usize>,
     /// Строка находится внутри query-региона — FIRST/END проверки отключены.
     in_query: bool,
+    /// Строка ВОШЛА в разбор уже внутри незакрытого `"`-литерала
+    /// (продолжение с предыдущей строки). Отдельно от `string_ranges`:
+    /// свежий литерал, открывшийся на самой строке без отступа, тоже даёт
+    /// диапазон с `start == 0`, но продолжением не является (ревью PR #17:
+    /// `А = Б +\n"строка";` — фиксер принимал свежий литерал за
+    /// продолжение и молча пропускал диагностированный END-оператор).
+    entered_in_string: bool,
 }
 
 impl LineClassification {
@@ -494,7 +501,7 @@ fn plan_fix<'a>(
 ) -> LineFix<'a> {
     // Query-регион и строка-продолжение: cur не код — пару не трогаем (в том
     // числе END: оператор из prev не должен попадать в строку/запрос).
-    if cur_classification.in_query || starts_in_string(cur_body, cur_classification) {
+    if cur_classification.in_query || starts_in_string(cur_classification) {
         return LineFix::None;
     }
 
@@ -593,13 +600,14 @@ fn trim_line_tail(indent: &str, rest: &str) -> String {
     }
 }
 
-/// Тело cur начинается внутри `"`-литерала (продолжение с предыдущей строки)?
-fn starts_in_string(cur_body: &str, classification: &LineClassification) -> bool {
-    !cur_body.is_empty()
-        && classification
-            .string_ranges
-            .iter()
-            .any(|&LineRange { start, .. }| start == 0)
+/// Тело cur — продолжение незакрытого `"`-литерала с предыдущей строки?
+/// Гейт по entry-state строки, а не по «string-range с `start == 0`»:
+/// свежий литерал без отступа (`"строка";`) тоже даёт диапазон с нуля,
+/// но код-часть строки валидна как цель переноса END-оператора (ревью
+/// PR #17: фиксер принимал его за продолжение и оставлял диагностиро-
+/// ванное нарушение без фикса — Apply молча clean).
+fn starts_in_string(classification: &LineClassification) -> bool {
+    classification.entered_in_string
 }
 
 /// Строка — код: не пустая, не чистый `//`-комментарий, содержит код вне
@@ -686,6 +694,7 @@ fn line_ending_of(line: &str) -> &str {
 fn classify_line(body: &str, state: &mut LineScanState) -> LineClassification {
     let mut classification = LineClassification {
         in_query: state.in_query,
+        entered_in_string: state.in_string,
         ..LineClassification::default()
     };
 
@@ -2176,6 +2185,51 @@ mod tests {
             "\t,Арг",
             "glued-comment match span must stop at the comment start"
         );
+    }
+
+    // Ревью PR #17 (Codex P2): свежий строковый литерал в начале cur без
+    // отступа (`"строка";`) — НЕ продолжение с предыдущей строки: его
+    // string-range начинается на byte 0, и гейт `starts_in_string` по
+    // «диапазон с нуля» принимал его за продолжение — фиксер пропускал
+    // диагностированный END-оператор, Apply молча возвращал clean.
+    // Гейт переписан на entry-state `in_string` строки.
+    #[test]
+    fn fix_moves_end_operator_before_fresh_string_literal() {
+        let input = "\tА = Б +\n\"строка\";";
+        let settings = LineBreakSettings::default_settings();
+
+        let violations = find_line_break_violations(input, &settings);
+        assert_eq!(violations.len(), 1, "detector must report the trailing +");
+
+        let fixed = fix_line_breaks(input, &settings);
+        assert_eq!(fixed, "\tА = Б\n+ \"строка\";");
+    }
+
+    // Контроль: НАСТОЯЩЕЕ продолжение литерала (незакрытая `"` на prev,
+    // entry-state cur = in_string) по-прежнему гейтится — END-матч внутри
+    // литерала не диагностируется и фиксер пару не трогает.
+    #[test]
+    fn fix_keeps_end_operator_inside_multiline_literal() {
+        let input = "\tТекст = \"первая +\nвторая\";";
+        let settings = LineBreakSettings::default_settings();
+
+        assert!(find_line_break_violations(input, &settings).is_empty());
+        assert_eq!(fix_line_breaks(input, &settings), input);
+    }
+
+    // Контроль к контролю: тот же `+` после закрывающей кавычки на строке,
+    // НЕ являющейся продолжением (литерал открыт и закрыт на самой строке),
+    // — диагностируется и фиксируется как обычный END-оператор.
+    #[test]
+    fn fix_moves_end_operator_after_same_line_literal_close() {
+        let input = "\tА = \"стр\" +\n\tБ = В;";
+        let settings = LineBreakSettings::default_settings();
+
+        let violations = find_line_break_violations(input, &settings);
+        assert_eq!(violations.len(), 1);
+
+        let fixed = fix_line_breaks(input, &settings);
+        assert_eq!(fixed, "\tА = \"стр\"\n\t+ Б = В;");
     }
 
     // PR #17 round 3 (green-пин, регрессия): хвостовой оператор на
