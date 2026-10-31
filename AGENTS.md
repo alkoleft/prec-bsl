@@ -185,9 +185,21 @@ For non-trivial work, follow this order:
    output or hook exit codes.
 4. Add or update the first active task in `spec/IMPLEMENTATION_TODO.md`,
    referencing the relevant spec files when needed.
-5. Implement only that task and its direct verification unless the prompt
+5. **Form an implementation plan before writing code.** The plan defines tasks
+   with exact files, interfaces, test-first steps and acceptance criteria
+   (including a scenario that closes the originating request). Implementation
+   does not start until the plan exists.
+6. **Run mandatory review rounds before and during implementation.** Review
+   the plan and then each implemented task with two independent reviewer
+   passes: a skeptic pass (weak assumptions, hidden work, scope creep, missing
+   verification, unrealistic acceptance criteria) and a code-design pass
+   (module boundaries, seams, interface depth, testability). Every critical or
+   high finding must be resolved (fixed) or explicitly defended and
+   re-checked; a stage is complete only when no open critical/high findings
+   remain.
+7. Implement only that task and its direct verification unless the prompt
    explicitly asks for broader scope.
-6. After verification, update `spec/` when implemented behavior, measurements,
+8. After verification, update `spec/` when implemented behavior, measurements,
    task status or durable conclusions changed.
 
 Follow the active implementation ledger before adding new scope. Keep public

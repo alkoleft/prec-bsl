@@ -67,6 +67,8 @@ Use text/lexical processing instead of tree-sitter when preserving exact textual
 - `ПроверкаНецензурныхСлов`
 - `ВставкаКопирайтов`
 - `ПроверкаДлиныСтрок` (check-only, see the scenario contract below)
+- `ПробелыВокругОператоров` and `ЛишниеЗапятыеВКонце` (whole-file span fixers,
+  see the scenario contract below)
 
 ### Canonical spelling fixture scope
 
@@ -963,6 +965,162 @@ Known limitations:
   already-invalid input an `END` operator glued before a `;` that a later
   statement needs can leave a dangling `;` — the `;;` skip protection keeps
   the fixer from collapsing such runs.
+
+### Operator spacing and trailing comma fixers contract (`ПробелыВокругОператоров`, `ЛишниеЗапятыеВКонце`)
+
+`ПробелыВокругОператоров` and `ЛишниеЗапятыеВКонце` (both prec-bsl issue #9)
+are whole-file lexical span fixers modeled on the `bsl-language-server`
+MissingSpace (binary operator subset) and ExtraCommas diagnostics. Both are
+implemented in `crates/prec-bsl-bsl/src/text_fixers.rs` over one shared
+scanner and one shared span-application routine; neither uses tree-sitter
+(textual parity is the primary contract, and the fixes must also work on
+syntactically broken code — see deliberate non-parity below).
+
+Scanner contract (single pass over the file bytes):
+
+- One literal/comment/directive tracker produces the event stream: code bytes
+  outside string literals, `//` comments and `#` preprocessor directives.
+  Every code event carries its byte index, the previous non-whitespace code
+  byte (`prev_code`, `None` at file start after a BOM), the byte index of
+  that previous code byte (`prev_code_index`, `None` at file start — needed
+  by the unary check to scan a word like `Возврат`/`Return` backwards from an
+  identifier predecessor) and the count of currently unclosed `(` (`depth`).
+  Comment events carry the comment byte span including the line terminator.
+- Literal, date-literal and directive spans are not events: their bytes are
+  simply skipped. A span fixer that needs those boundaries must extend this
+  scanner rather than add a second tracker; gap ranges between events must
+  be re-verified as whitespace before any deletion (the trailing-comma
+  fixer enforces this, which is what keeps `#` directives inside broken
+  calls untouched).
+- String literals open at `"` with `""` escapes and continue across lines
+  through `|` continuations at physical line starts. Date literals open at
+  `'` and close at the paired `'` on the same line (an apostrophe operator
+  does not exist in BSL; an unterminated `'` ends at end of line, and `"`
+  inside an open date literal is content). `#` starts a preprocessor
+  directive only at the physical start of a line (after insignificant spaces
+  and tabs, and after a UTF-8 BOM on the first line), and directive bytes are
+  not code. A leading UTF-8 BOM is not a code byte and is preserved.
+- `fixer = apply_spans(input, scan_edits(input))`: each fixer collects
+  non-overlapping sorted span edits — insert a single space at a byte
+  position, or delete a half-open byte range — and `apply_spans` rewrites the
+  text in one pass. Bytes not covered by any span are copied byte-for-byte,
+  including CR-only line endings and BOM bytes; Cyrillic content is safe
+  because spans are byte spans.
+- Idempotence is structural: after the fixers run, every binary operator
+  already has whitespace (space, tab, or EOL — EOL satisfies the space
+  requirement and no space is inserted before an EOL) on both sides, and no
+  trailing comma region remains, so a second pass emits no edits
+  (`fix(fix(x)) == fix(x)`, proven by unit tests, golden fixtures and the
+  corpus parity run).
+
+`ПробелыВокругОператоров` semantics: for every operator byte set
+`+ - * / % = < >` (the bsl-ls `DEFAULT_LIST_FOR_CHECK_LEFT_AND_RIGHT`,
+including `<>`, `>=`, `<=` consumed as one operator by the immediately
+following adjacent code byte), insert a single space on each side where the
+adjacent byte is not already whitespace. Unary `-`/`+` — whose previous
+non-whitespace code token is an operator byte (`+ - * / % = < >`), `(`, `[`,
+`,` or the keyword `Возврат`/`Return` (case-insensitive; BSL is
+case-insensitive), or file start — are exempt and never modified (the bsl-ls
+1.0.7 UNARY set with `checkSpaceToRightOfUnary = false`: bsl-ls requires no
+space to the right of a unary sign). `(` and `[` are kept in the exemption
+set deliberately: bsl-ls does not flag `Метод(-А)` either, and keeping it
+prevents the false rewrite `Метод(-А)` → `Метод( - А)`.
+Keywords and `,`/`;` right-side spacing are not this fixer's classes (see
+non-parity below).
+
+`ЛишниеЗапятыеВКонце` semantics: a trailing comma region is the maximal
+sequence of commas, whitespace (including line endings) and `//` comments that
+starts at a comma with `depth > 0` and ends at the `)` closing that paren
+depth, with no other code token in between. In a confirmed region all commas
+are deleted (each comma is its own delete span) and the whitespace gap after a
+comma is deleted as one span; comments, including their line terminators, are
+preserved, and so is the space before a comment (it separates code from the
+comment: `Метод(А, // к\n,)` → `Метод(А // к\n)`). The gap immediately after a
+comment is verified as whitespace but never deleted: everything from the
+comment's line terminator to the next region element — blank lines and the
+leading indent of the closing line — survives, and from a post-comment gap
+only comma bytes are removed (`Метод(А, // к\n\t,,);` → `Метод(А // к\n\t);`).
+A comma followed by a code token (`Метод(А,\n Б)`), an empty middle parameter
+before a code token (`Метод(А, , Б)`), a region that does not close with `)`
+at the matching depth, and depth-0 commas are never touched. Because the
+scanner emits no events for `#` directives and dangling `|` lines, their bytes
+land in region gaps; every gap of a region — before a comment, after a
+comment, between commas, before the closing `)` — must consist solely of
+whitespace bytes, so a region containing a directive or any other
+non-whitespace gap is rejected as a whole and stays byte-identical, commas
+included (protection for `#` directives inside broken calls:
+`Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n// к\n)` and
+`Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, )` both remain unchanged).
+Commas of a rejected region are never retried as start candidates: the scan
+walks a rejected region to its end — up to the `)` closing the region's depth
+or to the first non-region code token, whichever comes first — and the outer
+loop resumes after the last examined comma of that region, so any comma after
+such a terminating token is seen by the outer loop as its own fresh start
+candidate.
+
+Deliberate non-parity with `bsl-language-server` (explicit, accepted; all
+items are enforced or documented by `tests/spacing_parity.rs` and the
+baseline `tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json`):
+
+1. Unary `-`/`+` (previous non-whitespace code token is an operator byte
+   `+ - * / % = < >`, `(`, `[`, `,`, the keyword `Возврат`/`Return`
+   case-insensitively, or file start) is not a violation, and the fixer never
+   emits edits for such a sign — neither left nor right (bsl-ls 1.0.7
+   UNARY set with `checkSpaceToRightOfUnary = false` requires no space to
+   the right of a unary sign). bsl-ls 1.0.7 flags `Значения[-Инд]` as
+   missing space to the left of `-`; `prec-bsl` leaves it as is (issue #9
+   position). Corpus residue: 2 diagnostics.
+2. Non-operator MissingSpace classes are outside this fixer's scope:
+   `,`/`;` right-side spacing (bsl-ls `DEFAULT_LIST_FOR_CHECK_RIGHT`) is
+   partially covered by `ПробелыПослеЗапятых`, and keyword spacing (`ТО`,
+   `ИЛИ`, `И`, `Если`, `НЕ`, `Каждого`, …) has no fixer in the current
+   inventory. Corpus residue: 81 comma/semicolon and 1 keyword diagnostics.
+3. Broken code: the lexical fix works where bsl-ls emits no ExtraCommas
+   because of a parse error (for example `Процедура М(А,)` gets its trailing
+   comma fixed, while bsl-ls emits ParseError and MissingSpace but no
+   ExtraCommas on the unparsed node). This is a feature of
+   the lexical approach, not a parity regression; the span model still
+   refuses regions with non-whitespace gaps, which keeps `#` directives
+   inside broken calls untouched.
+4. Paren groups: a comma directly before a `)` that closes a paren group
+   (`А = (Б + В, )`) is removed, while bsl-ls ExtraCommas flags only call
+   parameter lists. The divergence matches the planned depth semantics and
+   is parity-clean in effect: the post-fix code produces no new bsl-ls
+   diagnostics.
+5. Numeric exponents (`1e-5`) are not recognized as numeric tokens; the
+   `-` is treated as a binary operator. The pattern is absent from the
+   yaxunit control corpus (verified by `git grep`), so it does not surface in
+   the parity run.
+6. Unary signs after OTHER keywords (not `Возврат`/`Return`) are rewritten
+   as binary: only `Возврат`/`Return` are in the bsl-ls UNARY keyword set,
+   so e.g. `Если -1 = А Тогда` keeps `-` binary and gains spaces
+   (`Если -1 = А Тогда` → `Если - 1 = А Тогда`). The pattern does not
+   surface in the parity corpus; `Возврат -1` itself is unary context and
+   is not rewritten (see non-parity item 1).
+
+Parity scope statement:
+
+- Parity with bsl-ls is validated as a snapshot: `tests/spacing_parity.rs`
+  (env-gated through `PREC_BSL_PARITY_CORPUS`, skipped without the jar and a
+  matching disposable yaxunit clone at pinned commit `d21ce6ff…`) runs
+  bsl-ls 1.0.7 over the corpus before and after applying both fixers (fixed
+  order: operator spacing first, then trailing commas). Pre-fix counts are
+  104 MissingSpace / 2 ExtraCommas; post-fix ExtraCommas is 0 and post-fix
+  MissingSpace is 84, fully classified by the baseline residue policy
+  (81 comma/semicolon + 2 unary sign + 1 keyword; classification is
+  mechanical by the token at the diagnostic range on the post-fix text and
+  never parses bsl-ls message text). A second fixer pass over the fixed
+  corpus changes nothing. There is no continuous parity guarantee against
+  upstream bsl-ls changes; the semantic contract is carried by unit and
+  integration tests, and the baseline records the run recipe, jar version
+  and SHA-256.
+- Deferred DRY: the per-line fixers (`ПробелыВКомментариях`,
+  `ПробелыПослеЗапятых`, keyword/canonical spelling) keep their own private
+  literal-state copies inside their line loops. Consolidating them onto the
+  shared scanner is deliberately deferred: their per-line rewrite shapes are
+  string building, not span edits, and a second consumer boundary did not
+  justify the migration (KISS/YAGNI). New span-based fixers must use the
+  single shared scanner instead of adding another tracker.
 
 ## Implementation Contract
 

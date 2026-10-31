@@ -20,6 +20,53 @@ Roadmap style:
   platform-dependent work.
 - This file is the implementation ledger, not a replacement for the specs.
 
+## Milestone 16: PR Review Fix Backlog
+
+Review-driven fixes for merged scenario work. Each record references the
+pull request that triggered it and is removed to `spec/archive/` once the
+fix and its verification land.
+
+### T55. TODO: Review fixes PR #21: trailing comma region gap validation, no-retry, indent preservation
+
+prec-bsl issue: `alkoleft/prec-bsl` #9 (review findings on the PR #21
+implementation of the `ЛишниеЗапятыеВКонце` fixer).
+
+Current finding:
+
+- The merged trailing comma region scan accepted any bytes between the
+  previous region element and a `//` comment (a `#` directive or a dangling
+  `|` line could precede the comment inside a region), retried commas of a
+  rejected region as fresh start candidates, and deleted the whole
+  whitespace gap between a comment and the closing `)` — collapsing the
+  leading indent of the closing line.
+
+Acceptance criteria:
+
+- The gap between a comma/previous region element and a `//` comment is
+  verified as whitespace-only: a non-whitespace gap (`#` directives,
+  dangling `|` lines) rejects the whole region and its commas are not
+  removed.
+- Commas of a rejected region are never retried as start candidates
+  (no-retry: the scan walks the rejected region to its end and the outer
+  loop resumes after the last examined comma).
+- The gap between a comment and the closing `)` is verified but not
+  deleted: the leading indent of the closing `)` line is preserved; the gap
+  after a comma is still deleted as one whitespace span.
+- The review example pairs stay unchanged:
+  `Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n// к\n)` and
+  `Метод(А,\n#Если Сервер Тогда\n#КонецЕсли\n, )`.
+- The fixers stay idempotent on the fixed output.
+
+Validation:
+
+- `cargo test -p prec-bsl-bsl --lib`
+- `cargo test --test trailing_commas`
+- `cargo test --workspace`
+
+Dependencies:
+
+- T54 (the fixers being fixed; archived).
+
 ## Milestone 11: Upstream Issue Regression Backlog
 
 These tasks capture risks found during the 2026-05-07 review of open
@@ -417,7 +464,7 @@ Dependencies:
 - T38, T39, T51, T52 (scenario registry and the extension scenarios that are
   now on by default).
 
-### T54. DONE: Implement `ПроверкаТочекЗапятой` (SemicolonPresence) check-and-fix scenario
+### T56. DONE: Implement `ПроверкаТочекЗапятой` (SemicolonPresence) check-and-fix scenario
 
 prec-bsl issue: `alkoleft/prec-bsl` #10 (part of the Sonar/bsl-ls scenario
 tracking issue #3).
