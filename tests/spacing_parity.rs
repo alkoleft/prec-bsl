@@ -9,11 +9,11 @@
 //! parity is validated as a snapshot, not as a continuous guarantee against
 //! upstream drift.
 //!
-//! The corpus pointed at by the env var is MUTATED in place (the two fixers
-//! are applied to every tracked .bsl file and re-run for idempotence), so the
-//! env must reference a disposable clone, never the original checkout:
-//! `git clone /path/to/yaxunit /tmp/parity-yaxunit` and set the env to the
-//! clone.
+//! The checkout pointed at by the env var is never mutated: the test clones
+//! it into a disposable temp copy (object-sharing `git clone`) and applies
+//! the two fixers to every tracked `.bsl` file of the copy, then re-runs
+//! them for idempotence. The copy is removed on scope exit, including on
+//! panic.
 //!
 //! Assertions (matching Task 3 of the issue #9 plan):
 //! (a) bsl-ls analyze on the pristine corpus, filtered to
@@ -93,8 +93,21 @@ fn spacing_fixers_match_bsl_ls_residue_policy_on_yaxunit_corpus() {
          {PARITY_CORPUS_ENV} at a fresh disposable clone",
         corpus.display()
     );
-    // Restores the clone on scope exit, including on panic, so a failed run
-    // does not leave the corpus dirty for the next run.
+
+    // Mutations never touch the checkout referenced by the env var: the test
+    // clones it into a disposable temp worktree-copy and runs the fixers
+    // there, so a concurrent edit in the source checkout cannot be discarded
+    // by the corpus restore (AGENTS.md: the parity corpus is read-only).
+    let corpus = clone_corpus_to_temp(&corpus, &corpus_head);
+    let tracked_bsl = tracked_bsl_files(&corpus);
+    assert_eq!(
+        tracked_bsl.len(),
+        baseline.tracked_bsl_files,
+        "disposable corpus copy must contain exactly the tracked .bsl files of the \
+         pinned baseline"
+    );
+    // Restores the disposable copy on scope exit, including on panic, so a
+    // failed run leaves no stale temp clones behind.
     let _corpus_guard = CorpusGuard(corpus.clone());
 
     // (a) pre-fix bsl-ls run, filtered to the two codes, must match baseline.
@@ -201,40 +214,62 @@ fn spacing_fixers_match_bsl_ls_residue_policy_on_yaxunit_corpus() {
         tracked_bsl.len()
     );
 
-    // Leave the disposable clone pristine so consecutive test runs (and the
-    // pristine-corpus assertion above) keep working without a manual reset.
-    // CorpusGuard (bound above) restores the clone on scope exit, including
-    // panics in the bsl-ls runs, residue classification or idempotence pass.
+    // CorpusGuard (bound above) removes the disposable copy on scope exit,
+    // including panics in the bsl-ls runs, residue classification or
+    // idempotence pass. The checkout referenced by the env var was never
+    // touched.
     let _ = fs::remove_dir_all(&outdir);
 }
 
-/// RAII guard restoring the disposable corpus clone to its pinned HEAD on
-/// scope exit — including a panic anywhere between the fixer writes and the
-/// end of the test — so consecutive runs (and the pristine-corpus assertion)
-/// keep working without a manual reset.
+/// RAII guard removing the disposable corpus copy on scope exit — including
+/// a panic anywhere between the fixer writes and the end of the test — so
+/// failed runs leave no stale temp clones behind. The source checkout is
+/// never mutated.
 struct CorpusGuard(PathBuf);
 
 impl Drop for CorpusGuard {
     fn drop(&mut self) {
-        restore_corpus(&self.0);
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
-/// Restores the disposable corpus clone to its pinned HEAD. Only tracked
-/// modifications made by this test are reverted; failure is not fatal (the
-/// clone is disposable by contract).
-fn restore_corpus(corpus: &Path) {
-    let restored = Command::new("git")
-        .current_dir(corpus)
-        .args(["checkout", "--", "."])
+/// Clones the pinned pristine checkout into a disposable temp directory
+/// (sharing objects with the source clone, so the copy is cheap) and checks
+/// out the pinned HEAD there. Only the copy is mutated by the test; the
+/// checkout referenced by `PREC_BSL_PARITY_CORPUS` stays read-only.
+fn clone_corpus_to_temp(source: &Path, head: &str) -> PathBuf {
+    let target = std::env::temp_dir().join(format!(
+        "prec-bsl-spacing-parity-corpus-{}",
+        std::process::id()
+    ));
+    let cloned = Command::new("git")
+        .args([
+            "clone",
+            "--no-hardlinks",
+            "--shared",
+            "--quiet",
+            &source.display().to_string(),
+            &target.display().to_string(),
+        ])
         .output()
         .is_ok_and(|output| output.status.success());
-    if !restored {
-        eprintln!(
-            "warning: failed to restore corpus clone {} to HEAD; reset it before the next run",
-            corpus.display()
-        );
-    }
+    assert!(
+        cloned,
+        "failed to clone corpus {} into disposable copy {}",
+        source.display(),
+        target.display()
+    );
+    let checked_out = Command::new("git")
+        .current_dir(&target)
+        .args(["checkout", "--quiet", head])
+        .output()
+        .is_ok_and(|output| output.status.success());
+    assert!(
+        checked_out,
+        "failed to check out pinned corpus HEAD {head} in disposable copy {}",
+        target.display()
+    );
+    target
 }
 
 struct Counts {

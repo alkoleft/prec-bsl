@@ -707,9 +707,18 @@ fn scan(text: &str) -> Vec<ScanEvent> {
     if bytes.starts_with(b"\xEF\xBB\xBF") {
         index = 3;
     }
+    // Начало текущей физической строки (после BOM для первой): трекается
+    // по мере скана, чтобы `#`-проверка не пересканировала строку назад.
+    let mut line_start = index;
 
     while index < bytes.len() {
         let byte = bytes[index];
+
+        // EOL двигает начало строки во всех состояниях (литералы и
+        // комментарии тоже содержат переводы строк).
+        if matches!(byte, b'\n' | b'\r') {
+            line_start = index + 1;
+        }
 
         if state.in_string {
             if byte == b'"' {
@@ -764,11 +773,15 @@ fn scan(text: &str) -> Vec<ScanEvent> {
             b'/' if bytes.get(index + 1) == Some(&b'/') => {
                 let start = index;
                 index = find_line_end(bytes, index);
+                // Прыжок за EOL: побайтовый трекинг наверху цикла не видит
+                // переводы строки внутри прыжка — двигаем начало строки.
+                line_start = index;
                 events.push(ScanEvent::Comment { start, end: index });
             }
-            b'#' if is_preprocessor_directive_start(bytes, index) => {
+            b'#' if is_preprocessor_directive_start(bytes, line_start, index) => {
                 // `#`-директива прекомпилятора: до конца строки не код.
                 index = find_line_end(bytes, index);
+                line_start = index;
             }
             b'(' => {
                 push_code(&mut events, index, byte, prev_code, prev_code_index, depth);
@@ -821,21 +834,12 @@ fn is_code_byte(byte: u8) -> bool {
     !matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
 }
 
-fn is_preprocessor_directive_start(bytes: &[u8], index: usize) -> bool {
+fn is_preprocessor_directive_start(bytes: &[u8], line_start: usize, index: usize) -> bool {
     // `#` начинает директиву только на физическом начале строки (после
     // незначащих пробелов): `А#Б` — обычный код, а код предыдущей строки
-    // (`А=Б;\n#Если`) не мешает директиве. Начало первой строки — после
-    // BOM-префикса (3 байта `EF BB BF`), иначе `#` после BOM не виден как
-    // первый байт строки.
-    let first_line_start = if bytes.starts_with(b"\xEF\xBB\xBF") {
-        3
-    } else {
-        0
-    };
-    let line_start = bytes[..index]
-        .iter()
-        .rposition(|byte| matches!(byte, b'\n' | b'\r'))
-        .map_or(first_line_start, |position| position + 1);
+    // (`А=Б;\n#Если`) не мешает директиве. `line_start` трекается сканом —
+    // для первой строки он уже стоит после BOM-префикса (3 байта
+    // `EF BB BF`), иначе `#` после BOM не виден как первый байт строки.
     bytes[line_start..index]
         .iter()
         .all(|byte| matches!(byte, b' ' | b'\t'))
