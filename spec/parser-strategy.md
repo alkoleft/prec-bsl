@@ -602,7 +602,9 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
 `ПроверкаПереносовСтрок` is a lexical, stateful check + fix scenario modeled
 on the `bsl-language-server` `IncorrectLineBreak` diagnostic. It is a
 `ScenarioSupport::Compatibility` extension beyond the required v1
-`precommit4onec` inventory (opt-in through `ГлобальныеСценарии`), implemented
+`precommit4onec` inventory (enabled by default via `built_in_defaults`;
+opt out through `ОтключенныеСценарии`, narrow through an explicit
+`ГлобальныеСценарии` list), implemented
 in `crates/prec-bsl-bsl/src/line_break.rs` without tree-sitter.
 
 The scanner core is a stateful line classifier, not a per-line port of the
