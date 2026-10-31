@@ -83,7 +83,7 @@ fn operator_spacing_pipeline_run(test_name: &str, input: &str, path: &Path) -> F
 }
 
 #[test]
-fn operator_spacing_pipeline_blocks_and_restages_only_once() {
+fn operator_spacing_pipeline_blocks_and_second_run_is_clean() {
     // Прямая (не golden) проверка hook-контракта на фикстуре: первый прогон
     // блокирует с Modified, повторный на уже исправленном тексте чист.
     let repo = temp_repo("hook_contract");

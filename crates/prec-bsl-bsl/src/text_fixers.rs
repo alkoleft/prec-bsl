@@ -977,7 +977,10 @@ fn is_space_byte(byte: u8) -> bool {
 /// кодовых токенов между. В регионе удаляются все запятые и пробелы;
 /// комментарии (включая их терминаторы строк) сохраняются. Каждая запятая
 /// региона — отдельный DeleteRange-спан; пробелы объединяются в один спан
-/// на максимальный непрерывный чисто-пробельный отрезок региона.
+/// на максимальный непрерывный чисто-пробельный отрезок региона. Каждый
+/// удаляемый gap обязан состоять только из пробельных байтов: сканер не
+/// эмитит события для `#`-директив и висячих `|`-строк, их байты попадают
+/// в gap — регион с не-пробельным gap не хвостовой и не меняется.
 ///
 /// `Метод(А,\n Б)` (после запятой есть кодовый токен) и `Метод(А, , Б)`
 /// (средняя пустота перед кодовым токеном) — не хвостовые, не меняются.
@@ -1005,7 +1008,10 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
 
         // Ищем конец хвостового региона: события запятых, пробелов и
         // комментариев до `)` на глубине этой запятой. `(` или иной кодовый
-        // байт прерывает поиск — запятая не хвостовая.
+        // байт прерывает поиск — запятая не хвостовая. Удаляемые gap-спаны
+        // должны быть чисто пробельными: байты, которые сканер не эмитит как
+        // события (`#`-директивы, висячие `|`-строки), попадают в gap —
+        // не-пробельный gap делает регион нехостовым.
         let mut region_cursor = cursor;
         let mut gap_start = index + 1;
         let mut region_edits = vec![SpanEdit::DeleteRange(index, index + 1)];
@@ -1020,7 +1026,9 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
                 } if next_depth == depth => {
                     // Запятая региона: пробелы между ней и предыдущим
                     // элементом входят в регион и удаляются.
-                    push_space_deletion(&mut region_edits, gap_start, next_index);
+                    if !push_space_deletion(&mut region_edits, text, gap_start, next_index) {
+                        break;
+                    }
                     region_edits.push(SpanEdit::DeleteRange(next_index, next_index + 1));
                     gap_start = next_index + 1;
                     region_cursor += 1;
@@ -1039,8 +1047,9 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
                     depth: close_depth,
                     ..
                 } if close_depth == depth => {
-                    push_space_deletion(&mut region_edits, gap_start, close_index);
-                    is_trailing = true;
+                    if push_space_deletion(&mut region_edits, text, gap_start, close_index) {
+                        is_trailing = true;
+                    }
                     break;
                 }
                 _ => break,
@@ -1064,10 +1073,19 @@ fn scan_trailing_comma_edits(text: &str) -> Vec<SpanEdit> {
 
 /// Удаляет максимальный непрерывный чисто-пробельный отрезок региона
 /// (между запятой/комментарием и следующим элементом) одним спаном.
-fn push_space_deletion(edits: &mut Vec<SpanEdit>, start: usize, end: usize) {
-    if end > start {
-        edits.push(SpanEdit::DeleteRange(start, end));
+/// Возвращает `false`, если диапазон содержит не-пробельные байты
+/// (`#`-директивы, висячие `|`-строки не эмитятся сканером как события):
+/// такой gap нельзя удалять как пробельный — регион не хвостовой.
+fn push_space_deletion(edits: &mut Vec<SpanEdit>, text: &str, start: usize, end: usize) -> bool {
+    let gap = &text.as_bytes()[start..end];
+    if gap.is_empty() {
+        return true;
     }
+    if !gap.iter().all(|&byte| is_space_byte(byte)) {
+        return false;
+    }
+    edits.push(SpanEdit::DeleteRange(start, end));
+    true
 }
 
 /// Применяет отсортированные непересекающиеся span-правки за один проход.
@@ -2439,6 +2457,30 @@ mod tests {
         let bom_output = fix_extra_trailing_commas(bom_input);
         assert_eq!(bom_output, "\u{feff}Метод(А);\n");
         assert_eq!(fix_extra_trailing_commas(&bom_output), bom_output);
+    }
+
+    #[test]
+    fn trailing_commas_rejects_regions_with_non_whitespace_gaps() {
+        // Сканер не эмитит события для `#`-директив и висячих
+        // `|`-строк (только `|` и пробелы): их байты попадают в gap между
+        // событиями региона. Gap-спан удаляет только чистую пробельность —
+        // любой не-пробельный байт в gap делает регион нехостовым, все его
+        // правки отбрасываются, текст остаётся байт-в-байт.
+        let cases = [
+            "Метод(А,\n#Если Сервер Тогда\n)",
+            "Метод(А,\r\n#Если Сервер Тогда\r\n)",
+            "Метод(А, // к\n#Область Х\n)",
+            "Метод(А,\n|\n)",
+            "Метод(А,\n|   \n)",
+            "Метод(А,,\n#КонецОбласти\n)",
+        ];
+        for input in cases {
+            assert_eq!(
+                fix_extra_trailing_commas(input),
+                input,
+                "region with non-whitespace gap must stay byte-identical: {input:?}"
+            );
+        }
     }
 
     #[test]
