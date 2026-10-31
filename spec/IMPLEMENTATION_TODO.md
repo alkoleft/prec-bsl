@@ -36,8 +36,11 @@ spacing and trailing comma fixers contract") and
 
 Resolution:
 
-- Two lexical extension fixers (opt-in through `ГлобальныеСценарии`, `.os`
-  suffix lookup supported) in `crates/prec-bsl-bsl/src/text_fixers.rs`:
+- Two lexical extension fixers (Compatibility support: enabled through
+  `ГлобальныеСценарии`, `.os`
+  suffix lookup supported; since T53 the built-in defaults also enable every
+  supported scenario, so they are default-on with opt-out through
+  `ОтключенныеСценарии`) in `crates/prec-bsl-bsl/src/text_fixers.rs`:
   `ПробелыВокругОператоров` (bsl-ls MissingSpace operator subset
   `+ - * / % = < > <> <= >=`, unary `-`/`+` after `[ ( , =` or file start
   exempt) and `ЛишниеЗапятыеВКонце` (bsl-ls ExtraCommas, whole trailing

@@ -617,6 +617,12 @@ Scanner contract (single pass over the file bytes):
   byte (`prev_code`, `None` at file start after a BOM) and the count of
   currently unclosed `(` (`depth`). Comment events carry the comment byte
   span including the line terminator.
+- Literal, date-literal and directive spans are not events: their bytes are
+  simply skipped. A span fixer that needs those boundaries must extend this
+  scanner rather than add a second tracker; gap ranges between events must
+  be re-verified as whitespace before any deletion (the trailing-comma
+  fixer enforces this, which is what keeps `#` directives inside broken
+  calls untouched).
 - String literals open at `"` with `""` escapes and continue across lines
   through `|` continuations at physical line starts. Date literals open at
   `'` and close at the paired `'` on the same line (an apostrophe operator
@@ -678,9 +684,10 @@ baseline `tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json`):
    partially covered by `ПробелыПослеЗапятых`, and keyword spacing (`ТО`,
    `ИЛИ`, `И`, `Если`, `НЕ`, `Каждого`, …) has no fixer in the current
    inventory. Corpus residue: 81 comma/semicolon and 1 keyword diagnostics.
-3. Broken code: the lexical fix works where bsl-ls is silent because of a
-   parse error (for example `Процедура М(А,)` gets its trailing comma fixed,
-   while bsl-ls reports nothing on the unparsed node). This is a feature of
+3. Broken code: the lexical fix works where bsl-ls emits no ExtraCommas
+   because of a parse error (for example `Процедура М(А,)` gets its trailing
+   comma fixed, while bsl-ls emits ParseError and MissingSpace but no
+   ExtraCommas on the unparsed node). This is a feature of
    the lexical approach, not a parity regression; the span model still
    refuses regions with non-whitespace gaps, which keeps `#` directives
    inside broken calls untouched.
