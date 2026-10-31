@@ -613,9 +613,14 @@ compound statement ends** (`КонецЕсли`, `КонецЦикла` bodies c
 own `optional(';')`) — the official bsl-ls fixture
 `SemicolonPresenceDiagnostic.bsl` flags both `А = 0` and `КонецЕсли`.
 Excluded from the scope: preprocessor directives (bsl-ls skips contexts with
-`preprocessor() != null`), procedure/function definitions and their
-`КонецПроцедуры`/`КонецФункции` brackets (not statements in either model),
-and `elseif_clause`/`else_clause` nodes (part of the enclosing `if`).
+`preprocessor() != null`; the preprocessor region node itself is excluded,
+but its statement children are visited — the regions hold statement bodies),
+procedure/function definitions and their `КонецПроцедуры`/`КонецФункции`
+brackets (not statements in either model), `elseif_clause`/`else_clause`
+nodes (part of the enclosing `if`), and `var_statement` (procedure-level
+`Перем`: tree-sitter treats it as a statement, but the bsl-ls ANTLR model
+parses it as `subVar` — not a statement — so bsl-ls never flags it; the
+semicolon set excludes it for parity).
 
 Termination predicate (per statement node): scan the node's children in
 reverse order, skipping `line_comment` extras; the statement is terminated
@@ -623,8 +628,9 @@ iff the first non-comment child encountered is the `;` token. For
 `while_statement` — the grammar has no `optional(';')` there — the
 terminator is the nearest next sibling, skipping comment siblings, and it
 counts in either form: a clean `";"` node (`_empty_statement`) or an ERROR
-node whose text is exactly `;` (both forms are established facts of 0.1.7,
-see `one_statement_per_line.rs`). Diagnostic span and line: the **stop
+node whose text is exactly `;` (the clean node is the only form reproducible
+on 0.1.7 probes; the ERROR branch is a defensive 0.1.6 fallback for other
+error shapes, kept from the `one_statement_per_line.rs` precedent). Diagnostic span and line: the **stop
 token** (last significant non-comment child), byte span + 1-based line of
 that token — not the statement start, so multi-line statements report the
 line where the expression ends (bsl-ls `getStop()` range parity). String
