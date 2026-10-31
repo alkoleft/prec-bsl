@@ -79,13 +79,17 @@ generic repository-local `.os` execution.
 
 - `ПробелыВКомментариях`
 - `ПробелыПослеЗапятых`
+- `ПробелыВокругОператоров`
+- `ЛишниеЗапятыеВКонце`
 - `ПроверкаДлиныСтрок`
 - `ОдинОператорНаСтроку`
 
 These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
-`SpaceAtStartComment`, `MissingSpace` (comma subset), `LineLength`, and
-`OneStatementPerLine`. They are NOT part of the required v1 `precommit4onec`
-inventory and are registered with `ScenarioSupport::Compatibility` so that:
+`SpaceAtStartComment`, `MissingSpace` (comma subset for `ПробелыПослеЗапятых`
+and binary-operator subset for `ПробелыВокругОператоров`), `ExtraCommas`,
+`LineLength`, and `OneStatementPerLine`. They are NOT part of the required v1
+`precommit4onec` inventory and are registered with
+`ScenarioSupport::Compatibility` so that:
 
 - the required v1 inventory list check in `src/lib.rs` stays unchanged;
 - `built_in_defaults` enables them implicitly together with every other
@@ -94,8 +98,31 @@ inventory and are registered with `ScenarioSupport::Compatibility` so that:
 - users can turn them off through `ОтключенныеСценарии` or narrow the set with
   an explicit `ГлобальныеСценарии` list.
 
-`ПробелыВКомментариях` and `ПробелыПослеЗапятых` are lexical text fixers with
-string/comment state tracking; see `crates/prec-bsl-bsl/src/text_fixers.rs`.
+`ПробелыВКомментариях` and `ПробелыПослеЗапятых` are per-line lexical text
+fixers with their own string/comment state tracking; see
+`crates/prec-bsl-bsl/src/text_fixers.rs`.
+
+`ПробелыВокругОператоров` (prec-bsl issue #9) is a lexical fixer modeled on the
+`bsl-language-server` MissingSpace diagnostic restricted to the binary operator
+set `+ - * / % = < > <> <= >=` (bsl-ls
+`DEFAULT_LIST_FOR_CHECK_LEFT_AND_RIGHT`). It inserts a single space on each
+side of a binary operator where the adjacent byte is not already whitespace;
+unary `-`/`+` whose previous non-whitespace code byte is `[`, `(`, `,`, `=`
+(or file start) are exempt and never touched. The full scan contract, span
+model and deliberate non-parity live in `spec/parser-strategy.md`, section
+"Operator spacing and trailing comma fixers contract". Implemented in
+`crates/prec-bsl-bsl/src/text_fixers.rs`.
+
+`ЛишниеЗапятыеВКонце` (prec-bsl issue #9) is a lexical fixer modeled on the
+`bsl-language-server` ExtraCommas diagnostic: a trailing comma run before the
+closing `)` of a paren group (`Метод(А,,,)` → `Метод(А)`) is removed in one
+pass, including commas separated by whitespace and `//` comments across
+multiple lines; comments themselves are preserved. Comma-separated argument
+continuations that end in a code token, empty middle parameters
+(`Метод(А, , Б)`) and depth-0 commas are never touched. The full contract and
+deliberate non-parity live in `spec/parser-strategy.md`, section
+"Operator spacing and trailing comma fixers contract". Implemented in
+`crates/prec-bsl-bsl/src/text_fixers.rs`.
 
 `ПроверкаДлиныСтрок` (prec-bsl issue #4) is a lexical check-only scenario
 modeled on the `bsl-language-server` LineLength diagnostic: it reports source
