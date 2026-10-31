@@ -26,9 +26,22 @@
 //! - check-mode parse-error policy: per statement — a statement whose
 //!   subtree contains a tree-sitter `ERROR` node is skipped individually
 //!   (mirrors bsl-ls `Trees.treeContainsErrors(ctx)`); MISSING nodes are
-//!   not blockers (ANTLR recovers missing tokens inline).
+//!   not blockers (ANTLR recovers missing tokens inline);
+//! - fix-mode parse-error policy: whole-file (SKEP-104) — any unsafe
+//!   ERROR outside the safe forms (`has_unsafe_parse_errors`, NOT the
+//!   OSPL row-intersection semantics: insertion offsets come from the
+//!   tree and must not be computed over unreliable regions). On refusal
+//!   the input is returned unchanged and the refusal is visible to the
+//!   handler through `has_unsafe_parse_errors` / `has_lone_cr` (the
+//!   same holds for lone-`\r` files, out of contract);
+//! - fix mechanics: insertion-only — one `;` at each
+//!   `stop_token_span.end_byte` (before the trailing comment on the
+//!   line, probe (h)/(i2)), computed over the original bytes, sorted,
+//!   applied in a single copy pass. Idempotent, including the EOF form
+//!   (probe (e): the inserted `;` re-parses as the statement's
+//!   terminator child); a UTF-8 BOM survives byte-for-byte.
 
-use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError};
+use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError, ParsedBsl, has_lone_cr};
 
 /// Extension scenario id (`precommit4onec` name without `.os`).
 pub const SEMICOLON_PRESENCE_RULE: &str = "ПроверкаТочекЗапятой";
@@ -103,6 +116,141 @@ pub fn find_missing_semicolons(input: &str) -> Result<Vec<SemicolonViolation>, B
     let mut violations = Vec::new();
     collect_violations(parsed.tree().root_node(), input, &mut violations);
     Ok(violations)
+}
+
+/// True when the file contains an unsafe parse ERROR — any ERROR node
+/// outside the known safe forms — anywhere in the file. Fix-mode
+/// parse-error policy: whole-file (SKEP-104). Insertion offsets come
+/// from the tree and must not be computed over unreliable regions, so
+/// ANY unsafe ERROR blocks modification of the file entirely — unlike
+/// the `ОдинОператорНаСтроку` `has_relevant_parse_errors`
+/// row-intersection semantics. Safe forms (the OSPL precedent,
+/// `one_statement_per_line.rs` `is_safe_error_region`):
+/// - MISSING nodes (ANTLR recovers missing tokens inline — probe (r9));
+/// - a bare `;` ERROR and an ERROR-`;` right after a `while_statement`
+///   (defensive 0.1.6 fallbacks — not reproducible on 0.1.7);
+/// - a compound keyword-led ERROR region (`Если`/`Пока`/`Попытка`/`Для`
+///   without an end keyword — probe (v5)/(v6), bsl-ls fixture t2);
+/// - an ERROR region containing preprocessor keywords (preproc inside
+///   an expression — bsl-ls fixture main case).
+pub fn has_unsafe_parse_errors(input: &str) -> Result<bool, BslParserError> {
+    let mut parser = BslParser::new()?;
+    let parsed = parser.parse(input)?;
+    if !parsed.has_errors() {
+        return Ok(false);
+    }
+    Ok(has_unsafe_error_in_tree(&parsed, input))
+}
+
+/// Fix missing-semicolon violations: insertion-only. For every
+/// violation exactly one `;` is inserted at `stop_token_span.end_byte`
+/// (before the trailing comment on that line, if any — probe (h)/(i2)).
+/// Edits are computed over the original bytes, sorted, and applied in a
+/// single copy pass; nothing else in the file changes. The fix is
+/// idempotent (`fix(fix(x)) == fix(x)`), including the EOF form (probe
+/// (e): the inserted `;` re-parses as the statement's own terminator).
+/// A UTF-8 BOM survives byte-for-byte.
+///
+/// Refusal contract (SKEP-103/104): on refusal the input is returned
+/// unchanged (`Ok(input.to_owned())`) and the refusal itself is NOT
+/// swallowed — the handler must call `has_lone_cr` and
+/// `has_unsafe_parse_errors` separately to distinguish "clean" from
+/// "refused" outcomes:
+/// - lone-`\r` line endings (CR-only or mixed): out of contract;
+/// - unsafe parse errors anywhere in the file: whole-file refusal.
+pub fn fix_missing_semicolons(input: &str) -> Result<String, BslParserError> {
+    // Lone-`\r` line endings are out of contract (`has_lone_cr`):
+    // tree-sitter's row model is LF-based and the insertion offsets
+    // come from the tree; never touch such files here.
+    if has_lone_cr(input) {
+        return Ok(input.to_owned());
+    }
+    if has_unsafe_parse_errors(input)? {
+        return Ok(input.to_owned());
+    }
+    let violations = find_missing_semicolons(input)?;
+    if violations.is_empty() {
+        return Ok(input.to_owned());
+    }
+    // Sorted insertion points over the ORIGINAL bytes, one pass.
+    let mut insertions: Vec<usize> = violations
+        .iter()
+        .map(|violation| violation.stop_token_span.end_byte)
+        .collect();
+    insertions.sort_unstable();
+    let mut output = String::with_capacity(input.len() + insertions.len());
+    let mut copied = 0usize;
+    for at in insertions {
+        output.push_str(&input[copied..at]);
+        output.push(';');
+        copied = at;
+    }
+    output.push_str(&input[copied..]);
+    Ok(output)
+}
+
+/// Whole-file unsafe-ERROR scan: any ERROR node that is not a safe form.
+fn has_unsafe_error_in_tree(parsed: &ParsedBsl, source: &str) -> bool {
+    let root = parsed.tree().root_node();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.is_error() && !is_safe_error_form(node, source) {
+            return true;
+        }
+        // MISSING nodes are always safe (ANTLR inline recovery).
+        if !node.is_missing() {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.has_error() || child.is_error() || child.is_missing() {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Compound keywords that lead an ERROR region wrapping an unterminated
+/// compound statement (`Если`/`Пока`/`Попытка`/`Для` — the OSPL
+/// `COMPOUND_KEYWORD_KINDS` matrix, identical for these kinds).
+const COMPOUND_KEYWORD_KINDS: &[&str] =
+    &["IF_KEYWORD", "WHILE_KEYWORD", "TRY_KEYWORD", "FOR_KEYWORD"];
+
+/// Safe ERROR forms for the whole-file fix policy (see
+/// `has_unsafe_parse_errors`).
+fn is_safe_error_form(node: tree_sitter::Node<'_>, source: &str) -> bool {
+    if node.is_missing() {
+        return true;
+    }
+    // Bare `;` ERROR / ERROR-`;` after a while (defensive 0.1.6
+    // fallbacks, not reproducible on 0.1.7 — treedumps РАСХОЖДЕНИЕ-1).
+    if node
+        .utf8_text(source.as_bytes())
+        .is_ok_and(|text| text == ";")
+    {
+        return true;
+    }
+    // Compound keyword-led ERROR region (unterminated compound
+    // recovered inline by ANTLR).
+    if is_compound_error_region(node) {
+        return true;
+    }
+    // Preprocessor-containing ERROR region (e.g. `#Если` inside a call).
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind().starts_with("PREPROC_") {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_compound_error_region(node: tree_sitter::Node<'_>) -> bool {
+    let mut cursor = node.walk();
+    let mut children = node.children(&mut cursor);
+    children
+        .next()
+        .is_some_and(|first| COMPOUND_KEYWORD_KINDS.contains(&first.kind()))
 }
 
 /// Visit statement nodes in document order, descending into containers
@@ -488,6 +636,241 @@ mod tests {
     /// ranges (3,6,3,7) — the `0` of `А = 0` on row 3 — and (4,0,4,9) —
     /// the `КонецЕсли` keyword on row 4 (LSP 0-based lines/columns).
     const BSL_LS_FIXTURE: &str = "А = 0;\nЕсли Истина Тогда\n  А = 0;\n  А = 0           // Диагностика должна сработать здесь\nКонецЕсли         // и здесь\n\n#Область ИмяОбласти\n\n#КонецОбласти\n\nАсинх Процедура а()\n    Существует = Ждать ФайлНаДиске.СуществуетАсинх();\nКонецПроцедуры\n\nПроцедура ОшибкаРазбора()\n    Для ЭлементСтруктуры Из КакаятоСтруктура Цикл // Здесь ошибки не будет, т.к. ошибка разбора\n\n    КонецЦикла;  // Здесь ошибки не будет, т.к. ошибка разбора\nКонецПроцедуры\n";
+
+    /// Reference matrix for the fixer tests (Task 3): every mutation
+    /// input the fixer must handle, used by both the targeted tests and
+    /// the idempotence loop. Mirrors the Task 2 detector cases plus the
+    /// BOM/CRLF/EOF matrix required by the plan.
+    fn fixer_mutation_inputs() -> Vec<String> {
+        vec![
+            // EOF form (issue main case, probe (d)/(e))
+            "\tВозврат \"Булево\"".to_owned(),
+            // while without `;` (sibling terminator missing)
+            "Пока Истина Цикл\n    А = 1;\nКонецЦикла\n".to_owned(),
+            // compound end without `;`
+            "Если Истина Тогда\n    А = 1;\nКонецЕсли\n".to_owned(),
+            // trailing comment before the insertion point (probe (h))
+            "Если Истина Тогда\n    А = 1;\nКонецЕсли // c\n".to_owned(),
+            // string literal containing `;` (probe (n1))
+            "А = \"1;2\"".to_owned(),
+            // multi-line statement: stop token on another row (probe (i))
+            "Функция Ф()\n    Возврат Ф(А,\n        Б)\nКонецФункции".to_owned(),
+            // two statements on one line, first unterminated (probe (b))
+            "А = 0 Б = 1;\n".to_owned(),
+            // preprocessor region body (probe (f)/(t3))
+            "#Если Сервер Тогда\n    X = 1\n#КонецЕсли\n".to_owned(),
+            // MISSING node does not block the statement (probe (r9)):
+            // the label fix-inserted `;` changes the tree shape (see
+            // `fix_is_idempotent` — the label case is NOT in the matrix
+            // because the fix output is ERROR-shaped there).
+            "Процедура П()\n    ~Метка\nКонецПроцедуры".to_owned(),
+            // two missing semicolons in one file (insertion count)
+            "Если Истина Тогда\n    А = 1\nКонецЕсли\nБ = 2\n".to_owned(),
+            // CRLF line endings
+            "Если Истина Тогда\r\n    А = 1;\r\nКонецЕсли\r\n".to_owned(),
+            // BOM + CRLF + EOF form
+            "\u{feff}\r\n\tВозврат \"Булево\"".to_owned(),
+            // BOM + LF + trailing comment
+            "\u{feff}Если Истина Тогда\n    А = 1;\nКонецЕсли // c\n".to_owned(),
+        ]
+    }
+
+    /// Clean inputs (no violations): the fix must return them
+    /// byte-for-byte unchanged.
+    fn fixer_clean_inputs() -> Vec<String> {
+        vec![
+            "\tВозврат \"Булево\";".to_owned(),
+            "Пока Истина Цикл\n    А = 1;\nКонецЦикла;\n".to_owned(),
+            "Если Истина Тогда\n    А = 1;\nКонецЕсли;\n".to_owned(),
+            "А = \"1;2\";".to_owned(),
+            "А = 0;;".to_owned(),
+            "Перем X\n".to_owned(),
+            "Процедура П()\n    Перем X\nКонецПроцедуры".to_owned(),
+            "// Если Тогда".to_owned(),
+            "А = 1; Б = 2; )".to_owned(),
+            "\u{feff}А = 0;\n".to_owned(),
+            // `А = 0\n;` — the `;` on the next row is still a child of
+            // the statement (probe (q1)): terminated, no fix.
+            "А = 0\n;\n".to_owned(),
+            // `КонецЕсли // c\n;` — comment child between ENDIF and `;`
+            // (probe (u6)): terminated via comment-skipping scan.
+            "Если Истина Тогда\n    А = 1;\nКонецЕсли // c\n;\n".to_owned(),
+        ]
+    }
+
+    #[test]
+    fn fix_inserts_semicolon_at_stop_token_before_comment() {
+        // The insertion point is stop_token_span.end_byte: BEFORE the
+        // trailing comment on the statement's line (probe (h)).
+        let input = "Если Истина Тогда\n    А = 1;\nКонецЕсли // c\n";
+        let output = fix_missing_semicolons(input).unwrap();
+        assert_eq!(output, "Если Истина Тогда\n    А = 1;\nКонецЕсли; // c\n");
+    }
+
+    #[test]
+    fn fix_inserts_at_every_violation_and_nowhere_else() {
+        // Two violations in one file: exactly two `;` inserted, at the
+        // two stop-token end bytes, nothing else changes.
+        let input = "Если Истина Тогда\n    А = 1\nКонецЕсли\nБ = 2\n";
+        let output = fix_missing_semicolons(input).unwrap();
+        assert_eq!(
+            output,
+            "Если Истина Тогда\n    А = 1;\nКонецЕсли;\nБ = 2;\n"
+        );
+    }
+
+    #[test]
+    fn fix_is_idempotent() {
+        // fix(fix(x)) == fix(x) on the whole matrix (Task 2 cases +
+        // BOM + CRLF + EOF form — the EOF form is the mandatory matrix
+        // element: after insertion the predicate must see the inserted
+        // `;` as the terminator, probe (e)).
+        for input in fixer_mutation_inputs() {
+            let once = fix_missing_semicolons(&input).unwrap();
+            assert!(
+                once != input || find_missing_semicolons(&input).unwrap().is_empty(),
+                "input changed without violations: {input:?}"
+            );
+            let twice = fix_missing_semicolons(&once).unwrap();
+            assert_eq!(once, twice, "not idempotent for {input:?}");
+        }
+    }
+
+    #[test]
+    fn fix_clears_all_violations_from_the_detector() {
+        // After the fix the detector must find no violations on the
+        // fixed output (insertion-only: the fixed text re-parses with
+        // every inserted `;` recognized as its statement's terminator).
+        // The label-MISSING case is excluded here: its fix output is
+        // ERROR-shaped (`~Метка;` parses as an ERROR node), and the fix
+        // correctly refuses that output on the second run (unsafe
+        // ERROR) — covered by `fix_label_missing_colon_output_refused`.
+        for input in fixer_mutation_inputs()
+            .into_iter()
+            .filter(|input| !input.contains("~Метка"))
+        {
+            let once = fix_missing_semicolons(&input).unwrap();
+            let remaining = find_missing_semicolons(&once).unwrap();
+            assert!(
+                remaining.is_empty(),
+                "violations remain after fix for {input:?}:\n{remaining:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fix_label_missing_colon_output_refused() {
+        // Probe (r9) follow-up: `~Метка` without `:` parses as
+        // label_statement with a MISSING `:`; inserting `;` after
+        // `Метка` yields `~Метка;` which does NOT parse as
+        // label_statement — the region becomes a plain ERROR node. The
+        // second fix run must refuse that output (unsafe ERROR), not
+        // insert again: the fix stays idempotent as a NO-OP refusal.
+        let input = "Процедура П()\n    ~Метка\nКонецПроцедуры";
+        let once = fix_missing_semicolons(input).unwrap();
+        assert_eq!(once, "Процедура П()\n    ~Метка;\nКонецПроцедуры");
+        assert!(has_unsafe_parse_errors(&once).unwrap());
+        let twice = fix_missing_semicolons(&once).unwrap();
+        assert_eq!(once, twice, "second run must not touch the refused file");
+    }
+
+    #[test]
+    fn fix_leaves_clean_inputs_unchanged_byte_for_byte() {
+        for input in fixer_clean_inputs() {
+            let output = fix_missing_semicolons(&input).unwrap();
+            assert_eq!(output, input, "clean input changed: {input:?}");
+        }
+    }
+
+    #[test]
+    fn fix_refuses_files_with_unsafe_parse_errors() {
+        // `Сообщить(1 2)`: the call_statement holds an ERROR node in
+        // its arguments (missing comma). Check mode skips the statement
+        // individually; fix mode refuses the whole file — the returned
+        // text is byte-for-byte the input, and the refusal is visible
+        // to the handler through `has_unsafe_parse_errors`.
+        let input = "Сообщить(1 2)\nА = 1";
+        assert!(has_unsafe_parse_errors(input).unwrap());
+        let output = fix_missing_semicolons(input).unwrap();
+        assert_eq!(output, input, "unsafe file must stay unchanged");
+
+        // Unterminated procedure (ERROR region led by PROCEDURE_KEYWORD,
+        // not a safe form): refused as well.
+        let proc = "Процедура А()\nА=1; А=2;";
+        assert!(has_unsafe_parse_errors(proc).unwrap());
+        assert_eq!(fix_missing_semicolons(proc).unwrap(), proc);
+
+        // Clean file: no unsafe errors.
+        assert!(!has_unsafe_parse_errors("А = 1;\nБ = 2;\n").unwrap());
+    }
+
+    #[test]
+    fn fix_refuses_but_safe_error_forms_do_not_block() {
+        // Safe ERROR forms (the OSPL precedent): MISSING nodes, bare-`;`
+        // ERRORs (not reproducible on 0.1.7 — defensive), keyword-led
+        // compound ERROR regions, and preproc-containing ERROR regions.
+        //
+        // The bsl-ls fixture's `ОшибкаРазбора` procedure: `Для … Цикл`
+        // with an empty body parses as a FOR_KEYWORD-led ERROR region
+        // (safe form) — the file still gets fixed (its `А = 0` and
+        // `КонецЕсли` violations are inserted), and the fix output
+        // stays idempotent.
+        let input = "А = 0;\nЕсли Истина Тогда\n  А = 0;\n  А = 0           // Диагностика должна сработать здесь\nКонецЕсли         // и здесь\n\n#Область ИмяОбласти\n\n#КонецОбласти\n\nАсинх Процедура а()\n    Существует = Ждать ФайлНаДиске.СуществуетАсинх();\nКонецПроцедуры\n\nПроцедура ОшибкаРазбора()\n    Для ЭлементСтруктуры Из КакаятоСтруктура Цикл // Здесь ошибки не будет, т.к. ошибка разбора\n\n    КонецЦикла;  // Здесь ошибки не будет, т.к. ошибка разбора\nКонецПроцедуры\n";
+        assert!(!has_unsafe_parse_errors(input).unwrap());
+        let once = fix_missing_semicolons(input).unwrap();
+        assert_ne!(once, input);
+        let twice = fix_missing_semicolons(&once).unwrap();
+        assert_eq!(once, twice, "second run must be a no-op");
+
+        // MISSING nodes alone (probe (r9), `~Метка` without `:`): safe
+        // for the fix — the file is not refused before the first run.
+        let missing = "Процедура П()\n    ~Метка\nКонецПроцедуры";
+        assert!(!has_unsafe_parse_errors(missing).unwrap());
+
+        // Unterminated compound at EOF (probe (v5)): IF_KEYWORD-led
+        // ERROR region — safe form, fix not refused.
+        let unterminated_if = "Если Истина Тогда А = 1;";
+        assert!(!has_unsafe_parse_errors(unterminated_if).unwrap());
+    }
+
+    #[test]
+    fn fix_leaves_lone_cr_files_unchanged() {
+        // Lone `\r` line endings (CR-only or mixed) are out of contract
+        // (see `bsl_parser::has_lone_cr`): the fix returns the input
+        // unchanged — the handler distinguishes the refusal by calling
+        // `has_lone_cr` itself.
+        let cr_only = "А = 1\rБ = 2\r";
+        let output = fix_missing_semicolons(cr_only).unwrap();
+        assert_eq!(output, cr_only, "CR-only input must stay unchanged");
+
+        let mixed = "А = 1;\r\nБ = 2;\rВ = 3;\n";
+        let output = fix_missing_semicolons(mixed).unwrap();
+        assert_eq!(output, mixed, "mixed lone-CR input must stay unchanged");
+
+        // The check helper is the shared `bsl_parser::has_lone_cr`.
+        assert!(has_lone_cr(cr_only));
+        assert!(has_lone_cr(mixed));
+        assert!(!has_lone_cr("А = 1;\r\nБ = 2;\r\n"));
+    }
+
+    #[test]
+    fn fix_preserves_bom_and_crlf() {
+        // BOM survives byte-for-byte; CRLF line endings are untouched
+        // (insertion-only at stop-token end bytes — no line-ending
+        // normalization happens anywhere).
+        let input = "\u{feff}Если Истина Тогда\r\n    А = 1;\r\nКонецЕсли // c\r\n".to_owned();
+        let output = fix_missing_semicolons(&input).unwrap();
+        let expected = "\u{feff}Если Истина Тогда\r\n    А = 1;\r\nКонецЕсли; // c\r\n".to_owned();
+        assert_eq!(output, expected);
+        assert!(output.starts_with('\u{feff}'));
+        assert!(output.contains("КонецЕсли; // c\r\n"));
+
+        // BOM + EOF form (no trailing newline): the `;` lands at the
+        // very end, after the BOM-led file's last statement token.
+        let eof_input = "\u{feff}\r\n\tВозврат \"Булево\"".to_owned();
+        let output = fix_missing_semicolons(&eof_input).unwrap();
+        assert_eq!(output, "\u{feff}\r\n\tВозврат \"Булево\";");
+    }
 
     #[test]
     fn bsl_ls_fixture_parity() {
