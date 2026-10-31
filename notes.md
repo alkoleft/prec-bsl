@@ -1,105 +1,88 @@
-# Notes — issue #9 Task 3 (bsl-ls spacing parity) + итоги Tasks 1–2
+# Notes — issue #9 Task 3 (bsl-ls spacing parity) + ревью-фикс round 1 + итоги Tasks 1–2
 
-Факты и находки воркера Task 3. План:
-`docs/superpowers/plans/2026-10-31-issue-9-operator-spacing-...md` (в
-основном репо). История ветки: Task 0 — 970bdb4; Task 1 — f5b092e + ревью-фикс
-1fc43ba; Task 2 — 231bdfc + ревью-фикс 3b3204a; Task 3 — см. `git log` (коммит
-`test(parity): bsl-ls spacing parity on yaxunit corpus (issue #9)`).
+План: `docs/superpowers/plans/2026-10-31-issue-9-operator-spacing-...md`
+(в основном репо). История ветки: Task 0 — 970bdb4; Task 1 — f5b092e +
+ревью-фикс 1fc43ba; Task 2 — 231bdfc + ревью-фикс 3b3204a; Task 3 — 99b894c;
+**ревью-фикс Task 3 (LOW-1..3 из `.superpowers/gh-issue/9/reviews/task3-round1.md`)
+— 83e4608** `test(parity): enforce post-fix counts and drop-count in spacing
+parity (issue #9)`. INFO-4 (temp-outdir в /tmp) и INFO-5 (контрактная защита
+оригинала yaxunit) — принятые риски, не правились.
 
-## Сделано (Task 3)
+## Ревью-фикс Task 3 (LOW-1..3), что сделано
 
-- `tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json`: corpus_commit
-  d21ce6ff…, jar 1.0.7 (URL релиза + sha256
-  9f62765edd344d66456da24c906eaf623a03c56e90e5aafee466200100909f64 —
-  совпадает с digest ассета bsl-language-server-1.0.7-exec.jar в GitHub
-  release), command, pre/post-fix counts, residue_policy с механическим
-  правилом классификации.
-- `tests/spacing_parity.rs`: env-gated (`PREC_BSL_PARITY_CORPUS`),
-  skip без env / без jar `/tmp/opencode/bsl_ls.jar` / при несовпадении commit;
-  (a) pre-fix сверка counts с baseline; (b) фиксеры operator → commas по
-  каждому tracked .bsl; (c) post-fix: ExtraCommas == 0, MissingSpace —
-  механическая классификация остатка; (d) идемпотентность второго прохода.
-  Тест мутирует корпус и возвращает его в pristine (`git checkout -- .`)
-  в конце — повторные запуски не требуют ручного сброса; перед стартом
-  требует pristine worktree (fail с понятным сообщением, если корпус грязный).
+- **LOW-1:** baseline `mechanical_rule` — убран `.` из unary-набора; теперь
+  ровно `{'[','(','=',','}` + file start, синхронно с тестом и фикстером
+  (`previous_non_whitespace_char` + `Some('[' | '(' | ',' | '=') | None`).
+  Фактических `.`-случаев на корпусе нет — правка prose-only, числа не
+  меняются. JSON-валидность проверена (`json.load` ok).
+- **LOW-2:** `read_baseline` расширен полями `post_missing_space`
+  (`post_fix_counts.MissingSpace`), `residue_comma_semicolon`,
+  `residue_unary_sign`, `residue_keyword`
+  (`residue_policy.post_fix_residue_counts.*`, все из baseline, не хардкод).
+  Новые assert'ы после ExtraCommas==0: post MissingSpace == baseline (84);
+  residue comma/semicolon == 81, unary == 2, keyword == 1; сумма классов ==
+  post MissingSpace (полное покрытие остатка). Это закрывает регрессию
+  «фиксер чинит больше/меньше — тест проходит незаметно».
+- **LOW-3:** тихий `continue` при пустом `relative` (нере-анкоренный URI)
+  заменён на подсчёт `dropped_fileinfos` + `dropped_example` и panic при >0:
+  «contains N fileinfo path(s) that could not be re-anchored onto the corpus
+  (e.g. <URI>)». Обоснование: дропнутый fileinfo сдувает все counts, parity
+  валидировался бы по неполным данным. Подсчёт ведётся по fileinfo с
+  фильтруемыми кодами не связан — считается любой fileinfo с пустым
+  relative (path вне corpus и вне CWD-резолва), пример URI печатается.
+- Doc-комментарий шапки теста обновлён (assert (c) теперь включает сверку
+  post-fix count + per-class residue counts).
 
-## Ключевые факты (проверены прогонами)
+## Негативные проверки ревью-фикса (TDD-ветки, факт)
+
+- LOW-2, post-count: baseline `post_fix_counts.MissingSpace=83` (неверно) →
+  panic «post-fix MissingSpace count must match the baseline snapshot...
+  left: 84, right: 83». Corpus при FAILED-прогоне остаётся грязным (тест
+  падает до restore) — восстановлен `git checkout -- .`; для повторных
+  негативных прогонов это ожидаемо.
+- LOW-2, residue: baseline `unary_sign=3` (неверно) → panic «post-fix
+  unary-sign residue count must match the baseline snapshot. left: 2,
+  right: 3».
+- LOW-3: подмена `java` в PATH скриптом-заглушкой, возвращающей отчёт с
+  URI `file:///somewhere/elsewhere/Module.bsl` → panic «contains 1 fileinfo
+  path(s) that could not be re-anchored onto the corpus (e.g.
+  file:///somewhere/elsewhere/Module.bsl)». Заглушка удалена.
+
+## Ключевые факты Task 3 (проверены прогонами)
 
 - **Pre-fix counts на clone НЕ ~22420/13 из плана, а 104 MissingSpace / 2
   ExtraCommas.** Числа плана — с анализа рабочей копии yaxunit с untracked
-  build/-артефактами (350 tracked .bsl + ~1457 untracked = 1808 файлов
-  analyzed). Baseline зафиксирован по фактическому clone-прогону — это
-  сознательное отклонение от плана, зафиксировано в поле `notes` baseline.
-- bsl-ls analyze по 350 tracked .bsl: 3937 диагностик всего, из них
-  MissingSpace 104, ExtraCommas 2. Прогон ~15 с (3.5 мин CPU).
-- **Post-fix: ExtraCommas 0, MissingSpace 84.** Фиксеры меняют 16 файлов
-  (14 — только операторные правки, 2 — только хвостовые запятые;
-  25 строк затронуто). Новых MissingSpace/ExtraCommas после фикса НЕТ
-  (diff pre→post по этим кодам: только удаления).
-- **Остаток 84 классифицируется полностью, 0 вне residue_policy:**
-  - `,`/`;` справа — 81 (bsl-ls `listForCheckRight = ", ;"`; наш фиксер их
-    сознательно не трогает — прерогатива ПробелыПослеЗапятых);
-  - unary `-` после `[` — 2 (`Значения[-Инд]` ×2: ЮТОбщийСлужебный:84,
-    ОМ_ЮТКоллекции:588);
-  - keyword `НЕ` перед `(` — 1 (`Интеграция/Module.bsl:54`
-    `Если НЕ(Ответ.КодСостояния >= 200…`).
-- Механическое правило (locale-независимо, по символу в LSP-диапазоне на
-  post-fix тексте): token `-`/`+` и prev non-ws символ ∈ `[ ( , =`/начало
-  файла → unary; token `,`/`;` → comma; token из букв/цифр/`_` → keyword;
-  прочее → FAIL. Текст сообщения НЕ парсится.
-- **Keyword-семантика bsl-ls 1.0.7** (из исходника v1.0.7
-  MissingSpaceDiagnostic.java, зафиксировано в residue_policy):
-  KEYWORDS_WITH_LEFT_RIGHT_SPACE = {ТО, IN, ИЛИ, AND}; LEFT = {Экспорт,
-  Тогда, Do}; RIGHT = {Если, ИначеЕсли, Пока, Для, НЕ, Каждый}. Corpus-факт:
-  keyword-диагностики имеют диапазон ровно на keyword-токене (например `НЕ`,
-  2 UTF-16 юнита) — классификация «токен из identifier-символов» их ловит.
-- **bsl-ls недетерминизм вне наших кодов:** повторные прогоны на идентичном
-  корпусе расходятся в UnusedLocalMethod/UnusedLocalVariable/MagicNumber
-  (±11 позиций, дерево/кэши). MissingSpace/ExtraCommas стабильны во всех
-  прогонах. Поэтому parity-тест сравнивает только два кода; шум зафиксирован
-  в baseline `known_noise`.
-- **bsl-ls path quirk:** URI в отчёте — `file://<CWD-относительный>/…` с `..`
-  сегментами, когда корпус вне CWD процесса. Тест резолвит лексически +
-  canonicalize против canonical corpus-пути. Paths percent-encoded
-  (кириллица) — декодируется в тесте.
-- LSP `character` — UTF-16 code units (кириллица = 1 юнит на символ, но
-  правило реализовано честно через len_utf16).
+  build/-артефактами. Baseline зафиксирован по фактическому clone-прогону
+  (сознательное отклонение, отмечено в `notes`-поле baseline).
+- **Post-fix: ExtraCommas 0, MissingSpace 84** (фиксеры меняют 16 файлов).
+  Остаток 84 = comma/semicolon 81 + unary 2 (`Значения[-Инд]` ×2) + keyword 1
+  (`НЕ(` в Интеграция/Module.bsl:54); 0 вне residue_policy.
+- Механическое правило (locale-независимо, по токену в LSP-диапазоне на
+  post-fix тексте): `-`/`+` после `[ ( , =`/file start → unary; `,`/`;` →
+  comma; identifier-токен → keyword; прочее → FAIL. Текст сообщения не
+  парсится.
+- **bsl-ls недетерминизм вне наших кодов** (UnusedLocalMethod/Variable/
+  MagicNumber ±11) — поэтому сравниваются только MissingSpace/ExtraCommas
+  (зафиксировано в baseline `known_noise`).
+- **bsl-ls path quirk:** URI `file://<CWD-относительный>/…` с `..`
+  сегментами, когда корпус вне CWD. Тест резолвит лексически + canonicalize
+  против canonical corpus-пути; percent-encoding (кириллица) декодируется.
+  LSP `character` — UTF-16 code units (учтено через len_utf16).
+- Сверх-паритет `Возврат -1` → `Возврат - 1` (2 файла): bsl-ls 1.0.7
+  `Возврат -1` НЕ флагает; unary-exemption набор `[ ( , =` не включает
+  `Возврат` — семантика из плана, новых диагностик не создаёт.
 
-## Отклонения от плана / решения
+## Проверки (ревью-фикс, факт)
 
-- Pre-fix counts: план ожидал ~22420/13; фактические clone-числа 104/2
-  зафиксированы в baseline (замечание о происхождении расхождения — в
-  `notes`-поле baseline). Остаток полностью уложился в residue_policy —
-  расширять non-parity-список или чинить фиксер не потребовалось;
-  residue-analysis.md не создавался (нет предмета).
-- Прогон (c)-классификации в тесте идёт по post-fix тексту файлов корпуса
-  (читаются с диска после записи) — как в плане.
-- `Новый Структура("", )` → `Новый Структура("")` и
-  `.Когда("ВыполнитьЗапрос",)` → `.Когда("ВыполнитьЗапрос")` — обе
-  ExtraCommas устранены фиксером хвостовых запятых.
-- 2 файла corpus (МокитоСлужебный, ЮТТестовыеДанные) меняются фиксером, но
-  не имели bsl-ls диагностик до фикса: `Возврат -1` → `Возврат - 1` и
-  `Возврат -СлучайноеЧисло(...)` → `Возврат - СлучайноеЧисло(...)` — bsl-ls
-  1.0.7 такие `-` НЕ флагает (noSpaceLeft у него LPAREN-exempt только для
-  левой стороны; для `Возврат-А` empirika плана говорила «флагается», на
-  корпусе фактически не флагается `Возврат -1`). Это сверх-паритет (фиксер
-  правит больше, чем флагает bsl-ls) — семантика из плана (unary-exemption
-  набор `[ ( , =` не включает `Возврат`), не нарушение. Новых диагностик
-  не создаёт.
-
-## Проверки (Task 3, факт)
-
-- `cargo test --test spacing_parity` без env — skip, ok.
 - `PREC_BSL_PARITY_CORPUS=/tmp/opencode/parity-yaxunit-9 cargo test --test
-  spacing_parity -- --nocapture` — **ok** (pre 104/2, post 84/0, residue
-  unary 2 + comma 81 + keyword 1, idempotent 0 изменений), корпус
-  восстанавливается сам.
-- `cargo test --workspace` без env — **481 passed / 0 failed** (было 480).
-- `cargo test --workspace` с env — **481 passed / 0 failed**.
+  spacing_parity -- --nocapture` — **ok 33.4 c** (pre 104/2 → post 84/0,
+  residue unary 2 / comma 81 / keyword 1, fixers changed 16/350, idempotent
+  0), корпус восстановился сам (status pristine).
+- `cargo test --test spacing_parity` без env — skip (ok, 0.00s).
+- `cargo test --workspace` без env — **481 passed / 0 failed**.
 - `cargo fmt --check` — clean. `cargo clippy --test spacing_parity` — 0
   замечаний в файле; pre-existing drift в других crates не тронут
-  (prec-bsl-config/model.rs:89, prec-bsl-source:581, bsl_checkers.rs:344 —
-  тот же набор, что до задачи).
+  (prec-bsl-config/model.rs:89, prec-bsl-source:581, bsl_checkers.rs:344).
 
 ## Осталось (Task 4)
 

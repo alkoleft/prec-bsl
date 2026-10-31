@@ -21,11 +21,13 @@
 //!     baseline pre-fix counts;
 //! (b) `fix_operator_spacing` then `fix_extra_trailing_commas` applied to
 //!     every tracked .bsl file of the corpus;
-//! (c) re-run of bsl-ls: `ExtraCommas == 0`, and every post-fix
-//!     `MissingSpace` diagnostic is classifiable mechanically (by the token
-//!     at the diagnostic range on the post-fix text) into one of the
-//!     baseline's residue classes: unary `-`/`+` after `[ ( , =` or file
-//!     start, `,`/`;`, or a keyword word-token;
+//! (c) re-run of bsl-ls: `ExtraCommas == 0`, `MissingSpace` matches the
+//!     baseline post-fix count, and every post-fix `MissingSpace` diagnostic
+//!     is classifiable mechanically (by the token at the diagnostic range on
+//!     the post-fix text) into one of the baseline's residue classes:
+//!     unary `-`/`+` after `[ ( , =` or file start, `,`/`;`, or a keyword
+//!     word-token — with per-class counts matching the baseline residue
+//!     counts (regression guard against the fixers fixing more or less);
 //! (d) a second pass of both fixers over the fixed corpus changes nothing
 //!     (corpus-level idempotence).
 //!
@@ -128,8 +130,30 @@ fn spacing_fixers_match_bsl_ls_residue_policy_on_yaxunit_corpus() {
         "post-fix ExtraCommas must be 0: fix_extra_trailing_commas must remove every \
          bsl-ls-flagged trailing comma in the corpus"
     );
+    assert_eq!(
+        post_counts.missing_space, baseline.post_missing_space,
+        "post-fix MissingSpace count must match the baseline snapshot (regression guard: the \
+         fixers must fix exactly as much as the pinned snapshot records)"
+    );
 
     let residue = classify_residue(&post, &corpus, &tracked_bsl);
+    assert_eq!(
+        residue.comma_semicolon, baseline.residue_comma_semicolon,
+        "post-fix comma/semicolon residue count must match the baseline snapshot"
+    );
+    assert_eq!(
+        residue.unary_sign, baseline.residue_unary_sign,
+        "post-fix unary-sign residue count must match the baseline snapshot"
+    );
+    assert_eq!(
+        residue.keyword, baseline.residue_keyword,
+        "post-fix keyword residue count must match the baseline snapshot"
+    );
+    assert_eq!(
+        residue.comma_semicolon + residue.unary_sign + residue.keyword,
+        post_counts.missing_space,
+        "every post-fix MissingSpace diagnostic must fall into one of the residue classes"
+    );
     let report = format!(
         "bsl-ls spacing parity: corpus {corpus_head}, pre {} MissingSpace / {} ExtraCommas, \
          post {} MissingSpace / 0 ExtraCommas, fixers changed {changed_files} of {} tracked \
@@ -348,6 +372,11 @@ fn run_bsl_ls(corpus: &Path, outdir: &Path) -> Vec<(String, Diagnostic)> {
     });
     let corpus_prefix = format!("file://{}/", corpus.display());
     let mut diagnostics = Vec::new();
+    // Path re-anchoring failures must be loud: a silently dropped fileinfo
+    // would deflate every count and the parity snapshot would validate
+    // against incomplete data.
+    let mut dropped_fileinfos = 0usize;
+    let mut dropped_example: Option<String> = None;
     for fileinfo in value["fileinfos"].as_array().cloned().unwrap_or_default() {
         let Some(path) = fileinfo["path"].as_str() else {
             continue;
@@ -372,6 +401,11 @@ fn run_bsl_ls(corpus: &Path, outdir: &Path) -> Vec<(String, Diagnostic)> {
                     })
                     .unwrap_or_default()
             });
+        if relative.is_empty() {
+            dropped_fileinfos += 1;
+            dropped_example.get_or_insert_with(|| path.to_owned());
+            continue;
+        }
         for diagnostic in fileinfo["diagnostics"]
             .as_array()
             .cloned()
@@ -380,9 +414,6 @@ fn run_bsl_ls(corpus: &Path, outdir: &Path) -> Vec<(String, Diagnostic)> {
             let code = diagnostic["code"].as_str().unwrap_or_default().to_owned();
             let code = code.as_str();
             if code != "MissingSpace" && code != "ExtraCommas" {
-                continue;
-            }
-            if relative.is_empty() {
                 continue;
             }
             let range = diagnostic["range"].clone();
@@ -398,6 +429,16 @@ fn run_bsl_ls(corpus: &Path, outdir: &Path) -> Vec<(String, Diagnostic)> {
                 },
             ));
         }
+    }
+    if dropped_fileinfos > 0 {
+        panic!(
+            "bsl-ls report for {} contains {} fileinfo path(s) that could not be re-anchored \
+             onto the corpus (e.g. {}); diagnostics in them would be silently dropped — \
+             adjust the URI anchoring in this test",
+            corpus.display(),
+            dropped_fileinfos,
+            dropped_example.as_deref().unwrap_or("<unknown>")
+        );
     }
     diagnostics
 }
@@ -559,6 +600,10 @@ struct Baseline {
     tracked_bsl_files: usize,
     pre_missing_space: usize,
     pre_extra_commas: usize,
+    post_missing_space: usize,
+    residue_comma_semicolon: usize,
+    residue_unary_sign: usize,
+    residue_keyword: usize,
 }
 
 fn read_baseline() -> Baseline {
@@ -584,6 +629,34 @@ fn read_baseline() -> Baseline {
             .as_u64()
             .unwrap_or_else(|| panic!("{BASELINE_FIXTURE} must carry pre_fix_counts.ExtraCommas"))
             as usize,
+        post_missing_space: value["post_fix_counts"]["MissingSpace"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{BASELINE_FIXTURE} must carry post_fix_counts.MissingSpace"))
+            as usize,
+        residue_comma_semicolon:
+            value["residue_policy"]["post_fix_residue_counts"]["comma_semicolon"]
+                .as_u64()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{BASELINE_FIXTURE} must carry \
+                     residue_policy.post_fix_residue_counts.comma_semicolon"
+                    )
+                }) as usize,
+        residue_unary_sign: value["residue_policy"]["post_fix_residue_counts"]["unary_sign"]
+            .as_u64()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{BASELINE_FIXTURE} must carry \
+                     residue_policy.post_fix_residue_counts.unary_sign"
+                )
+            }) as usize,
+        residue_keyword: value["residue_policy"]["post_fix_residue_counts"]["keyword"]
+            .as_u64()
+            .unwrap_or_else(|| {
+                panic!(
+                    "{BASELINE_FIXTURE} must carry residue_policy.post_fix_residue_counts.keyword"
+                )
+            }) as usize,
     }
 }
 
