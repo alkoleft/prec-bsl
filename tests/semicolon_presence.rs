@@ -2,9 +2,11 @@
 //! (semicolon presence) extension scenario: enabled-by-default with
 //! opt-out, hook-mode modification and restage-visible modified paths,
 //! check-mode per-statement warnings, refusal branches (lone-`\r`,
-//! unsafe parse errors) leaving the file untouched, and golden fixtures
+//! unsafe parse errors) leaving the file untouched, golden fixtures
 //! for the fixer contract (EOF form, trailing comment insertion point,
-//! CRLF preservation).
+//! CRLF preservation), and fix-order convergence with
+//! `ОдинОператорНаСтроку` (both permutations of the two fixers reach
+//! the same one-statement-per-line, `;`-terminated text).
 
 mod support;
 
@@ -419,6 +421,93 @@ fn assert_golden(case: &str) {
 
         FixtureRun::new(output, diagnostics)
     });
+}
+
+// --- Fix-order convergence with `ОдинОператорНаСтроку` (plan Task 5) ---
+
+/// AC-8 (coexistence): the semicolon fixer and the OSPL fixer do not
+/// conflict. An input holding BOTH violation kinds — a one-line
+/// statement chain `А = 0 Б = 1` (OSPL moves each statement to its own
+/// line) with every statement missing its `;` (the semicolon fixer
+/// terminates them) — must converge to the same text under both fix
+/// orders: `fix_missing_semicolons(fix_one_statement_per_line(x))`
+/// equals `fix_one_statement_per_line(fix_missing_semicolons(x))`. A
+/// repeated run of each combination changes nothing (convergence, not
+/// mere commutativity), and the converged text has every statement on
+/// its own line AND terminated with `;`.
+#[test]
+fn semicolon_before_ospl_and_ospl_before_semicolon_converge() {
+    // Both violation kinds at once: the chain `А = 0 Б = 1` is one OSPL
+    // violation (two statements share the row) and two semicolon
+    // violations (neither statement is terminated); the EOF `Возврат`
+    // adds the issue's main case to the mix.
+    let input = "Функция Ф()\n\tА = 0 Б = 1\n\tВозврат \"Булево\"\nКонецФункции";
+
+    // Sanity: the input really holds both violation kinds.
+    assert!(
+        !prec_bsl::one_statement_per_line::find_violations(input)
+            .unwrap()
+            .is_empty(),
+        "input must hold an OSPL violation"
+    );
+    assert!(
+        !prec_bsl::semicolon_presence::find_missing_semicolons(input)
+            .unwrap()
+            .is_empty(),
+        "input must hold a missing-semicolon violation"
+    );
+
+    let ospl_first = prec_bsl::semicolon_presence::fix_missing_semicolons(
+        &prec_bsl::one_statement_per_line::fix_one_statement_per_line(input).unwrap(),
+    )
+    .unwrap();
+    let semicolon_first = prec_bsl::one_statement_per_line::fix_one_statement_per_line(
+        &prec_bsl::semicolon_presence::fix_missing_semicolons(input).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        ospl_first, semicolon_first,
+        "fix order must not matter: OSPL-first {ospl_first:?} vs semicolon-first {semicolon_first:?}"
+    );
+
+    // The converged text: every statement on its own line AND
+    // terminated with `;` (both detectors report the file as clean).
+    assert_eq!(
+        ospl_first,
+        "Функция Ф()\n\tА = 0;\n\tБ = 1;\n\tВозврат \"Булево\";\nКонецФункции"
+    );
+    assert!(
+        prec_bsl::one_statement_per_line::find_violations(&ospl_first)
+            .unwrap()
+            .is_empty(),
+        "converged text must have one statement per line"
+    );
+    assert!(
+        prec_bsl::semicolon_presence::find_missing_semicolons(&ospl_first)
+            .unwrap()
+            .is_empty(),
+        "converged text must have every statement terminated with `;`"
+    );
+
+    // Convergence, not just commutativity: re-running each combination
+    // over the converged text changes nothing in either order.
+    let rerun_ospl_first = prec_bsl::semicolon_presence::fix_missing_semicolons(
+        &prec_bsl::one_statement_per_line::fix_one_statement_per_line(&ospl_first).unwrap(),
+    )
+    .unwrap();
+    let rerun_semicolon_first = prec_bsl::one_statement_per_line::fix_one_statement_per_line(
+        &prec_bsl::semicolon_presence::fix_missing_semicolons(&ospl_first).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        rerun_ospl_first, ospl_first,
+        "OSPL-first combo must be a fixed point"
+    );
+    assert_eq!(
+        rerun_semicolon_first, ospl_first,
+        "semicolon-first combo must be a fixed point"
+    );
 }
 
 fn run_semicolon_pipeline(
