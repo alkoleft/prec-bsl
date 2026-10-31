@@ -42,7 +42,8 @@ Resolution:
   supported scenario, so they are default-on with opt-out through
   `ОтключенныеСценарии`) in `crates/prec-bsl-bsl/src/text_fixers.rs`:
   `ПробелыВокругОператоров` (bsl-ls MissingSpace operator subset
-  `+ - * / % = < > <> <= >=`, unary `-`/`+` after `[ ( , =` or file start
+  `+ - * / % = < > <> <= >=`, unary `-`/`+` after an operator byte, `(`, `[`,
+  `,`, the keyword `Возврат`/`Return` case-insensitively or file start
   exempt) and `ЛишниеЗапятыеВКонце` (bsl-ls ExtraCommas, whole trailing
   comma chains removed in one pass, comments preserved). Both run over one
   shared whole-file scanner (literal/comment/directive tracker + paren
@@ -56,7 +57,7 @@ Resolution:
   classification); corpus idempotence proven (second pass: zero changes).
 - Deliberate non-parity documented in `spec/parser-strategy.md`: unary
   exemption, non-operator MissingSpace classes, broken code, paren-group
-  commas, numeric exponents, keyword-adjacent unary signs.
+  commas, numeric exponents, unary signs after non-Возврат keywords.
 
 Completion evidence:
 
@@ -71,6 +72,16 @@ Completion evidence:
   second pass idempotent). Implementation plan (kept in the main checkout
   outside version control, `docs/superpowers/plans/`):
   `2026-10-31-issue-9-operator-spacing-trailing-commas.md`.
+- 2026-10-31 unary-context bugfix (human report after a `fix` run on
+  yaxunit: `Возврат -1;` was rewritten to `Возврат - 1;`): the unary set was
+  realigned with the bsl-ls 1.0.7 UNARY semantics — an operator byte
+  (`+ - * / % = < >`), `(`, `[`, `,`, the keyword `Возврат`/`Return`
+  case-insensitively, or file start; the scanner Code event grew
+  `prev_code_index` so the fixer can scan the preceding word backwards.
+  Unary signs are now left fully untouched (no space to the right, matching
+  `checkSpaceToRightOfUnary = false`). Gates after the fix:
+  `cargo test --workspace` 482 passed / 0 failed; env-gated parity run
+  green with unchanged counts (pre 104/2 → post 84/0, residue 81/2/1).
 
 Validation:
 

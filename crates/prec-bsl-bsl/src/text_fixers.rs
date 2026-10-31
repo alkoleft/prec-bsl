@@ -662,11 +662,14 @@ pub fn fix_extra_trailing_commas(input: &str) -> String {
 enum ScanEvent {
     /// Кодовый байт вне строковых литералов, `//`-комментариев и
     /// `#`-директив. `prev_code` — предыдущий не-пробельный кодовый байт,
-    /// `depth` — счётчик незакрытых `(`.
+    /// `prev_code_index` — его byte-индекс (нужен, чтобы по
+    /// идентификаторному prev-байту отсканировать слово назад — унарный
+    /// контекст после `Возврат`/`Return`), `depth` — счётчик незакрытых `(`.
     Code {
         index: usize,
         byte: u8,
         prev_code: Option<u8>,
+        prev_code_index: Option<usize>,
         depth: u32,
     },
     /// Границы `//`-комментария до конца строки, включая терминатор строки.
@@ -701,6 +704,7 @@ fn scan(text: &str) -> Vec<ScanEvent> {
     let mut events = Vec::new();
     let mut state = LiteralState::default();
     let mut prev_code: Option<u8> = None;
+    let mut prev_code_index: Option<usize> = None;
     let mut depth: u32 = 0;
     let mut index = 0;
 
@@ -742,8 +746,9 @@ fn scan(text: &str) -> Vec<ScanEvent> {
                 state.in_string = true;
                 // Кавычка — кодовый байт: она открывает литерал и является
                 // предыдущим кодовым символом для последующих операторов.
-                push_code(&mut events, index, byte, prev_code, depth);
+                push_code(&mut events, index, byte, prev_code, prev_code_index, depth);
                 prev_code = Some(byte);
+                prev_code_index = Some(index);
                 index += 1;
             }
             b'\'' => {
@@ -751,8 +756,9 @@ fn scan(text: &str) -> Vec<ScanEvent> {
                 // Апостроф — кодовый байт по симметрии с кавычкой: открывает
                 // дата-литерал и является предыдущим кодовым символом для
                 // операторов после него (`Д='...'+1` — `+` бинарный).
-                push_code(&mut events, index, byte, prev_code, depth);
+                push_code(&mut events, index, byte, prev_code, prev_code_index, depth);
                 prev_code = Some(byte);
+                prev_code_index = Some(index);
                 index += 1;
             }
             b'|' if line_starts_with_pipe_continuation(bytes, index) => {
@@ -769,20 +775,23 @@ fn scan(text: &str) -> Vec<ScanEvent> {
                 index = find_line_end(bytes, index);
             }
             b'(' => {
-                push_code(&mut events, index, byte, prev_code, depth);
+                push_code(&mut events, index, byte, prev_code, prev_code_index, depth);
                 prev_code = Some(byte);
+                prev_code_index = Some(index);
                 depth += 1;
                 index += 1;
             }
             b')' if depth > 0 => {
-                push_code(&mut events, index, byte, prev_code, depth);
+                push_code(&mut events, index, byte, prev_code, prev_code_index, depth);
                 prev_code = Some(byte);
+                prev_code_index = Some(index);
                 depth -= 1;
                 index += 1;
             }
             _ if is_code_byte(byte) => {
-                push_code(&mut events, index, byte, prev_code, depth);
+                push_code(&mut events, index, byte, prev_code, prev_code_index, depth);
                 prev_code = Some(byte);
+                prev_code_index = Some(index);
                 index += 1;
             }
             _ => {
@@ -857,12 +866,14 @@ fn push_code(
     index: usize,
     byte: u8,
     prev_code: Option<u8>,
+    prev_code_index: Option<usize>,
     depth: u32,
 ) {
     events.push(ScanEvent::Code {
         index,
         byte,
         prev_code,
+        prev_code_index,
         depth,
     });
 }
@@ -872,18 +883,80 @@ fn push_code(
 /// следующему байту.
 const OPERATOR_BYTES: &[u8] = b"+-*/%=<>";
 
-fn is_unary_operator(byte: u8, prev_code: Option<u8>) -> bool {
-    matches!(byte, b'-' | b'+')
-        && matches!(
-            prev_code,
-            None | Some(b'[') | Some(b'(') | Some(b',') | Some(b'=')
-        )
+/// Унарный контекст bsl-ls 1.0.7 (`MissingSpaceDiagnostic.java`, UNARY set +
+/// `checkSpaceToRightOfUnary = false`): `-`/`+` унарны, когда предыдущий
+/// не-пробельный кодовый токен — операторный байт (`+ - * / % = < >`),
+/// открывающая скобка `(`, `[`, запятая `,`, ключевое слово `Возврат`/`Return`
+/// (case-insensitive: BSL регистронезависим) или начало файла. Такой знак не
+/// трогается вовсе: пробел справа от унарного знака bsl-ls не требует.
+fn is_unary_operator(
+    bytes: &[u8],
+    index: usize,
+    prev_code: Option<u8>,
+    prev_code_index: Option<usize>,
+) -> bool {
+    if !matches!(index_of(bytes, index), Some(b'-') | Some(b'+')) {
+        return false;
+    }
+    match prev_code {
+        None => true,
+        Some(byte) if is_unary_predecessor_byte(byte) => true,
+        Some(byte)
+            if is_identifier_byte(byte)
+                && let Some(prev_index) = prev_code_index
+                && prev_is_return_keyword(bytes, prev_index) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+fn index_of(bytes: &[u8], index: usize) -> Option<u8> {
+    bytes.get(index).copied()
+}
+
+fn is_unary_predecessor_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'+' | b'-' | b'*' | b'/' | b'%' | b'=' | b'<' | b'>' | b'(' | b'[' | b','
+    )
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80
+}
+
+/// Проверяет, что слово, заканчивающееся на байте `word_end` (последний байт
+/// предыдущего кодового токена), — это `Возврат`/`Return` в любом регистре
+/// (BSL регистронезависим; `eq_ignore_ascii_case` недостаточно — кириллица
+/// многобайтовая, поэтому слово декодируется и сравнивается через
+/// `char`-нормализацию регистра).
+fn prev_is_return_keyword(bytes: &[u8], word_end: usize) -> bool {
+    let mut start = word_end + 1;
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    let word = &bytes[start..=word_end];
+    if word.eq_ignore_ascii_case(b"Return") {
+        return true;
+    }
+    match std::str::from_utf8(word) {
+        // `to_lowercase` на кириллицу даёт ровно один вариант скаляра на
+        // символ, длина не меняется: сравнение безопасно.
+        Ok(decoded) => decoded
+            .chars()
+            .flat_map(char::to_lowercase)
+            .eq("возврат".chars()),
+        Err(_) => false,
+    }
 }
 
 /// Собирает непересекающиеся span-правки `ПробелыВокругОператоров`:
 /// вставка одиночного пробела с каждой стороны бинарного оператора, где
 /// соседний байт — не пробел (space/`\t`/`\n`/`\r`; EOL считается пробелом).
-/// Unary `-`/`+` после `[ ( , =` или начала файла пропускаются.
+/// Unary `-`/`+` (после операторного байта, `(`, `[`, `,`, слова
+/// `Возврат`/`Return` или начала файла) пропускаются полностью.
 fn scan_operator_edits(text: &str) -> Vec<SpanEdit> {
     let bytes = text.as_bytes();
     let mut edits = Vec::new();
@@ -907,6 +980,7 @@ fn scan_operator_edits(text: &str) -> Vec<SpanEdit> {
             index,
             byte,
             prev_code,
+            prev_code_index,
             ..
         } = events[event_position]
         else {
@@ -936,7 +1010,7 @@ fn scan_operator_edits(text: &str) -> Vec<SpanEdit> {
             cursor += 1;
         }
 
-        if is_unary_operator(byte, prev_code) {
+        if is_unary_operator(bytes, index, prev_code, prev_code_index) {
             continue;
         }
 
@@ -2058,14 +2132,57 @@ mod tests {
             ("А<Б", "А < Б"),
             ("А>Б", "А > Б"),
             ("А=-Б", "А = -Б"),
-            // По эмпирике bsl-ls: `А*-Б` → `А * - Б` (после `*` минус не унарный
-            // по правилу prev_code ∈ `[ ( , =`, bsl-ls пост-фикс чист).
-            ("А*-Б", "А * - Б"),
-            ("Возврат -Значение", "Возврат - Значение"),
-            ("Возврат-А", "Возврат - А"),
+            // Минус после оператора `*` унарный (bsl-ls UNARY-набор включает
+            // операторные байты): сам `-` не трогается, бинарный `*` получает
+            // пробелы с обеих сторон.
+            ("А*-Б", "А * -Б"),
+            ("А /-Б", "А / -Б"),
+            ("А<-Б", "А < -Б"),
+            ("А>-Б", "А > -Б"),
+            ("А%-Б", "А % -Б"),
+            ("А+-Б", "А + -Б"),
+            // Минус после слова Возврат/Return (в любом регистре) унарный и не
+            // правится (bsl-ls checkSpaceToRightOfUnary=false).
+            ("Возврат -Значение", "Возврат -Значение"),
+            ("Return -Значение", "Return -Значение"),
+            ("возврат -Значение", "возврат -Значение"),
+            ("RETURN -Значение", "RETURN -Значение"),
+            ("Возврат -1", "Возврат -1"),
+            // Скобка после Возврат: `(` перед минусом — унарный контекст,
+            // содержимое не трогается, `Возврат(-1)` остаётся байт-в-байт.
+            ("Возврат(-1)", "Возврат(-1)"),
         ];
         for (input, expected) in cases {
             assert_eq!(fix_operator_spacing(input), expected, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn operator_spacing_unary_signs_after_operators_and_return_are_idempotent() {
+        let cases = [
+            "Возврат -Значение",
+            "Возврат -1;",
+            "Return -1;",
+            "возврат -Значение;",
+            "А * -Б",
+            "А / -Б",
+            "Метод(-А)",
+            "Метод(+А)",
+            "Значения[-Инд]",
+            "А = -Б",
+            "Возврат(-1)",
+        ];
+        for input in cases {
+            let first = fix_operator_spacing(input);
+            let second = fix_operator_spacing(&first);
+            assert_eq!(
+                first, input,
+                "unary-sign input must stay unchanged: {input}"
+            );
+            assert_eq!(
+                second, first,
+                "unary-sign rewrite must be idempotent: {input}"
+            );
         }
     }
 
@@ -2085,13 +2202,14 @@ mod tests {
     }
 
     #[test]
-    fn operator_spacing_treats_plus_after_plus_as_binary_per_prev_code_rule() {
-        // prev_code `+` не входит в unary-набор `[ ( , =` плана: второй плюс
-        // обрабатывается как бинарный оператор.
+    fn operator_spacing_treats_plus_after_plus_as_unary_sign() {
+        // prev_code `+` входит в унарный набор bsl-ls: второй плюс не
+        // трогается, первый (бинарный) получает пробелы с обеих сторон.
         assert_eq!(
             fix_operator_spacing("Сумма = (-А + +Б)"),
-            "Сумма = (-А + + Б)"
+            "Сумма = (-А + +Б)"
         );
+        assert_eq!(fix_operator_spacing("А+ +Б"), "А + +Б");
     }
 
     #[test]
@@ -2249,7 +2367,7 @@ mod tests {
                 "\tГраницаСправа = Линия(1,2);\n",
                 "\tСекунды = 60 * 60 * 24;\n",
                 "\tЕсли А <= Б И В <> Г Тогда\n",
-                "\t\tВозврат - Значение;\n",
+                "\t\tВозврат -Значение;\n",
                 "\tКонецЕсли;\n",
                 "КонецПроцедуры\n",
             )

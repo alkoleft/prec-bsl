@@ -847,9 +847,11 @@ Scanner contract (single pass over the file bytes):
 - One literal/comment/directive tracker produces the event stream: code bytes
   outside string literals, `//` comments and `#` preprocessor directives.
   Every code event carries its byte index, the previous non-whitespace code
-  byte (`prev_code`, `None` at file start after a BOM) and the count of
-  currently unclosed `(` (`depth`). Comment events carry the comment byte
-  span including the line terminator.
+  byte (`prev_code`, `None` at file start after a BOM), the byte index of
+  that previous code byte (`prev_code_index`, `None` at file start — needed
+  by the unary check to scan a word like `Возврат`/`Return` backwards from an
+  identifier predecessor) and the count of currently unclosed `(` (`depth`).
+  Comment events carry the comment byte span including the line terminator.
 - Literal, date-literal and directive spans are not events: their bytes are
   simply skipped. A span fixer that needs those boundaries must extend this
   scanner rather than add a second tracker; gap ranges between events must
@@ -881,10 +883,14 @@ Scanner contract (single pass over the file bytes):
 `+ - * / % = < >` (the bsl-ls `DEFAULT_LIST_FOR_CHECK_LEFT_AND_RIGHT`,
 including `<>`, `>=`, `<=` consumed as one operator by the immediately
 following adjacent code byte), insert a single space on each side where the
-adjacent byte is not already whitespace. Unary `-`/`+` — whose `prev_code` is
-`[`, `(`, `,`, `=` or file start — are exempt and never modified. `(` is kept
-in the exemption set deliberately: bsl-ls does not flag `Метод(-А)` either,
-and keeping it prevents the false rewrite `Метод(-А)` → `Метод( - А)`.
+adjacent byte is not already whitespace. Unary `-`/`+` — whose previous
+non-whitespace code token is an operator byte (`+ - * / % = < >`), `(`, `[`,
+`,` or the keyword `Возврат`/`Return` (case-insensitive; BSL is
+case-insensitive), or file start — are exempt and never modified (the bsl-ls
+1.0.7 UNARY set with `checkSpaceToRightOfUnary = false`: bsl-ls requires no
+space to the right of a unary sign). `(` and `[` are kept in the exemption
+set deliberately: bsl-ls does not flag `Метод(-А)` either, and keeping it
+prevents the false rewrite `Метод(-А)` → `Метод( - А)`.
 Keywords and `,`/`;` right-side spacing are not this fixer's classes (see
 non-parity below).
 
@@ -908,10 +914,14 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted; all
 items are enforced or documented by `tests/spacing_parity.rs` and the
 baseline `tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json`):
 
-1. Unary `-`/`+` after `[ ( , =` or file start is not a violation, and the
-   fixer never emits edits for such a sign. bsl-ls 1.0.7 flags
-   `Значения[-Инд]` as missing space to the left of `-`; `prec-bsl` leaves it
-   as is (issue #9 position). Corpus residue: 2 diagnostics.
+1. Unary `-`/`+` (previous non-whitespace code token is an operator byte
+   `+ - * / % = < >`, `(`, `[`, `,`, the keyword `Возврат`/`Return`
+   case-insensitively, or file start) is not a violation, and the fixer never
+   emits edits for such a sign — neither left nor right (bsl-ls 1.0.7
+   UNARY set with `checkSpaceToRightOfUnary = false` requires no space to
+   the right of a unary sign). bsl-ls 1.0.7 flags `Значения[-Инд]` as
+   missing space to the left of `-`; `prec-bsl` leaves it as is (issue #9
+   position). Corpus residue: 2 diagnostics.
 2. Non-operator MissingSpace classes are outside this fixer's scope:
    `,`/`;` right-side spacing (bsl-ls `DEFAULT_LIST_FOR_CHECK_RIGHT`) is
    partially covered by `ПробелыПослеЗапятых`, and keyword spacing (`ТО`,
@@ -933,10 +943,12 @@ baseline `tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json`):
    `-` is treated as a binary operator. The pattern is absent from the
    yaxunit control corpus (verified by `git grep`), so it does not surface in
    the parity run.
-6. `Возврат -1`-style cases (unary sign after a keyword) are rewritten as
-   binary (`Возврат - 1`). bsl-ls 1.0.7 does not flag them on the corpus, and
-   the fixer deliberately does not recognize keywords (no new post-fix
-   diagnostics appear; the corpus residue keyword count stays 1).
+6. Unary signs after OTHER keywords (not `Возврат`/`Return`) are rewritten
+   as binary: only `Возврат`/`Return` are in the bsl-ls UNARY keyword set,
+   so e.g. `Если -1 = А Тогда` keeps `-` binary and gains spaces
+   (`Если -1 = А Тогда` → `Если - 1 = А Тогда`). The pattern does not
+   surface in the parity corpus; `Возврат -1` itself is unary context and
+   is not rewritten (see non-parity item 1).
 
 Parity scope statement:
 

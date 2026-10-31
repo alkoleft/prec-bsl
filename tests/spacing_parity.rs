@@ -25,9 +25,11 @@
 //!     baseline post-fix count, and every post-fix `MissingSpace` diagnostic
 //!     is classifiable mechanically (by the token at the diagnostic range on
 //!     the post-fix text) into one of the baseline's residue classes:
-//!     unary `-`/`+` after `[ ( , =` or file start, `,`/`;`, or a keyword
-//!     word-token — with per-class counts matching the baseline residue
-//!     counts (regression guard against the fixers fixing more or less);
+//!     unary `-`/`+` after an operator byte, `(`, `[`, `,`, the word
+//!     `Возврат`/`Return` (case-insensitive) or file start, `,`/`;`, or a
+//!     keyword word-token — with per-class counts matching the baseline
+//!     residue counts (regression guard against the fixers fixing more or
+//!     less);
 //! (d) a second pass of both fixers over the fixed corpus changes nothing
 //!     (corpus-level idempotence).
 //!
@@ -460,7 +462,9 @@ fn counts(diagnostics: &[(String, Diagnostic)]) -> Counts {
 
 /// Classifies post-fix MissingSpace diagnostics mechanically by the token at
 /// the diagnostic range on the post-fix text (never by message text):
-/// unary `-`/`+` after `[ ( , =` or file start; `,`/`;`; keyword word-tokens.
+/// unary `-`/`+` after an operator byte, `(`, `[`, `,`, the word
+/// `Возврат`/`Return` (case-insensitive) or file start; `,`/`;`; keyword
+/// word-tokens.
 fn classify_residue(
     diagnostics: &[(String, Diagnostic)],
     corpus: &Path,
@@ -511,7 +515,27 @@ fn classify_residue(
                     diagnostic.line,
                     diagnostic.start_character,
                 ) {
-                    Some('[' | '(' | ',' | '=') | None => residue.unary_sign += 1,
+                    // Unary context (bsl-ls UNARY set): an operator byte,
+                    // `(`, `[`, `,`, the closing character of the word
+                    // `Возврат`/`Return` (case-insensitive), or file start.
+                    Some('[' | '(' | ',' | '+' | '-' | '*' | '/' | '%' | '=' | '<' | '>') => {
+                        residue.unary_sign += 1
+                    }
+                    Some(previous)
+                        if previous.is_alphanumeric()
+                            && previous_word_at(
+                                &content,
+                                diagnostic.line,
+                                diagnostic.start_character,
+                            )
+                            .is_some_and(|word| {
+                                word.eq_ignore_ascii_case("Return")
+                                    || word.to_lowercase() == "возврат"
+                            }) =>
+                    {
+                        residue.unary_sign += 1
+                    }
+                    None => residue.unary_sign += 1,
                     Some(previous) => residue.unclassified.push(format!(
                         "- {}:{}:{} token '{}' after non-unary predecessor '{}'",
                         diagnostic.path,
@@ -593,6 +617,27 @@ fn previous_non_whitespace_char(content: &str, line_no: usize, units: usize) -> 
         }
     }
     None
+}
+
+/// The identifier word ending at UTF-16 offset `units` on `line_no`, if the
+/// nearest preceding non-whitespace run is a word (for the `Возврат`/`Return`
+/// unary-context check). The word is walked back from the diagnostic position
+/// within its own line only: bsl-ls keywords never span lines.
+fn previous_word_at(content: &str, line_no: usize, units: usize) -> Option<String> {
+    let lines: Vec<&str> = content.split('\n').collect();
+    let line = lines.get(line_no.clamp(0, lines.len() - 1))?;
+    let offset = utf16_slice(line, 0, units);
+    let mut word = String::new();
+    for character in offset.chars().rev() {
+        if character.is_whitespace() {
+            break;
+        }
+        if !(character.is_alphanumeric() || character == '_') {
+            return None;
+        }
+        word.insert(0, character);
+    }
+    if word.is_empty() { None } else { Some(word) }
 }
 
 struct Baseline {
