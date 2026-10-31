@@ -107,10 +107,12 @@ fixers with their own string/comment state tracking; see
 set `+ - * / % = < > <> <= >=` (bsl-ls
 `DEFAULT_LIST_FOR_CHECK_LEFT_AND_RIGHT`). It inserts a single space on each
 side of a binary operator where the adjacent byte is not already whitespace;
-unary `-`/`+` whose previous non-whitespace code byte is `[`, `(`, `,`, `=`
-(or file start) are exempt and never touched. The full scan contract, span
-model and deliberate non-parity live in `spec/parser-strategy.md`, section
-"Operator spacing and trailing comma fixers contract". Implemented in
+unary `-`/`+` whose previous non-whitespace code token is an operator byte
+(`+ - * / % = < >`), `(`, `[`, `,`, the keyword `Возврат`/`Return`
+(case-insensitive) or file start are exempt and never touched (the bsl-ls
+UNARY set with `checkSpaceToRightOfUnary = false`). The full scan contract,
+span model and deliberate non-parity live in `spec/parser-strategy.md`,
+section "Operator spacing and trailing comma fixers contract". Implemented in
 `crates/prec-bsl-bsl/src/text_fixers.rs`.
 
 `ЛишниеЗапятыеВКонце` (prec-bsl issue #9) is a lexical fixer modeled on the
