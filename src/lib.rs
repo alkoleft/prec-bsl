@@ -84,6 +84,7 @@ pub const REFERENCE_SCENARIO_DEFINITIONS: &[scenario_pipeline::ScenarioDefinitio
     text_fixers::COMMENT_SPACING_SCENARIO,
     text_fixers::COMMA_SPACING_SCENARIO,
     text_fixers::OPERATOR_SPACING_SCENARIO,
+    text_fixers::EXTRA_TRAILING_COMMAS_SCENARIO,
     text_checkers::LINE_LENGTH_SCENARIO,
     one_statement_per_line::ONE_STATEMENT_PER_LINE_SCENARIO,
 ];
@@ -113,6 +114,7 @@ pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
     text_fixers::COMMENT_SPACING_SCENARIO.metadata,
     text_fixers::COMMA_SPACING_SCENARIO.metadata,
     text_fixers::OPERATOR_SPACING_SCENARIO.metadata,
+    text_fixers::EXTRA_TRAILING_COMMAS_SCENARIO.metadata,
     text_checkers::LINE_LENGTH_SCENARIO.metadata,
     one_statement_per_line::ONE_STATEMENT_PER_LINE_SCENARIO.metadata,
 ];
@@ -159,6 +161,7 @@ mod tests {
         "ПробелыВКомментариях",
         "ПробелыПослеЗапятых",
         "ПробелыВокругОператоров",
+        "ЛишниеЗапятыеВКонце",
         "ПроверкаДлиныСтрок",
         "ОдинОператорНаСтроку",
     ];
