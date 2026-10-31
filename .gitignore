@@ -1,3 +1,10 @@
 /target
 /crates/*/target/
 /scripts/infr
+
+# session workflow artifacts (superpowers harness)
+/.superpowers/
+/docs/superpowers/
+/plan.md
+/tasks.md
+/notes.md
