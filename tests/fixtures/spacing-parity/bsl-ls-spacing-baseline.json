@@ -1,0 +1,38 @@
+{
+ "source": "bsl-language-server v1.0.7 exec jar, analyze -r json",
+ "corpus_commit": "d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c",
+ "corpus_origin": "git clone of github.com/bia-technologies/yaxunit (local mirror /data/home/korav/projects/yaxunit), 350 tracked .bsl files",
+ "tracked_bsl_files": 350,
+ "jar_version": "1.0.7",
+ "jar_origin": "https://github.com/1c-syntax/bsl-language-server/releases/download/v1.0.7/bsl-language-server-1.0.7-exec.jar",
+ "jar_sha256": "9f62765edd344d66456da24c906eaf623a03c56e90e5aafee466200100909f64",
+ "command": "java -jar /tmp/opencode/bsl_ls.jar analyze -s <corpus> -r json -o <outdir> -q (outdir pre-created; report at <outdir>/bsl-json.json)",
+ "pre_fix_counts": {
+  "MissingSpace": 104,
+  "ExtraCommas": 2
+ },
+ "post_fix_counts": {
+  "MissingSpace": 84,
+  "ExtraCommas": 0
+ },
+ "fixer_order": "fix_operator_spacing then fix_extra_trailing_commas, applied per file to every tracked .bsl (git -c core.quotePath=false ls-files \"*.bsl\")",
+ "residue_policy": {
+  "description": "Post-fix MissingSpace diagnostics are classified MECHANICALLY by the token at the diagnostic range on the post-fix text (locale-independent; message text is never parsed). A diagnostic is acceptable residue iff it falls into one of these classes; anything else fails the parity test with file/position/token printed.",
+  "classes": {
+   "unary_sign": "Range token is '-' or '+' AND the nearest preceding non-whitespace character (scanning back from the diagnostic range within the file) is one of '[', '(', ',', '=' or the file start. Matches bsl-ls 1.0.7 isUnaryChar over UNARY = '+ - * / = % < > ( [ , Возврат Return <> <= >=' — the fixer deliberately does not insert a space after such unary signs (plan constraint 'Unary exemption'), so a MissingSpace flagged on them is expected residue. Corpus instances: 'Значения[-Инд]' and 'Возврат-А'-like text after the fixer.",
+   "comma_semicolon": "Range token is ',' or ';'. bsl-ls DEFAULT_LIST_FOR_CHECK_RIGHT = \", ;\" flags missing space to the RIGHT of ',' and ';'; the operator-spacing fixer deliberately does not touch these classes (they belong to ПробелыПослеЗапятых/keyword scenarios).",
+   "keyword": "Range token consists only of identifier characters (letters/digits/'_'), i.e. it is a word token, not a punctuation operator. bsl-ls 1.0.7 flags keywords via KEYWORDS_WITH_LEFT_RIGHT_SPACE {ТО, IN, ИЛИ, AND}, KEYWORDS_WITH_LEFT_SPACE {Экспорт, Тогда, Do}, KEYWORDS_WITH_RIGHT_SPACE {Если, ИначеЕсли, Пока, Для, НЕ, Каждый}. Corpus instance: 'НЕ(Ответ.КодСостояния >= 200 ...)' — 'НЕ' followed by '(' without a space; the fixer must not rewrite keyword spacing."
+  },
+  "mechanical_rule": "1) token '-'|'+' with prev non-ws code char in {'[','(','=','.', ','} or file start -> unary_sign; 2) token ','|';' -> comma_semicolon; 3) token all alphanumeric/'_' and not a single ASCII operator byte -> keyword; 4) otherwise FAIL.",
+  "post_fix_residue_counts": {
+   "comma_semicolon": 81,
+   "unary_sign": 2,
+   "keyword": 1
+  }
+ },
+ "known_noise": [
+  "bsl-ls reruns on an identical corpus differ in unrelated UnusedLocalMethod/UnusedLocalVariable/MagicNumber diagnostics (internal tree/caching nondeterminism); the MissingSpace/ExtraCommas sets are stable across reruns. The parity test therefore only compares MissingSpace/ExtraCommas.",
+  "BOM files produce 'token recognition error' lexer noise; not compared (our scanner preserves BOM)."
+ ],
+ "notes": "Pre-fix counts were recorded from a fresh clone at the pinned commit, NOT from the numbers in the plan (~22420/13 — those came from analyzing the yaxunit working copy including untracked build/ directories). Counts in this file are the actual clone measurements."
+}
