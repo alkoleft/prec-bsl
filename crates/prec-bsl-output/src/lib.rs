@@ -446,6 +446,8 @@ fn text_message(message: &str) -> String {
     match message {
         "added spaces in comments" => "добавлены пробелы в комментариях".to_owned(),
         "added spaces after commas" => "добавлены пробелы после запятых".to_owned(),
+        "added spaces around operators" => "добавлены пробелы вокруг операторов".to_owned(),
+        "removed trailing commas" => "удалены лишние запятые в конце".to_owned(),
         "BSL syntax errors prevent unit test loader update" => {
             "ошибки синтаксиса BSL мешают обновить загрузчик юнит-тестов".to_owned()
         }
