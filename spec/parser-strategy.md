@@ -553,8 +553,8 @@ Fix contract (text splice, applied over original byte offsets):
   statement start) with `<line_ending><indent>` — the file's dominant line
   ending is used, no trailing whitespace remains (double spaces collapse),
   and multiline statements move as a whole with continuation rows untouched.
-- `;` is never added to or removed from a moved statement (missing `;` is
-  the prospective SemicolonPresence issue #10 territory), and empty
+- `;` is never added to or removed from a moved statement (missing `;`
+  is handled by the `ПроверкаТочекЗапятой` contract above/below), and empty
   statements (`;;`) produce no blank lines.
 - The fix is idempotent: a second run over fixed output produces zero
   changes (unit `fix(fix(x))`, golden `assert_fixer_fixture` and the
@@ -592,8 +592,8 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
    line. The `prec-bsl` issue #6 contract (one indent level into the block)
    takes priority.
 2. `;` is not added to moved statements that lack one; bsl-ls adds the
-   missing terminator in its quickfix. Missing-`;` handling is the
-   prospective issue #10 (SemicolonPresence) territory.
+   missing terminator in its quickfix. Missing-`;` detection and insertion
+   are implemented by the `ПроверкаТочекЗапятой` contract (see below).
 3. Check mode reports one dry-run result enumerating the violating rows,
    not one diagnostic per flagged statement as bsl-ls does.
 =======
@@ -645,8 +645,10 @@ safe forms blocks modification of the file entirely (the detector's own
 `has_unsafe_parse_errors`; deliberately NOT the `ОдинОператорНаСтроку`
 `has_relevant_parse_errors` row-intersection semantics, because insertion
 offsets come from the tree and must not be computed over unreliable
-regions). In both modes a refused/unsafe file produces a single Warning and
-is left unchanged.
+regions). A lone-`\r` file produces a single Warning in both modes; an
+unsafe-ERROR file produces the refusal Warning in Apply mode only — check
+mode still reports the clean statements individually (per-statement skip,
+bsl-ls parity), and in both refusal cases the file is left unchanged.
 
 Fix mechanics: insertion-only. For every violation the fix inserts one `;`
 at `stop_token_span.end_byte` (before the trailing comment on that line, if
@@ -674,7 +676,13 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
 2. Statements inside tree-sitter ERROR regions may diverge from ANTLR
    error-recovery shapes; both engines skip errored statements, but the
    shapes differ. Divergences are classified as residue in the parity
-   baseline (MISSING-node and ERROR-region classes).
+   baseline (MISSING-node and ERROR-region classes). A representative
+   case: a label-MISSING input (`~Метка` without `:`) parses as a
+   MISSING-decorated node whose post-fix shape is an ERROR — the fix
+   refuses the fixed output as unsafe, so idempotence for that input is
+   a no-op refusal; bsl-ls leaves the same input unflagged (its
+   `ParseError` diagnostic fires instead, before and after). Accepted
+   as documented behavior, kept in the residue list.
 3. Check-mode diagnostics carry the stop-token span (bsl-ls reports the
    stop-token range); message text is a stable EN template with the
    1-based line, not an LSP range object.
@@ -682,7 +690,7 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
 Parity scope statement:
 
 - Parity with bsl-ls is validated as a snapshot on the pinned yaxunit corpus
-  commit (baseline fixture
+  commit `d21ce6ff` (baseline fixture
   `tests/fixtures/semicolon-parity/bsl-ls-semicolon-baseline.json`,
   bsl-ls v1.0.7, SemicolonPresence enabled by default, LSP 0-based lines
   normalized to the detector's 1-based stop-token lines), plus the verbatim
@@ -690,6 +698,25 @@ Parity scope statement:
   assertion. Post-fix guarantee: after applying the fix to a disposable
   corpus clone, `SemicolonPresence` diagnostics are zero outside (a) files
   the fix refused by documented policy and (b) detector residue classes.
+- Baseline recipe (reproducible): run
+  `java -jar <bsl-ls v1.0.7> analyze -s <corpus> -r json` with the corpus
+  `.bsl-language-server.json`, filter `SemicolonPresence` diagnostics over
+  tracked `.bsl` files only (untracked `build/` dump dirs are excluded),
+  normalize LSP 0-based lines to 1-based. The env-gated parity test
+  (`PREC_BSL_PARITY_CORPUS`, `tests/semicolon_parity.rs`) does not trust
+  the corpus working copy: it clones the pinned commit into a disposable
+  location (`git clone --shared` + checkout) and compares both the bsl-ls
+  rerun and the detector fingerprint against the committed baseline, then
+  repeats bsl-ls over the fixed clone (post-fix step) asserting
+  `SemicolonPresence == 0` and zero new stable-code diagnostics.
+- Measured snapshot (pinned commit, 350 tracked `.bsl` files, 21 files with
+  violations): bsl-ls reports 67 `SemicolonPresence` diagnostics; the
+  detector finds the same 67 — **0 unexpected / 0 missing, residue classes
+  empty** (the `var_statement` exclusion and the error-skip policy account
+  for all would-be divergences). Post-fix: 21 of 350 files changed,
+  `SemicolonPresence` 0, new stable-code diagnostics 0 (only corpus-local
+  noise diagnostics like `UnusedLocalMethod`/`UnusedLocalVariable` appear
+  identically in the pristine run).
 - The reference is the bsl-ls diagnostic source and its tests; continuous
   parity against upstream changes is not guaranteed.
 
