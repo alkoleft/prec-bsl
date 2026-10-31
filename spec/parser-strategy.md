@@ -597,7 +597,103 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
 3. Check mode reports one dry-run result enumerating the violating rows,
    not one diagnostic per flagged statement as bsl-ls does.
 =======
-### `ПроверкаПереносовСтрок` (IncorrectLineBreak parity) contract
+### Semicolon presence contract (`ПроверкаТочекЗапятой`)
+
+`ПроверкаТочекЗапятой` (prec-bsl issue #10) is a tree-sitter check + fix
+scenario modeled on the `bsl-language-server` `SemicolonPresence` diagnostic.
+It is a `ScenarioSupport::Compatibility` extension beyond the required v1
+`precommit4onec` inventory (enabled by default via `built_in_defaults`; opt
+out through `ОтключенныеСценарии`), implemented in
+`crates/prec-bsl-bsl/src/semicolon_presence.rs` over `bsl_parser::BslParser`
+(tree-sitter-bsl 0.1.7).
+
+Detector scope mirrors the bsl-ls `visitStatement` contract: every statement
+node whose expression is not terminated by `;` is flagged, **including the
+compound statement ends** (`КонецЕсли`, `КонецЦикла` bodies close via their
+own `optional(';')`) — the official bsl-ls fixture
+`SemicolonPresenceDiagnostic.bsl` flags both `А = 0` and `КонецЕсли`.
+Excluded from the scope: preprocessor directives (bsl-ls skips contexts with
+`preprocessor() != null`), procedure/function definitions and their
+`КонецПроцедуры`/`КонецФункции` brackets (not statements in either model),
+and `elseif_clause`/`else_clause` nodes (part of the enclosing `if`).
+
+Termination predicate (per statement node): scan the node's children in
+reverse order, skipping `line_comment` extras; the statement is terminated
+iff the first non-comment child encountered is the `;` token. For
+`while_statement` — the grammar has no `optional(';')` there — the
+terminator is the nearest next sibling, skipping comment siblings, and it
+counts in either form: a clean `";"` node (`_empty_statement`) or an ERROR
+node whose text is exactly `;` (both forms are established facts of 0.1.7,
+see `one_statement_per_line.rs`). Diagnostic span and line: the **stop
+token** (last significant non-comment child), byte span + 1-based line of
+that token — not the statement start, so multi-line statements report the
+line where the expression ends (bsl-ls `getStop()` range parity). String
+literals containing `;` never count as terminators (the last child is the
+literal, not the `;` token).
+
+Parse-error policy is mode-specific. Check: per-statement — a statement
+whose subtree contains a tree-sitter `ERROR` node is skipped individually
+(mirrors bsl-ls `Trees.treeContainsErrors(ctx)`; MISSING nodes are not
+blockers). Fix: whole-file refusal — any unsafe ERROR outside the known
+safe forms blocks modification of the file entirely (the detector's own
+`has_unsafe_parse_errors`; deliberately NOT the `ОдинОператорНаСтроку`
+`has_relevant_parse_errors` row-intersection semantics, because insertion
+offsets come from the tree and must not be computed over unreliable
+regions). In both modes a refused/unsafe file produces a single Warning and
+is left unchanged.
+
+Fix mechanics: insertion-only. For every violation the fix inserts one `;`
+at `stop_token_span.end_byte` (before the trailing comment on that line, if
+any). Edits are computed over the original bytes, sorted, and applied in a
+single copy pass; nothing else in the file changes. The fix is idempotent
+(`fix(fix(x)) == fix(x)`), including the EOF form (`Возврат X` as the last
+statement of the file): after insertion the predicate must see the inserted
+`;` as the statement's terminator — validated by treedump probe before
+implementation. A UTF-8 BOM survives byte-for-byte. Files with lone `\r`
+line endings (CR-only or mixed without `\n`) are out of contract: single
+Warning, no changes.
+
+Result contract: severity Warning throughout. Check mode (DryRun) produces
+one Warning per flagged statement with the stop-token source span; hook mode
+is not blocked by this scenario. Apply mode (hook / fix) modifies the file
+only when at least one `;` was inserted; the modified path is reported and
+restaged explicitly. Stable EN message contract (prefix-strip template in
+`text_message`): `missing semicolon at line ` for the per-statement warning
+and `inserted missing semicolons` for the fix result.
+
+Deliberate non-parity with `bsl-language-server` (explicit, accepted):
+
+1. Preprocessor-disabled statements and `КонецПроцедуры;` artifacts are
+   excluded by construction (bsl-ls: not statements / disabled contexts).
+2. Statements inside tree-sitter ERROR regions may diverge from ANTLR
+   error-recovery shapes; both engines skip errored statements, but the
+   shapes differ. Divergences are classified as residue in the parity
+   baseline (MISSING-node and ERROR-region classes).
+3. Check-mode diagnostics carry the stop-token span (bsl-ls reports the
+   stop-token range); message text is a stable EN template with the
+   1-based line, not an LSP range object.
+
+Parity scope statement:
+
+- Parity with bsl-ls is validated as a snapshot on the pinned yaxunit corpus
+  commit (baseline fixture
+  `tests/fixtures/semicolon-parity/bsl-ls-semicolon-baseline.json`,
+  bsl-ls v1.0.7, SemicolonPresence enabled by default, LSP 0-based lines
+  normalized to the detector's 1-based stop-token lines), plus the verbatim
+  embedded bsl-ls fixture `SemicolonPresenceDiagnostic.bsl` as a unit
+  assertion. Post-fix guarantee: after applying the fix to a disposable
+  corpus clone, `SemicolonPresence` diagnostics are zero outside (a) files
+  the fix refused by documented policy and (b) detector residue classes.
+- The reference is the bsl-ls diagnostic source and its tests; continuous
+  parity against upstream changes is not guaranteed.
+
+Deferred DRY note: the statement-kind/container matrix and the
+safe-ERROR-shape facts are deliberately duplicated from
+`one_statement_per_line.rs` (the sets differ between the two scenarios).
+Extraction of a shared statement-walking helper is deferred; trigger: the
+third tree-sitter statement-walking scenario. `has_lone_cr` is shared via
+`bsl_parser` (`pub(crate)`) instead of being copied.
+
 
 `ПроверкаПереносовСтрок` is a lexical, stateful check + fix scenario modeled
 on the `bsl-language-server` `IncorrectLineBreak` diagnostic. It is a
