@@ -1,109 +1,114 @@
-# Notes — issue #9 Task 2 (`ЛишниеЗапятыеВКонце`) + ревью-фикс round 1
+# Notes — issue #9 Task 3 (bsl-ls spacing parity) + итоги Tasks 1–2
 
-Факты и находки воркера Task 2 и фикс-задачи по ревью
-(`.superpowers/gh-issue/9/reviews/task2-round1.md`). План:
-`docs/superpowers/plans/2026-10-31-issue-9-...md` (в основном репо
-`/data/home/korav/projects/prec-bsl/docs/...`). Task 1
-(`ПробелыВокругОператоров`) + его ревью-фикс — коммиты f5b092e, 1fc43ba;
-Task 2 — 231bdfc; ревью-фикс — см. git log ветки.
+Факты и находки воркера Task 3. План:
+`docs/superpowers/plans/2026-10-31-issue-9-operator-spacing-...md` (в
+основном репо). История ветки: Task 0 — 970bdb4; Task 1 — f5b092e + ревью-фикс
+1fc43ba; Task 2 — 231bdfc + ревью-фикс 3b3204a; Task 3 — см. `git log` (коммит
+`test(parity): bsl-ls spacing parity on yaxunit corpus (issue #9)`).
 
-## Сделано (Task 2, коммит 231bdfc)
+## Сделано (Task 3)
 
-- `crates/prec-bsl-bsl/src/text_fixers.rs`: `EXTRA_TRAILING_COMMAS_RULE`,
-  `EXTRA_TRAILING_COMMAS_SCENARIO`, `extra_trailing_commas(ctx)`,
-  `fix_extra_trailing_commas` = `apply_spans(scan_trailing_comma_edits)`.
-- `src/lib.rs`: регистрация 5→6 (`EXPECTED_COMPATIBILITY`).
-- `crates/prec-bsl-output`: RU-строка «удалены лишние запятые в конце».
-- Тесты: unit + `tests/trailing_commas.rs` + golden-фикстура. Детали — в
-  истории git log / ревью round 1.
+- `tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json`: corpus_commit
+  d21ce6ff…, jar 1.0.7 (URL релиза + sha256
+  9f62765edd344d66456da24c906eaf623a03c56e90e5aafee466200100909f64 —
+  совпадает с digest ассета bsl-language-server-1.0.7-exec.jar в GitHub
+  release), command, pre/post-fix counts, residue_policy с механическим
+  правилом классификации.
+- `tests/spacing_parity.rs`: env-gated (`PREC_BSL_PARITY_CORPUS`),
+  skip без env / без jar `/tmp/opencode/bsl_ls.jar` / при несовпадении commit;
+  (a) pre-fix сверка counts с baseline; (b) фиксеры operator → commas по
+  каждому tracked .bsl; (c) post-fix: ExtraCommas == 0, MissingSpace —
+  механическая классификация остатка; (d) идемпотентность второго прохода.
+  Тест мутирует корпус и возвращает его в pristine (`git checkout -- .`)
+  в конце — повторные запуски не требуют ручного сброса; перед стартом
+  требует pristine worktree (fail с понятным сообщением, если корпус грязный).
 
-## Ревью-фикс round 1 (эта задача)
+## Ключевые факты (проверены прогонами)
 
-### HIGH-1 — пробельность gap-диапазонов
+- **Pre-fix counts на clone НЕ ~22420/13 из плана, а 104 MissingSpace / 2
+  ExtraCommas.** Числа плана — с анализа рабочей копии yaxunit с untracked
+  build/-артефактами (350 tracked .bsl + ~1457 untracked = 1808 файлов
+  analyzed). Baseline зафиксирован по фактическому clone-прогону — это
+  сознательное отклонение от плана, зафиксировано в поле `notes` baseline.
+- bsl-ls analyze по 350 tracked .bsl: 3937 диагностик всего, из них
+  MissingSpace 104, ExtraCommas 2. Прогон ~15 с (3.5 мин CPU).
+- **Post-fix: ExtraCommas 0, MissingSpace 84.** Фиксеры меняют 16 файлов
+  (14 — только операторные правки, 2 — только хвостовые запятые;
+  25 строк затронуто). Новых MissingSpace/ExtraCommas после фикса НЕТ
+  (diff pre→post по этим кодам: только удаления).
+- **Остаток 84 классифицируется полностью, 0 вне residue_policy:**
+  - `,`/`;` справа — 81 (bsl-ls `listForCheckRight = ", ;"`; наш фиксер их
+    сознательно не трогает — прерогатива ПробелыПослеЗапятых);
+  - unary `-` после `[` — 2 (`Значения[-Инд]` ×2: ЮТОбщийСлужебный:84,
+    ОМ_ЮТКоллекции:588);
+  - keyword `НЕ` перед `(` — 1 (`Интеграция/Module.bsl:54`
+    `Если НЕ(Ответ.КодСостояния >= 200…`).
+- Механическое правило (locale-независимо, по символу в LSP-диапазоне на
+  post-fix тексте): token `-`/`+` и prev non-ws символ ∈ `[ ( , =`/начало
+  файла → unary; token `,`/`;` → comma; token из букв/цифр/`_` → keyword;
+  прочее → FAIL. Текст сообщения НЕ парсится.
+- **Keyword-семантика bsl-ls 1.0.7** (из исходника v1.0.7
+  MissingSpaceDiagnostic.java, зафиксировано в residue_policy):
+  KEYWORDS_WITH_LEFT_RIGHT_SPACE = {ТО, IN, ИЛИ, AND}; LEFT = {Экспорт,
+  Тогда, Do}; RIGHT = {Если, ИначеЕсли, Пока, Для, НЕ, Каждый}. Corpus-факт:
+  keyword-диагностики имеют диапазон ровно на keyword-токене (например `НЕ`,
+  2 UTF-16 юнита) — классификация «токен из identifier-символов» их ловит.
+- **bsl-ls недетерминизм вне наших кодов:** повторные прогоны на идентичном
+  корпусе расходятся в UnusedLocalMethod/UnusedLocalVariable/MagicNumber
+  (±11 позиций, дерево/кэши). MissingSpace/ExtraCommas стабильны во всех
+  прогонах. Поэтому parity-тест сравнивает только два кода; шум зафиксирован
+  в baseline `known_noise`.
+- **bsl-ls path quirk:** URI в отчёте — `file://<CWD-относительный>/…` с `..`
+  сегментами, когда корпус вне CWD процесса. Тест резолвит лексически +
+  canonicalize против canonical corpus-пути. Paths percent-encoded
+  (кириллица) — декодируется в тесте.
+- LSP `character` — UTF-16 code units (кириллица = 1 юнит на символ, но
+  правило реализовано честно через len_utf16).
 
-Баг: сканер `scan()` не эмитит события для `#`-директив (строки 767–770)
-и висячих `|`-строк (758–761: `|` на физическом начале строки). Их байты
-попадают в gap между событиями региона; `push_space_deletion` удалял gap
-без проверки → директива/`|`-строка молча стирались.
+## Отклонения от плана / решения
 
-Воспроизведено (red): `Метод(А,\n#Если Сервер Тогда\n)` → `Метод(А)`
-(директива стёрта); `Метод(А, // к\n#Область Х\n)` → `Метод(А // к\n)`
-(директива стёрта); CRLF-вариант — то же; `Метод(А,\n|\n)` → `Метод(А)`
-и `Метод(А,\n|   \n)` → `Метод(А)` (висячая `|`-строка стёрта). `|`-строка
-с КОДОВЫМ содержимым (`Метод(А,\n|x\n)`) НЕ воспроизводится: `x` — кодовый
-байт, прерывает регион ещё до гапа.
+- Pre-fix counts: план ожидал ~22420/13; фактические clone-числа 104/2
+  зафиксированы в baseline (замечание о происхождении расхождения — в
+  `notes`-поле baseline). Остаток полностью уложился в residue_policy —
+  расширять non-parity-список или чинить фиксер не потребовалось;
+  residue-analysis.md не создавался (нет предмета).
+- Прогон (c)-классификации в тесте идёт по post-fix тексту файлов корпуса
+  (читаются с диска после записи) — как в плане.
+- `Новый Структура("", )` → `Новый Структура("")` и
+  `.Когда("ВыполнитьЗапрос",)` → `.Когда("ВыполнитьЗапрос")` — обе
+  ExtraCommas устранены фиксером хвостовых запятых.
+- 2 файла corpus (МокитоСлужебный, ЮТТестовыеДанные) меняются фиксером, но
+  не имели bsl-ls диагностик до фикса: `Возврат -1` → `Возврат - 1` и
+  `Возврат -СлучайноеЧисло(...)` → `Возврат - СлучайноеЧисло(...)` — bsl-ls
+  1.0.7 такие `-` НЕ флагает (noSpaceLeft у него LPAREN-exempt только для
+  левой стороны; для `Возврат-А` empirika плана говорила «флагается», на
+  корпусе фактически не флагается `Возврат -1`). Это сверх-паритет (фиксер
+  правит больше, чем флагает bsl-ls) — семантика из плана (unary-exemption
+  набор `[ ( , =` не включает `Возврат`), не нарушение. Новых диагностик
+  не создаёт.
 
-Фикс: `push_space_deletion(edits, text, start, end) -> bool` — режет
-`text.as_bytes()[start..end]`, пустой gap = ok, не-пробельный байт
-(не space/\t/\n/\r) → `false` без правки. Оба call-site в
-`scan_trailing_comma_edits`: comma-ветка `if !push… { break; }`,
-`)`-ветка `is_trailing = push…`. `false` ⇒ `is_trailing` не
-устанавливается ⇒ все правки региона отбрасываются (существующий путь
-`if !is_trailing { continue; }`).
+## Проверки (Task 3, факт)
 
-Инвариант `start <= end` гарантирован порядком событий сканера (события
-возрастают, comment end ≤ следующего кодового индекса) — паники на срезе
-нет; пустой gap (`,)`) — early return true.
+- `cargo test --test spacing_parity` без env — skip, ok.
+- `PREC_BSL_PARITY_CORPUS=/tmp/opencode/parity-yaxunit-9 cargo test --test
+  spacing_parity -- --nocapture` — **ok** (pre 104/2, post 84/0, residue
+  unary 2 + comma 81 + keyword 1, idempotent 0 изменений), корпус
+  восстанавливается сам.
+- `cargo test --workspace` без env — **481 passed / 0 failed** (было 480).
+- `cargo test --workspace` с env — **481 passed / 0 failed**.
+- `cargo fmt --check` — clean. `cargo clippy --test spacing_parity` — 0
+  замечаний в файле; pre-existing drift в других crates не тронут
+  (prec-bsl-config/model.rs:89, prec-bsl-source:581, bsl_checkers.rs:344 —
+  тот же набор, что до задачи).
 
-Семантика после фикса: регион с не-пробельным gap не хвостовой. Запятая
-ПОСЛЕ директивы может быть хвостовой сама по себе
-(`Метод(А,\n#Если\n,\n)` → `Метод(А,\n#Если\n)` — вторая запятая удалена,
-директива сохранена): это отдельный регион от второй запятой, гап до `)`
-чист. Идемпотентно.
+## Осталось (Task 4)
 
-### LOW-1 — названия тестов
-
-`trailing_commas_pipeline_blocks_and_restages_only_once` и его сиблинг
-`operator_spacing_pipeline_blocks_and_restages_only_once` не проверяют
-restage (restage — прерогатива Git-слоя, `prec-bsl-git`). ОБА переименованы
-в `…_blocks_and_second_run_is_clean` — честное имя того же поведения
-(первый прогон блокирует Modified, второй чист), семантика не менялась.
-
-## TDD-цепочка (ревью-фикс, факт)
-
-- **Red unit**: `trailing_commas_rejects_regions_with_non_whitespace_gaps`
-  (6 кейсов: directive LF/CRLF, directive-после-комментария, висячая `|`
-  чистая/с пробелами, `,,\n#КонецОбласти\n`):
-  `assertion 'left == right' failed: region with non-whitespace gap must
-  stay byte-identical: "Метод(А,\n#Если Сервер Тогда\n)" left: "Метод(А)"
-  right: "Метод(А,\n#Если Сервер Тогда\n)"` — 7 passed / 1 failed.
-- **Green**: 110 passed / 0 failed (`cargo test -p prec-bsl-bsl`; 109 → +1).
-
-## Проверки (ревью-фикс, факт)
-
-- `cargo test -p prec-bsl-bsl`: **110 passed / 0 failed**.
-- `cargo test --workspace`: exit 0, **480 passed / 0 failed** (50
-  test-бинарей ok; было 479 → +1 новый red→green тест).
-- `cargo fmt --check`: clean (один line-wrap сигнатуры
-  `push_space_deletion` найден fmt и исправлен — collapsed в одну строку).
-- `cargo clippy -p prec-bsl-bsl --all-targets` и `-p prec-bsl --all-targets`:
-  0 замечаний в затронутых файлах (text_fixers.rs, tests/trailing_commas.rs,
-  tests/operator_spacing.rs). Pre-existing drift вне задачи — тот же набор
-  до/после: `bsl_checkers.rs:344`, `prec-bsl-config/model.rs:89`,
-  `prec-bsl-source:581`.
-
-## Семантика (зафиксирована тестами, актуально)
-
-- Gap-спан удаляет ТОЛЬКО чистую пробельность (space/\t/\n/\r). Любой
-  не-пробельный байт в gap (`#`-директива, висячая `|`-строка — сканер не
-  эмитит их как события) ⇒ регион не хвостовой ⇒ правки отброшены, текст
-  байт-в-байт.
-- Пробелы ПЕРЕД комментарием в регионе сохраняются; комментарии целиком с
-  терминатором; пробелы между комментарием/запятой и `)` — удаляются (если
-  чисто пробельные).
-- `Метод(А,\n Б)` — не хвостовая (кодовый токен); глубина 0 не трогается;
-  date-литералы нетронуты.
-- `)` на «чужой» глубине прерывает поиск; вложенные вызовы корректны.
-
-## Осталось (Task 3–4)
-
-- Task 3 parity: env-gated `tests/spacing_parity.rs`, jar
-  `/tmp/opencode/bsl_ls.jar`, yaxunit d21ce6ff, порядок operator → commas.
-  Фикс HIGH-1 на parity не влияет: директив внутри скобок вызова в корпусе
-  нет (проверено ревьюером round 1).
-- Task 4 spec (включая MEDIUM-1 из ревью round 1: запятая перед `)`,
-  закрывающим paren-группу `А = (Б + В, )` — наша depth-семантика удаляет,
-  bsl-ls ExtraCommas флагает только callParamList; задокументировать в
-  Deliberate non-parity, parser-strategy.md).
-- Риск (унаследован): pre-existing clippy-дрейф заблокирует CI-gate
-  `-D warnings` для всей ветки — вне задачи.
+- Спека/доки: reference-scenario-inventory (+2 extension-записи, переписать
+  «MissingSpace (comma subset)»), parser-strategy (Deliberate non-parity:
+  unary, сломанный код, `,`/`;`/keywords; MEDIUM-1 из ревью Task 2 round 1 —
+  запятая перед `)` paren-группы `А = (Б + В, )`; deferred-DRY per-line
+  трекеры), README (extension-сценарии).
+- Риски: pre-existing clippy drift заблокирует `-D warnings` CI-gate всей
+  ветки (вне задачи). Оригинал yaxunit не мутировался (проверено);
+  disposable clone `/tmp/opencode/parity-yaxunit-9` остаётся для повторных
+  прогонов.
