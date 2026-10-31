@@ -421,6 +421,9 @@ fn text_message(message: &str) -> String {
     if let Some(value) = message.strip_prefix("incorrect line break at line ") {
         return format!("неправильный перенос выражения (строка {value})");
     }
+    if let Some(value) = message.strip_prefix("missing semicolon at line ") {
+        return format!("отсутствует точка с запятой (строка {value})");
+    }
     if let Some(value) = message.strip_prefix("failed to read file: ") {
         return format!("не удалось прочитать файл: {value}");
     }
@@ -483,6 +486,7 @@ fn text_message(message: &str) -> String {
         "inserted or updated copyright header" => {
             "вставлен или обновлен заголовок копирайта".to_owned()
         }
+        "inserted missing semicolons" => "добавлены пропущенные точки с запятой".to_owned(),
         "matched dictionary word" => "найдено слово из словаря".to_owned(),
         "metadata file is excluded from full-text search disabling" => {
             "файл метаданных исключен из отключения полнотекстового поиска".to_owned()

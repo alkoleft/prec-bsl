@@ -39,7 +39,23 @@
 //!   line, probe (h)/(i2)), computed over the original bytes, sorted,
 //!   applied in a single copy pass. Idempotent, including the EOF form
 //!   (probe (e): the inserted `;` re-parses as the statement's
-//!   terminator child); a UTF-8 BOM survives byte-for-byte.
+//!   terminator child); a UTF-8 BOM survives byte-for-byte;
+//! - handler mode contract (`semicolon_presence_handler`): lone-`\r`
+//!   files are refused with a single Warning in BOTH modes (checked
+//!   before the mode split — tree-sitter rows are LF-based); in Apply
+//!   the unsafe-ERROR refusal is likewise a single Warning with the
+//!   file untouched — the fixer itself cannot distinguish refusal from
+//!   clean input, so the handler calls the checks first; DryRun emits
+//!   one Warning per violation with the stop-token span and no
+//!   `modified_dry_run`.
+
+use std::fs;
+
+use prec_bsl_pipeline::{
+    ScenarioDefinition, ScenarioExecutionContext, ScenarioResult, ScenarioRun, SourceSpan,
+    WritePolicy,
+};
+use prec_bsl_source::SourceFileKind;
 
 use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError, ParsedBsl, has_lone_cr};
 
@@ -187,6 +203,152 @@ pub fn fix_missing_semicolons(input: &str) -> Result<String, BslParserError> {
     }
     output.push_str(&input[copied..]);
     Ok(output)
+}
+
+// --- Handler (plan Task 4): scenario boundary over detector + fixer ---
+
+/// Extension scenario id (`precommit4onec` name without `.os`).
+pub const SEMICOLON_PRESENCE_SCENARIO: ScenarioDefinition = ScenarioDefinition::compatibility(
+    SEMICOLON_PRESENCE_RULE,
+    "ПроверкаТочекЗапятой.os",
+    semicolon_presence_handler,
+);
+
+/// Handler сценария `ПроверкаТочекЗапятой`: two-mode check + fix (the
+/// `line_break_handler` mode contract).
+///
+/// Контракт режимов:
+/// - lone-`\r` файлы (CR-only/mixed) — out of contract в ОБЕИХ режимах:
+///   единственный `warning` до развилки режимов, файл нетронут (строки
+///   tree-sitter LF-based: check давал бы ложные номера строк — прецедент
+///   OSPL-хендлера);
+/// - **Apply (fix/hook/exec-rules)**: unsafe parse ERROR — единственный
+///   `warning` (fix refused, файл нетронут; refusal наблюдаем, не
+///   молчит); иначе fix — modified (`apply_text_modification`, modified
+///   path репортится и рестажится) или clean (идемпотентность: повторный
+///   прогон → 0 результатов, exit 0). Фиксер не различает отказ от
+///   чистого входа сам, поэтому refusal-проверки вызываются здесь ДО
+///   fix;
+/// - **DryRun (check)**: per-violation `warning` со span stop-токена —
+///   БЕЗ `modified_dry_run` (SKEP-109: warnings уже дают check exit 1;
+///   прецедент LineLength; diff-превью здесь не нужен — вставка ровно
+///   одного `;` на нарушение не требует визуального подтверждения).
+///   Parse-error политика check — per-statement skip (внутри детектора):
+///   unsafe-файлы дают меньше предупреждений, но не молчат о чистых
+///   нарушениях; фикс-отказ в check-режиме не репортится отдельно
+///   (check не пишет файл — нечего отказывать).
+pub fn semicolon_presence_handler(context: &ScenarioExecutionContext<'_>) -> ScenarioRun {
+    if context.file.kind != SourceFileKind::BslModule {
+        return ScenarioRun::single(ScenarioResult::skipped(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "scenario handles only BSL modules",
+        ));
+    }
+
+    let path = context.repo_root.join(&context.file.repo_path);
+    let input = match fs::read_to_string(&path) {
+        Ok(input) => input,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                format!("failed to read file: {error}"),
+            ));
+        }
+    };
+
+    // Lone-`\r` line endings (CR-only or mixed) are out of contract in
+    // BOTH modes: tree-sitter rows advance only on `\n`, so check
+    // diagnostics would carry false line numbers and the fix would
+    // compute offsets over the wrong rows. Warn and leave the file
+    // untouched (checked before the mode split, so check mode produces
+    // no false diagnostics either — the OSPL handler precedent).
+    if has_lone_cr(&input) {
+        return ScenarioRun::single(ScenarioResult::warning(
+            context.rule_id,
+            context.file.repo_path.clone(),
+            "файл использует неканонические переводы строк (CR); сценарий ПроверкаТочекЗапятой пропущен",
+        ));
+    }
+
+    if context.write_policy == WritePolicy::DryRun {
+        // DryRun: per-violation warnings со stop-token span. Check-mode
+        // parse-error политика — per-statement skip (внутри детектора),
+        // поэтому unsafe-файлы здесь просто дают меньше предупреждений;
+        // фикс-отказ в check-режиме не репортится отдельно (check не
+        // пишет файл — нечего отказывать).
+        let violations = match find_missing_semicolons(&input) {
+            Ok(violations) => violations,
+            Err(error) => {
+                return ScenarioRun::single(ScenarioResult::hard_failure(
+                    context.rule_id,
+                    context.file.repo_path.clone(),
+                    error.to_string(),
+                ));
+            }
+        };
+
+        return ScenarioRun {
+            results: violations
+                .into_iter()
+                .map(|violation| {
+                    ScenarioResult::warning(
+                        context.rule_id,
+                        context.file.repo_path.clone(),
+                        format!("missing semicolon at line {}", violation.line),
+                    )
+                    .with_source_span(SourceSpan::new(
+                        violation.stop_token_span.start_byte,
+                        violation.stop_token_span.end_byte,
+                    ))
+                })
+                .collect(),
+            post_processing_paths: Vec::new(),
+        };
+    }
+
+    // Apply: unsafe-ERROR refusal проверяется ДО fix — фиксер возвращает
+    // Ok(input) и на отказе, и на чистом входе (refusal-контракт
+    // SKEP-103/104), различить их может только handler.
+    match has_unsafe_parse_errors(&input) {
+        Ok(false) => {}
+        Ok(true) => {
+            return ScenarioRun::single(ScenarioResult::warning(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                "file has unsafe parse errors; semicolon fix is refused for the whole file",
+            ));
+        }
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                error.to_string(),
+            ));
+        }
+    }
+
+    let output = match fix_missing_semicolons(&input) {
+        Ok(output) => output,
+        Err(error) => {
+            return ScenarioRun::single(ScenarioResult::hard_failure(
+                context.rule_id,
+                context.file.repo_path.clone(),
+                error.to_string(),
+            ));
+        }
+    };
+    if output == input {
+        return ScenarioRun::clean();
+    }
+
+    crate::text_fixers::apply_text_modification(
+        context,
+        &path,
+        output,
+        "inserted missing semicolons",
+    )
 }
 
 /// Whole-file unsafe-ERROR scan: any ERROR node that is not a safe form.
