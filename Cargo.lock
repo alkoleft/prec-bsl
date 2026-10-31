@@ -98,6 +98,7 @@ version = "0.1.5"
 dependencies = [
  "prec-bsl-pipeline",
  "prec-bsl-source",
+ "regex",
  "serde_json",
  "tree-sitter",
  "tree-sitter-bsl",

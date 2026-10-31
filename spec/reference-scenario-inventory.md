@@ -81,10 +81,11 @@ generic repository-local `.os` execution.
 - `ПробелыПослеЗапятых`
 - `ПроверкаДлиныСтрок`
 - `ОдинОператорНаСтроку`
+- `ПроверкаПереносовСтрок`
 
 These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
-`SpaceAtStartComment`, `MissingSpace` (comma subset), `LineLength`, and
-`OneStatementPerLine`. They are NOT part of the required v1 `precommit4onec`
+`SpaceAtStartComment`, `MissingSpace` (comma subset), `LineLength`,
+`OneStatementPerLine`, and `IncorrectLineBreak`. They are NOT part of the required v1 `precommit4onec`
 inventory and are registered with `ScenarioSupport::Compatibility` so that:
 
 - the required v1 inventory list check in `src/lib.rs` stays unchanged;
@@ -116,6 +117,14 @@ errors intersect the detected violation rows. The full detection, fix and
 deliberate non-parity contract lives in `spec/parser-strategy.md`, section
 "One statement per line contract". The scenario is implemented in
 `crates/prec-bsl-bsl/src/one_statement_per_line.rs`.
+
+`ПроверкаПереносовСтрок` is a check + fix scenario with the four
+`НастройкиСценариев.ПроверкаПереносовСтрок.*` settings. Its stateful line
+classifier, mode contract, fix mechanics and deliberate non-parity with
+bsl-ls are specified in the
+`ПроверкаПереносовСтрок` (IncorrectLineBreak parity) contract section of
+`spec/parser-strategy.md`; the settings are specified in
+`spec/configuration.md`.
 
 ## Explicit Unsupported Scenarios
 

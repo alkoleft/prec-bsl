@@ -28,8 +28,10 @@ work so upstream problems are either fixed in `prec-bsl` or intentionally kept
 outside the Rust v1 scope.
 
 Completed task T50 (resolved 2026-10-29, `УдалениеЛишнихПустыхСтрок` trailing
-blank run at EOF, `alkoleft/prec-bsl` #11) is archived with the Milestone 11
-history below and in `spec/archive/completed-tasks-t1-t43-t47.md`.
+blank run at EOF, `alkoleft/prec-bsl` #11) and task T51 (resolved 2026-10-30,
+`ПроверкаПереносовСтрок` check + fix + settings, IncorrectLineBreak parity,
+`alkoleft/prec-bsl` #5) are archived with the Milestone 11 history below and
+in `spec/archive/completed-tasks-t1-t43-t47.md`.
 
 ### T44. TODO: Preserve OScript-only issue boundaries in diagnostics
 

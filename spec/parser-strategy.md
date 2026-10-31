@@ -596,6 +596,239 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
    prospective issue #10 (SemicolonPresence) territory.
 3. Check mode reports one dry-run result enumerating the violating rows,
    not one diagnostic per flagged statement as bsl-ls does.
+=======
+### `ПроверкаПереносовСтрок` (IncorrectLineBreak parity) contract
+
+`ПроверкаПереносовСтрок` is a lexical, stateful check + fix scenario modeled
+on the `bsl-language-server` `IncorrectLineBreak` diagnostic. It is a
+`ScenarioSupport::Compatibility` extension beyond the required v1
+`precommit4onec` inventory (enabled by default via `built_in_defaults`;
+opt out through `ОтключенныеСценарии`, narrow through an explicit
+`ГлобальныеСценарии` list), implemented
+in `crates/prec-bsl-bsl/src/line_break.rs` without tree-sitter.
+
+The scanner core is a stateful line classifier, not a per-line port of the
+bsl-ls comment/string machinery. bsl-ls computes the `IN_STRING` state per
+line from the line text alone, which mis-tracks multi-line `"` literals.
+The prec-bsl classifier carries the state between lines:
+
+- `in_string` is opened by an unclosed `"` on a line and closed by the
+  matching `"` on the same or a later line; `""` inside a literal is an
+  escaped quote, not an exit; a literal that started as an in-string
+  continuation keeps `|`-style continuation lines inside the string;
+- a query region is opened by a query keyword (`ВЫБРАТЬ`/`ВЫБОРКА`/
+  `ВЫБОРКИ`/`SELECT`, case-insensitive, word immediately after the opening
+  `"`) inside a `"` literal and closed by the closing `"` of that literal
+  (same line or a later line); interior and closing lines of the region
+  (entry state `in_query` = true) are skipped entirely by the detector, and
+  the fixer's END branch is gated by the same entry state of the previous
+  line; the FIRST branch can still edit such a line when repairing a
+  diagnosed token from the next line (the token's carrier line is the next
+  line after the region's closing line and carries entry state `in_query` =
+  false, so the gluing targets the region's closing line as the previous
+  line — see fix mechanics below); the opening line of the region (entry
+  state `in_query` = false when the line starts) remains FIRST-checkable —
+  the region is skipped starting from the following lines, so a comma
+  leading into the query-opening literal (`Запрос(\n\t, "ВЫБРАТЬ…`) is
+  flagged on that opening line;
+- `//` outside strings terminates the code part of a line.
+
+FIRST violations are matches of the first-symbol pattern at the start of the
+code part of a line (default bsl-ls pattern `\)|;|,\s*\S+|\);`, wrapped as
+`^\s*(...)`, case-insensitive, the bsl-ls `(:?` typo corrected to `(?:`);
+END violations are matches of the last-symbol pattern at the end of the code
+part (default `ИЛИ|И|OR|AND|\+|-|/|%|\*`, wrapped as
+`\s+(...)\s*(?://.*)?$`, the capturing group around the operator is the
+reported span). Matches inside string literals, after `//` comments, or
+inside query regions are not violations — with one exception for FIRST: a
+match that *leads into* a string literal is valid when its code prefix (the
+part of the match before the first string range) contains code, because the
+hanging comma itself is the violation. With the default pattern
+`,\s*\S+`, the greedy `\S+` swallows a quoted argument together with the
+comma (`\t, "текст"` matches as one piece), so the detector accepts the
+match on the strength of the comma before the literal — a comma leading to
+a string argument is a violation exactly like a comma leading to code
+(`\t, Арг`), while a match that starts *inside* a literal (a multiline
+string continuation, where the string range starts at offset 0) has no
+code prefix and stays rejected. When the line carries a `//`
+comment, the first-symbol pattern is matched against the code part of the
+line only (up to `comment_start`), so a match can never swallow comment
+text: with the default pattern `,\s*\S+`, `\t, // пояснение` yields no
+match at all — the comma must lead to code, not into comment text. Code
+glued directly to the comment without a space (`\t,Арг//комм`) still
+matches the code part (`\t,Арг`) and stays a violation, with the span
+ending at the comment start. A match that ends at or before the comment
+start (e.g. `\t; // комм`) remains a violation.
+
+Deliberate non-parity with bsl-ls, by design:
+
+1. Query regions are skipped as a whole region (from the opening query
+   keyword to the closing quote), instead of the fragile bsl-ls
+   "first line plus 2" window.
+2. Check messages carry the violation line number
+   (`incorrect line break at line N`) instead of the constant bsl-ls
+   diagnostic text.
+3. `""` escaping is handled correctly by the state machine, instead of the
+   per-line `IN_STRING` quirk of bsl-ls.
+4. The fixer has no bsl-ls counterpart: quickfix semantics are invented by
+   prec-bsl and scoped to mechanically safe tokens (see below).
+
+Mode contract:
+
+- **DryRun (check)**: one `warning` per violation with the source span of
+  the matched token, plus a single `modified_dry_run` result with
+  `proposed_content` when the fixer would change the file. Text output
+  renders the per-file diff preview; JSON output carries `proposed_content`.
+  `check` counts warnings as violations and exits `1` when any are present.
+  Span shape: for FIRST violations the span covers the whole match from the
+  start of the line to the end of the matched token (the first-symbol
+  pattern is anchored `^\s*(...)`, so the leading indentation is part of
+  the span, e.g. `\t;` / `\t)`); for END violations the span covers only
+  the trailing operator.
+- **Apply (fix/hook/exec-rules)**: if the fixer changes the file, exactly
+  one `modified` result (warnings are never emitted in Apply, following the
+  shared fixer precedent); if not, the scenario reports no results
+  (`ScenarioRun::clean()`), so a repeated run exits `0` (idempotence).
+- Skip cases — violations the fixer deliberately leaves in place — are
+  check-visible (exit `1` in check) and fix-silent (exit `0`, file
+  unchanged): `check` is the mode that distinguishes a clean file from a
+  skip-only file.
+
+Settings (`НастройкиСценариев.ПроверкаПереносовСтрок.*`, ASCII keys as in
+bsl-ls; see `spec/configuration.md` for validation): `checkFirstSymbol`,
+`checkLastSymbol` (booleans gating both check and fix on the respective
+side), `listOfIncorrectFirstSymbol`, `listOfIncorrectLastSymbol` (regex
+sources wrapped by the compile-time anchors). Custom patterns affect the
+check only; the fixer never operates on custom-pattern matches. Note the
+consequence: Apply repairs known tokens independently of whether the
+user's pattern diagnoses them, so a pattern that excludes a known token
+(e.g. `listOfIncorrectFirstSymbol = "@"` while a line hangs a `;`) gets a
+fix without a matching warning — the fixer's known-token mechanics and the
+detector's pattern are separate inputs, and only the default patterns make
+fix a subset of check.
+
+Fix mechanics (known, mechanically safe tokens only):
+
+- FIRST: a fixable token (`);`, `;`, `)` — longest match first; `,` is
+  check-only and custom patterns do not add fixable tokens) at the start of
+  the code part of a line is removed there and glued to the end of the
+  previous line's body. The token is taken only when what follows it on the
+  carrier line, up to the line end, is whitespace or a `//` comment
+  (`rest.trim().is_empty() || rest.trim_start().starts_with("//")`); any
+  other tail (e.g. `\t); хвост`) leaves the line unchanged (check-only —
+  the fixer moves a hanging token, not arbitrary code). The carrier line is
+  removed when nothing remains after the token; a remaining `//` comment
+  keeps the carrier line with the original indent. Line endings are
+  preserved exactly (LF/CRLF/mixed/final no-newline; `\r` never lands
+  inside the glued token).
+- END: a fixable trailing operator (`И`, `ИЛИ`, `OR`, `AND`, `+`, `-`, `/`,
+  `%`, `*`) at the end of the **code part** of a line (a trailing `//`
+  comment after the operator does not hide it — the detector pattern
+  `\s+(...)\s*(?://.*)?$` accepts a trailing comment, and the fixer must see
+  the violation the detector reports) is moved to the start of the next
+  line's code, after its indent, in its original byte-exact spelling (word
+  operators are matched case-insensitively so lowercase `и`/`or` are fixed
+  too). The previous line must not carry the query-region entry state: the
+  END branch is gated on the previous line's `in_query` entry state — the
+  same field the detector uses to skip the line — so a line that closes a
+  query region (e.g. `|ИЗ Т" +`, where `+` follows the closing quote of a
+  region opened on an earlier line) is never touched by the END branch.
+  The next line's gate uses the line's *entry state* `in_string` (the
+  unclosed-literal state carried from the previous line), not the shape of
+  its string ranges: a next line that *opens a fresh* string literal at
+  column 0 (e.g. `А = Б +` followed by `"строка";`) also has a string range
+  starting at byte 0, but it is code from the line's own start and is a
+  valid target — the operator moves there (`А = Б` / `+ "строка";`). A next
+  line that continues an unclosed literal (entry state `in_string`) is
+  never touched, matching the detector's whole-line skip.
+  The fixer repairs a subset of what the detector diagnoses **under the
+  default settings**; under a custom pattern that excludes a known token,
+  Apply can fix a token the check does not report (see the settings note
+  above). Within the END branch it never edits a line whose previous line
+  carries the query-region entry state (the interior and closing lines of
+  the region).
+  The FIRST branch is not gated by that state: it can glue a known token
+  onto the closing line of a query region (e.g. `|А" И` followed by `\t);`
+  glues `);` onto the region's closing line). This is still a repair of a
+  diagnosed violation — the token's own violation was reported on the
+  carrier line carrying the token — so the fix⊆check invariant holds; the
+  detector skips the region's interior and closing lines only as whole-line
+  units, while the closing line can still be edited by the FIRST branch
+  when repairing a token diagnosed on the next line. When the
+  previous line ends with a comment, the operator detaches from the code part and
+  the comment stays on the previous line; the spaces between the code and
+  `//` are preserved (the previous line's code part is rstripped, not the
+  comment) so
+  `Если А = Б И // комм` becomes `Если А = Б // комм`. The code part of the
+  previous line is rstripped so `УдалениеЛишнихКонцевыхПробелов` stays
+  clean.
+- The scan state advances over the original line bodies, so edits cannot
+  break the classification of following lines (the detector is not reused
+  by the fixer; its positions go stale after edits). Each assembled line
+  stores the scan state as of its original line start and the
+  classification of its body **as currently assembled**: whenever a line
+  is mutated (operator removal, token gluing, operator insertion after the
+  indent, a carrier line being replaced by its comment remainder), its
+  classification is recomputed from that entry state over the new body, so
+  string/comment ranges never go stale relative to the text they describe.
+  This includes the comment-remainder carrier produced by FIRST gluing:
+  the remainder is reclassified from the carrier's own entry state, so the
+  following pair (carrier, next line) reads the remainder's actual
+  `comment_start` instead of the original body's.
+- FIRST gluing is cascaded over carrier lines within a single pass: when
+  gluing a token onto a previous line turns that line itself into a
+  fixable-token carrier (e.g. `Вызов(Арг)` + `\t)` + `\t;` — gluing `;`
+  onto `\t)` yields a `);` carrier), the carrier's token is immediately
+  glued onto its own previous line, and so on up the chain. A chain of
+  carriers converges in one run; a repeated fix run makes no further
+  changes (single-pass convergence, guarded by the corpus smoke test). The
+  corpus smoke test and the parity baseline in `tests/line_break_parity.rs`
+  are validated against a `git archive` snapshot of the pinned corpus commit
+  `d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c`, not against the corpus working
+  tree: local edits in the corpus checkout never affect the parity result,
+  and a checkout that no longer contains the pinned commit skips the tests
+  with a baseline-refresh hint instead of failing — but only when the
+  corpus path is the implicit default; an explicitly set `YAXUNIT_CORPUS`
+  whose repository lacks the pinned commit (or the exts/tests/fixtures
+  roots) fails the tests instead of skipping: an explicitly requested
+  parity run must not silently go green (the same rule as for a corpus path
+  that is not a git repository at all).
+- Fix skip conditions (violation remains for manual repair, still visible
+  through check): the next line after a trailing operator is empty or a
+  pure comment; gluing **any** fixable FIRST token onto a previous line
+  that already ends with `;` (the `;;` protection gates on the previous
+  line's trailing `;`, not on the glued token: a `)` glued after a `;`
+  would produce the garbage `;)`, while a `)` glued after a `)` is a valid
+  call continuation and must be glued); `,`-FIRST violations (including
+  `,`-series runs, e.g. a `,,,,,` run — the corpus case is already broken
+  code where gluing produces garbage); the previous line starts with a
+  check-only `,`; the previous line carries a `//` comment (gluing into a
+  comment would corrupt the file); violations that exist only under custom
+  patterns and are not known tokens (the fixer does not read custom
+  patterns at all — see check-only tokens below).
+
+Check-only tokens: `,`-FIRST violations (the `,`-alternative of the default
+first-symbol pattern, including comma-series runs) are reported by check
+but never touched by the fixer. Custom patterns affect only the detector;
+the fixer ignores them entirely and fixes only its known tokens — a
+custom-pattern match that is also a known token (e.g. `;`) is still fixed.
+Conversely, a known token that the custom pattern *excludes* from
+diagnosis is still fixed by Apply without a paired warning (see the
+settings note above: fix⊆check holds only under the default patterns).
+
+Known limitations:
+
+- Gluing `;`/`)`/`);` lengthens the previous line. A `LineLength`-style
+  limit would flag some results; `LineLength` is not part of the required
+  v1 inventory and no such prec-bsl scenario exists in v1, so no
+  interaction is defined yet. The trade-off is accepted.
+- The detector classifies text as written. Garbage in, garbage out: on
+  invalid input, e.g. an `END`-operator line followed by an operator-less
+  statement, a fixed file can still contain a dangling `;` sequence; the
+  fixer repairs line-break structure, not syntax errors. In particular, on
+  already-invalid input an `END` operator glued before a `;` that a later
+  statement needs can leave a dangling `;` — the `;;` skip protection keeps
+  the fixer from collapsing such runs.
 
 ## Implementation Contract
 
