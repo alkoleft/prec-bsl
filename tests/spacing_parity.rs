@@ -93,6 +93,9 @@ fn spacing_fixers_match_bsl_ls_residue_policy_on_yaxunit_corpus() {
          {PARITY_CORPUS_ENV} at a fresh disposable clone",
         corpus.display()
     );
+    // Restores the clone on scope exit, including on panic, so a failed run
+    // does not leave the corpus dirty for the next run.
+    let _corpus_guard = CorpusGuard(corpus.clone());
 
     // (a) pre-fix bsl-ls run, filtered to the two codes, must match baseline.
     let outdir =
@@ -200,8 +203,21 @@ fn spacing_fixers_match_bsl_ls_residue_policy_on_yaxunit_corpus() {
 
     // Leave the disposable clone pristine so consecutive test runs (and the
     // pristine-corpus assertion above) keep working without a manual reset.
-    restore_corpus(&corpus);
+    // CorpusGuard (bound above) restores the clone on scope exit, including
+    // panics in the bsl-ls runs, residue classification or idempotence pass.
     let _ = fs::remove_dir_all(&outdir);
+}
+
+/// RAII guard restoring the disposable corpus clone to its pinned HEAD on
+/// scope exit — including a panic anywhere between the fixer writes and the
+/// end of the test — so consecutive runs (and the pristine-corpus assertion)
+/// keep working without a manual reset.
+struct CorpusGuard(PathBuf);
+
+impl Drop for CorpusGuard {
+    fn drop(&mut self) {
+        restore_corpus(&self.0);
+    }
 }
 
 /// Restores the disposable corpus clone to its pinned HEAD. Only tracked
