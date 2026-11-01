@@ -463,3 +463,76 @@ Dependencies:
 
 - T38, T39, T51, T52 (scenario registry and the extension scenarios that are
   now on by default).
+
+### T56. DONE: Implement `ПроверкаТочекЗапятой` (SemicolonPresence) check-and-fix scenario
+
+prec-bsl issue: `alkoleft/prec-bsl` #10 (part of the Sonar/bsl-ls scenario
+tracking issue #3).
+
+Scope: tree-sitter check (per-statement Warning diagnostics on statements
+missing the terminating `;`, bsl-ls `SemicolonPresence` parity including
+compound statement ends) + insertion-only fix (`;` inserted at the
+stop-token end before trailing comments), registered as a
+`ScenarioSupport::Compatibility` extension and enabled in built-in defaults.
+
+Contract: `spec/parser-strategy.md` → "Semicolon presence contract
+(`ПроверкаТочекЗапятой`)" (detector scope, stop-token span/line, while-sibling
+terminator in both `;` forms, mode-specific parse-error policy, idempotent
+insertion-only fix, non-parity list, parity scope statement).
+
+Plan: `docs/superpowers/plans/2026-10-31-issue-10-semicolon-presence.md`
+(working tree only, not committed).
+
+Acceptance criteria (from the issue and plan):
+
+- `Возврат "Булево"` / `Возврат СписокОбластей` without `;` (EOF form, the
+  issue's control cases): `check` reports a Warning with the stop-token line;
+  `fix` appends `;`; a second run is clean and idempotent.
+- Verbatim bsl-ls fixture `SemicolonPresenceDiagnostic.bsl`: exactly 2
+  diagnostics on the bsl-ls ranges (`А = 0` stop token, `КонецЕсли`).
+- Fingerprint parity with bsl-ls v1.0.7 on the pinned yaxunit corpus
+  (`tests/fixtures/semicolon-parity/bsl-ls-semicolon-baseline.json`),
+  0 unexpected / 0 missing outside documented residue classes.
+- Post-fix bsl-ls pass over a disposable corpus clone: `SemicolonPresence`
+  is zero outside refused-by-policy files and residue classes; no new
+  foreign diagnostics.
+- Fix-order convergence with `ОдинОператорНаСтроку` in both permutations.
+
+Dependencies: T38/T39 (registry), T52 (OSPL — statement-walking pattern and
+`has_lone_cr` extraction), T53 (built-in defaults include the new scenario
+automatically).
+
+Resolution (2026-10-31):
+
+- Implemented in `crates/prec-bsl-bsl/src/semicolon_presence.rs` (detector
+  `find_missing_semicolons`, insertion-only `fix_missing_semicolons`,
+  whole-file `has_unsafe_parse_errors`, two-mode handler) and registered in
+  `src/lib.rs` (definitions, metadata, `EXPECTED_COMPATIBILITY`,
+  built-in defaults).
+- All acceptance criteria verified with green runs: workspace tests, fmt,
+  clippy clean on the touched files; bsl-ls v1.0.7 parity on the pinned
+  yaxunit commit — 67/67 diagnostics matched (0 unexpected / 0 missing,
+  residue classes empty), post-fix `SemicolonPresence` 0 with no new stable
+  diagnostics; fix-order convergence with `ОдинОператорНаСтроку` in both
+  permutations; idempotence including the EOF form, BOM and CRLF.
+- Contract details and the parity snapshot numbers live in
+  `spec/parser-strategy.md` → "Semicolon presence contract
+  (`ПроверкаТочекЗапятой`)".
+
+Deferred DRY (from the contract's note), inventory of what is duplicated
+from `one_statement_per_line.rs` and why it stays:
+
+- `SEMICOLON_STATEMENT_KINDS` vs OSPL `STATEMENT_KINDS`: the sets differ
+  (`semicolon` excludes `var_statement` for bsl-ls `subVar` parity and has
+  no use for several OSPL-only kinds) — justified duplication.
+- statement-walking skeleton (document-order descent, container kinds):
+  OSPL's walker is fused with its `previousLineNumber` event semantics;
+  extraction would not remove real duplication yet — justified.
+- grammar facts (safe ERROR shapes, bare-`;` forms): boundary case; kept
+  local until the third tree-sitter statement-walking scenario.
+- `has_lone_cr` was extracted to `bsl_parser` (`pub(crate)`) and shared by
+  both scenarios (done during this task).
+- First extraction hazard to watch: OSPL rows are 0-based, semicolon lines
+  are 1-based — any shared walker must reconcile this first.
+- Extraction trigger: the third tree-sitter statement-walking scenario.
+

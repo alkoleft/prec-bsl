@@ -1,0 +1,1 @@
+modified|ПроверкаТочекЗапятой|src/ОбщиеМодули/КлиентскийМодуль/Модуль.bsl|inserted missing semicolons

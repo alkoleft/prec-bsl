@@ -305,6 +305,34 @@ fn render_report_dispatches_by_cli_format() {
     assert!(render_report(&report, OutputFormat::Json).contains("\"mode\": \"exec-rules\""));
 }
 
+#[test]
+fn output_text_localizes_semicolon_presence_messages() {
+    let report = PipelineReport {
+        mode: PipelineMode::Check,
+        processed_files: vec![PathBuf::from("src/Модуль.bsl")],
+        results: vec![
+            ScenarioResult::warning(
+                "ПроверкаТочекЗапятой",
+                "src/Модуль.bsl",
+                "missing semicolon at line 4",
+            )
+            .with_source_span(SourceSpan::new(10, 11)),
+            ScenarioResult::modified(
+                "ПроверкаТочекЗапятой",
+                "src/Модуль.bsl",
+                "inserted missing semicolons",
+            ),
+        ],
+    };
+
+    let output = render_text_report(&report);
+
+    assert!(output.contains("предупреждение: отсутствует точка с запятой (строка 4)"));
+    assert!(!output.contains("missing semicolon at line 4"));
+    assert!(output.contains("изменено: добавлены пропущенные точки с запятой"));
+    assert!(!output.contains("inserted missing semicolons"));
+}
+
 fn sample_report() -> PipelineReport {
     PipelineReport {
         mode: PipelineMode::Hook,

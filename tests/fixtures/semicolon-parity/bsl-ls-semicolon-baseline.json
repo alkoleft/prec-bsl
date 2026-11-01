@@ -1,0 +1,284 @@
+{
+ "source": "bsl-language-server v1.0.7 exec jar, analyze -r json",
+ "config": "yaxunit .bsl-language-server.json (SemicolonPresence enabled by default)",
+ "corpus": "/data/home/korav/projects/yaxunit",
+ "corpus_commit": "d21ce6ff1b553e82fb1a4e96b752c01b45ffa10c",
+ "tracked_bsl_files": 350,
+ "count": 67,
+ "diagnostics": [
+  {
+   "path": "fixtures/demo-configuration/src/AccumulationRegisters/Взаиморасчеты/Forms/ТекущиеВзаиморасчеты/Module.bsl",
+   "line": 20
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Встречи/Forms/Календарь/Module.bsl",
+   "line": 593
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Контрагенты/Forms/ФормаЭлемента/Module.bsl",
+   "line": 47
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Контрагенты/Forms/ФормаЭлемента/Module.bsl",
+   "line": 173
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Контрагенты/Forms/ФормаЭлемента/Module.bsl",
+   "line": 196
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Контрагенты/Forms/ФормаЭлемента/Module.bsl",
+   "line": 263
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Товары/Forms/ФормаСпискаСОстатками/Module.bsl",
+   "line": 20
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Товары/Forms/ФормаСпискаСОстатками/Module.bsl",
+   "line": 27
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Товары/Forms/ФормаЭлемента/Module.bsl",
+   "line": 13
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/Товары/Forms/ФормаЭлемента/Module.bsl",
+   "line": 136
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Catalogs/ХранимыеФайлы/Forms/ФормаЭлемента/Module.bsl",
+   "line": 405
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/РаботаСТорговымОборудованием/Module.bsl",
+   "line": 25
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/РаботаСТорговымОборудованием/Module.bsl",
+   "line": 135
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/РегламентныеЗаданияАгрегатов/Module.bsl",
+   "line": 13
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/РегламентныеЗаданияАгрегатов/Module.bsl",
+   "line": 24
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/УведомленияКлиент/Module.bsl",
+   "line": 52
+  },
+  {
+   "path": "fixtures/demo-configuration/src/CommonModules/УведомленияКлиент/Module.bsl",
+   "line": 56
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/УправлениеАгрегатамиПродаж/Forms/Форма/Module.bsl",
+   "line": 174
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/УправлениеАгрегатамиПродаж/Forms/Форма/Module.bsl",
+   "line": 192
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/ЭлектроннаяПочта/Forms/Форма/Module.bsl",
+   "line": 105
+  },
+  {
+   "path": "fixtures/demo-configuration/src/DataProcessors/ЭлектроннаяПочта/Forms/Форма/Module.bsl",
+   "line": 117
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/Заказ/Forms/ФормаДокумента/Module.bsl",
+   "line": 250
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/Заказ/Forms/ФормаДокумента/Module.bsl",
+   "line": 313
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/Заказ/Forms/ФормаДокумента/Module.bsl",
+   "line": 322
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/Заказ/Forms/ФормаДокумента/Module.bsl",
+   "line": 343
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/Заказ/Forms/ФормаДокумента/Module.bsl",
+   "line": 352
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/ПриходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 108
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/ПриходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 109
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/ПриходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 111
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/РасходТовара/Forms/ОформлениеДоставки/Module.bsl",
+   "line": 18
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/РасходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 208
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/РасходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 245
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/РасходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 260
+  },
+  {
+   "path": "fixtures/demo-configuration/src/Documents/РасходТовара/Forms/ФормаДокумента/Module.bsl",
+   "line": 274
+  },
+  {
+   "path": "fixtures/demo-configuration/src/HTTPServices/Товары/Module.bsl",
+   "line": 28
+  },
+  {
+   "path": "fixtures/demo-configuration/src/HTTPServices/Товары/Module.bsl",
+   "line": 39
+  },
+  {
+   "path": "fixtures/demo-configuration/src/HTTPServices/Товары/Module.bsl",
+   "line": 40
+  },
+  {
+   "path": "fixtures/demo-configuration/src/HTTPServices/Товары/Module.bsl",
+   "line": 178
+  },
+  {
+   "path": "fixtures/demo-configuration/src/HTTPServices/Товары/Module.bsl",
+   "line": 189
+  },
+  {
+   "path": "fixtures/demo-configuration/src/HTTPServices/Товары/Module.bsl",
+   "line": 190
+  },
+  {
+   "path": "fixtures/demo-configuration/src/SettingsStorages/ХранилищеВариантовОтчетов/Forms/ФормаСохранения/Module.bsl",
+   "line": 67
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_Мокито/Module.bsl",
+   "line": 482
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 245
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 272
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 293
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 587
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 633
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 643
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 675
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 721
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 730
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 772
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 781
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 790
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 799
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 808
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 843
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 852
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 861
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 923
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 979
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 1771
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 1873
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТУтверждения/Module.bsl",
+   "line": 1883
+  },
+  {
+   "path": "tests/src/CommonModules/ОМ_ЮТФильтрацияСлужебный/Module.bsl",
+   "line": 311
+  },
+  {
+   "path": "tests/src/CommonModules/Обр_ЮТRecordSet_МО/Module.bsl",
+   "line": 43
+  },
+  {
+   "path": "tests/src/CommonModules/Обр_ЮТRecordSet_МО/Module.bsl",
+   "line": 113
+  }
+ ],
+ "residue_classes": [],
+ "fix_refused_files": [],
+ "known_noise": [
+  "bsl-ls reruns on an identical corpus differ in unrelated UnusedLocalMethod/UnusedLocalVariable diagnostics (internal tree/caching nondeterminism; see tests/fixtures/spacing-parity/bsl-ls-spacing-baseline.json known_noise). The post-fix parity test therefore excludes the UnusedLocalMethod/UnusedLocalVariable codes from the new-diagnostics diff and compares only stable codes."
+ ],
+ "post_fix_guarantee": "SemicolonPresence == 0 after fix_missing_semicolons on the pinned clone (fix refused 0 files by policy: no unsafe parse errors, no lone-CR); no new stable-code diagnostics appear."
+}

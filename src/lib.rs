@@ -2,7 +2,8 @@ pub mod app;
 pub mod cli;
 
 pub use prec_bsl_bsl::{
-    bsl_checkers, bsl_parser, line_break, one_statement_per_line, text_checkers, text_fixers,
+    bsl_checkers, bsl_parser, line_break, one_statement_per_line, semicolon_presence,
+    text_checkers, text_fixers,
 };
 pub use prec_bsl_git as git_index;
 pub use prec_bsl_output as output;
@@ -88,6 +89,7 @@ pub const REFERENCE_SCENARIO_DEFINITIONS: &[scenario_pipeline::ScenarioDefinitio
     text_checkers::LINE_LENGTH_SCENARIO,
     one_statement_per_line::ONE_STATEMENT_PER_LINE_SCENARIO,
     line_break::LINE_BREAK_SCENARIO,
+    semicolon_presence::SEMICOLON_PRESENCE_SCENARIO,
 ];
 
 pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
@@ -119,6 +121,7 @@ pub const REFERENCE_SCENARIO_METADATA: &[config::ScenarioMetadata] = &[
     text_checkers::LINE_LENGTH_SCENARIO.metadata,
     one_statement_per_line::ONE_STATEMENT_PER_LINE_SCENARIO.metadata,
     line_break::LINE_BREAK_SCENARIO.metadata,
+    semicolon_presence::SEMICOLON_PRESENCE_SCENARIO.metadata,
 ];
 
 pub fn reference_scenario_catalog() -> config::ScenarioCatalog<'static> {
@@ -167,6 +170,7 @@ mod tests {
         "ПроверкаДлиныСтрок",
         "ОдинОператорНаСтроку",
         "ПроверкаПереносовСтрок",
+        "ПроверкаТочекЗапятой",
     ];
 
     #[test]

@@ -51,7 +51,7 @@ use prec_bsl_pipeline::{
 };
 use prec_bsl_source::SourceFileKind;
 
-use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError, ParsedBsl};
+use crate::bsl_parser::{BslByteSpan, BslParser, BslParserError, ParsedBsl, has_lone_cr};
 
 /// Statement kinds from the grammar `_statement` (grammar.js:303 in
 /// tree-sitter-bsl 0.1.7). `call_statement` is a real statement kind
@@ -449,19 +449,8 @@ fn has_embedded_error_semi(node: tree_sitter::Node<'_>, source: &str) -> bool {
     false
 }
 
-/// True when the input contains a lone `\r` — a `\r` NOT followed by
-/// `\n` (CR-only or mixed line endings). tree-sitter rows advance only
-/// on `\n`, so detection on such files yields false violations and the
-/// fixer would corrupt the text (inserting `\n` next to surviving `\r`,
-/// wrong `line_indent` via `rfind('\n')`). Such files are out of
-/// contract for this scenario: it warns and makes no changes.
-fn has_lone_cr(input: &str) -> bool {
-    input
-        .as_bytes()
-        .windows(2)
-        .any(|pair| pair[0] == b'\r' && pair[1] != b'\n')
-        || input.ends_with('\r')
-}
+// `has_lone_cr` lives in `bsl_parser` (moved there byte-for-byte as
+// the shared helper for the tree-sitter statement scenarios).
 
 /// Find all one-statement-per-line violations (bsl-ls parity).
 pub fn find_violations(input: &str) -> Result<Vec<StatementViolation>, BslParserError> {

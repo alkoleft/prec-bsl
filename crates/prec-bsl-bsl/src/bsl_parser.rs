@@ -111,6 +111,21 @@ impl std::error::Error for BslParserError {
     }
 }
 
+/// True when the input contains a lone `\r` — a `\r` NOT followed by
+/// `\n` (CR-only or mixed line endings). tree-sitter rows advance only
+/// on `\n`, so detection on such files yields false violations and any
+/// tree-based fix would corrupt the text. Shared by the tree-sitter
+/// statement scenarios (`ОдинОператорНаСтроку`,
+/// `ПроверкаТочекЗапятой`): such files are out of contract — the
+/// scenario warns and makes no changes.
+pub(crate) fn has_lone_cr(input: &str) -> bool {
+    input
+        .as_bytes()
+        .windows(2)
+        .any(|pair| pair[0] == b'\r' && pair[1] != b'\n')
+        || input.ends_with('\r')
+}
+
 fn collect_error_nodes(node: tree_sitter::Node<'_>, errors: &mut Vec<BslParseErrorNode>) {
     if node.is_error() || node.is_missing() {
         errors.push(BslParseErrorNode::from_node(node));

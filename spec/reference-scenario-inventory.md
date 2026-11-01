@@ -84,13 +84,14 @@ generic repository-local `.os` execution.
 - `ПроверкаДлиныСтрок`
 - `ОдинОператорНаСтроку`
 - `ПроверкаПереносовСтрок`
+- `ПроверкаТочекЗапятой`
 
 These are `prec-bsl` extensions modeled on the `bsl-language-server` diagnostics
 `SpaceAtStartComment`, `MissingSpace` (comma subset for `ПробелыПослеЗапятых`
 and binary-operator subset for `ПробелыВокругОператоров`), `ExtraCommas`,
-`LineLength`, `OneStatementPerLine`, and `IncorrectLineBreak`. They are NOT part
-of the required v1 `precommit4onec` inventory and are registered with
-`ScenarioSupport::Compatibility` so that:
+`LineLength`, `OneStatementPerLine`, `IncorrectLineBreak`, and
+`SemicolonPresence`. They are NOT part of the required v1 `precommit4onec`
+inventory and are registered with `ScenarioSupport::Compatibility` so that:
 
 - the required v1 inventory list check in `src/lib.rs` stays unchanged;
 - `built_in_defaults` enables them implicitly together with every other
