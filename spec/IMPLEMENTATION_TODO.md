@@ -20,6 +20,61 @@ Roadmap style:
   platform-dependent work.
 - This file is the implementation ledger, not a replacement for the specs.
 
+## Milestone 17: CLI Rule Exclusions
+
+Implementation work for the `--exclude-rules` CLI flag, tracked by
+`alkoleft/prec-bsl` issue #14. Completed tasks move to `spec/archive/`.
+
+### T56. IN PROGRESS: Implement `--exclude-rules` for the `check`/`fix` commands
+
+prec-bsl issue: `alkoleft/prec-bsl` #14. Implementation plan (kept in the main
+checkout outside version control, `docs/superpowers/plans/`):
+`2026-11-01-issue-14-exclude-rules.md`.
+
+Current finding:
+
+- Users need a one-off way to exclude a noisy rule from a run without
+  rewriting the persistent `v8config.json` or restating the full `--rules`
+  list: `--rules "А,Б,В" --exclude-rules "Б"` must run `А,В`.
+
+Contract (specified in `spec/configuration.md` — Layer 2 allowed args, CLI
+signatures, "Configuration Precedence", "Validation Rules" and "Decision
+Table" — before implementation):
+
+- The flag is accepted only by `check`/`fix`; `prek-hook` and `exec-rules`
+  reject it as an unknown parameter.
+- CLI exclusions subtract from the effective (resolved) rule list after
+  `--rules` and independently of `ОтключенныеСценарии`; the root list and
+  every project `Some`-section are subtracted, `None`-sections inherit the
+  subtracted root.
+- Unknown (`None`) and unsupported names in the exclude list are validation
+  errors (exit `2`), not warnings: CLI input is typed right now, so a typo
+  would silently return the excluded rule to the run (persistent-config
+  disabled lists keep legacy-name warnings).
+- Excluding a known rule that is not in the current set is a silent no-op;
+  excluding every rule of the set leaves an empty set and `check`/`fix` exit
+  `0` (deliberate opt-out).
+
+Acceptance criteria (from issue #14):
+
+- `--exclude-rules` removes the rule from the default set, from an explicit
+  `--rules` list, and stacks with `ОтключенныеСценарии`.
+- `prek-hook`/`exec-rules` reject the flag with the existing
+  «неизвестный параметр» error.
+- Resolve-level unit tests plus `check`/`fix` e2e tests pin the behavior.
+
+Validation:
+
+- `cargo test -p prec-bsl-config --lib`
+- `cargo test --test check_fix_modes`
+- `cargo test --workspace`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo fmt --check`
+
+Dependencies:
+
+- T53 (built-in defaults that the exclusion subtracts from).
+
 ## Milestone 16: PR Review Fix Backlog
 
 Review-driven fixes for merged scenario work. Each record references the

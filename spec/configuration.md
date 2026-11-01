@@ -107,6 +107,7 @@ Allowed here:
 - `--config <path>`;
 - `--source-dir <path>` for simple single-root repositories;
 - `--rules <rule1,rule2>` for explicit hook variants;
+- `--exclude-rules <rule1,rule2>` for the `check`/`fix` commands;
 - `--format text|json`;
 - `--mode all|changed|index|worktree` for the `check`/`fix` commands;
 - `--dry-run` for the `fix` command;
@@ -294,6 +295,8 @@ Behavior:
   `--config v8config.json` path is optional and falls back to built-in defaults
   when the file is absent.
 - CLI `--source-dir` and `--rules` are overrides for simple hook configuration.
+- Does not accept `--exclude-rules`: the flag is rejected as an unknown
+  parameter for `prek-hook`.
 - If `--ignore-merge-commit` is set and Git reports an active merge commit
   state through `MERGE_HEAD`, exits successfully before staged-file discovery,
   scenario execution or restaging.
@@ -327,6 +330,8 @@ Behavior:
   stderr on every run, but keeps the historic behavior and exit codes
   (including writing files) so existing consumers keep working.
 - Runs over configured source roots rather than only the staged index.
+- Does not accept `--exclude-rules`: the flag is rejected as an unknown
+  parameter for `exec-rules`.
 - If `--source-dir` is provided, runs only over those explicit source roots.
 - If `--source-dir` is omitted and root `v8project.yaml` is present, resolves
   source roots from supported `source-set` entries. EDT source sets resolve to
@@ -340,7 +345,7 @@ Behavior:
 `prec-bsl check`:
 
 ```text
-prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>]
+prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>]
 ```
 
 Behavior:
@@ -361,7 +366,7 @@ Behavior:
 `prec-bsl fix`:
 
 ```text
-prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]
+prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]
 ```
 
 Behavior:
@@ -441,6 +446,21 @@ Within domain config:
 4. A missing `ГлобальныеСценарии` key resolves to the built-in default scenario
    set at every level; only the explicit empty array `[]` enables no scenarios.
 
+CLI `--exclude-rules <list>` (`check`/`fix` only; `prek-hook` and `exec-rules`
+reject it as an unknown parameter) subtracts the listed rules from the
+effective (resolved) scenario list:
+
+- The subtraction happens after `--rules` (`rule_override`) replaces the
+  enabled lists, and does not interact with the `rule_override` clearing of
+  `ОтключенныеСценарии`: `--rules "А,Б,В" --exclude-rules "Б"` enables `А,В`.
+- The subtraction applies to the root list and to every project section with
+  its own `ГлобальныеСценарии` list; project sections without the key
+  (`None`) inherit the subtracted root list.
+- Root `ОтключенныеСценарии` is not inherited by project sections (existing
+  behavior); CLI exclusions subtract in addition to `ОтключенныеСценарии` at
+  each level where that list applies (two independent subtractions, not an
+  overwrite).
+
 There is no separate v1 compatibility flag named
 `ИспользоватьГлобальныеСценарии`. Local `precommit4onec` reference code and
 fixtures use `ГлобальныеСценарии` as the enabled scenario list and
@@ -455,6 +475,14 @@ for this behavior is outside the supported v1 surface.
 - Unknown top-level JSON keys are warnings in `0.x`, errors in `1.0`.
 - Unknown enabled scenario ids are errors.
 - Unknown disabled scenario ids are warnings, because existing `v8config.json` files can keep disabled legacy or local scenario names.
+- Unknown (`None`) and unsupported scenario names in the CLI
+  `--exclude-rules` list for `check`/`fix` are errors, not warnings. The
+  rationale is input freshness: CLI input is typed right now, so a typo
+  would silently return the excluded rule to the run. This differs from the
+  disabled lists in persistent configs, where legacy names stay warnings. An
+  unsupported built-in name is an error for the same reason: the rule is not
+  in the set anyway, and silently accepting it would create a false sense of
+  control.
 - Paths are repository-relative unless absolute paths are explicitly allowed by a setting.
 - Config must not contain credentials.
 - `v8config.json` parser must preserve `precommit4onec` behavior and should
@@ -650,9 +678,16 @@ Behavior:
 | Config path | no | yes, via `args` | no |
 | Source dirs | no | simple override only | yes |
 | Enabled/disabled scenarios | no | simple override only | yes |
+| Excluded scenarios (`--exclude-rules`, `check`/`fix` only) | no | simple override only | no |
 | Scenario settings | no | no | yes |
 | Project overrides | no | no | yes |
 | `v8config.json` domain config | no | path only | yes |
+
+Excluded-scenario semantics: a known rule that is not in the current resolved
+set (for example, absent from an explicit `--rules` list) is a silent no-op,
+consistent with `ОтключенныеСценарии`. Excluding every rule of the set leaves
+an empty enabled set, and `check`/`fix` exit `0` without running any scenario
+(the deliberate opt-out). An empty `--exclude-rules ""` excludes nothing.
 
 ## PRD Impact
 
