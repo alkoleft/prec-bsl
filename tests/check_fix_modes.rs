@@ -981,7 +981,8 @@ fn check_exclude_rules_with_explicit_rules() {
 /// the config disables one of the two rules triggered by the fixture, the
 /// CLI excludes the other, so no violation survives and `check` exits 0.
 #[test]
-fn check_exclude_rules_union_with_disabled() {    let repo = TempGitRepo::new("exclude_union_disabled");
+fn check_exclude_rules_union_with_disabled() {
+    let repo = TempGitRepo::new("exclude_union_disabled");
     let module = PathBuf::from("src/Модуль.bsl");
     write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
     write_file(
