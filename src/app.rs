@@ -164,7 +164,7 @@ enum CheckFixRun {
 
 // 8 positional args: scenario flags stay flat until the 3rd one arrives
 // (issue #14 plan: bundling resolve-wiring params is deferred by design).
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn run_check_or_fix(
     repo: &Path,
     run: CheckFixRun,

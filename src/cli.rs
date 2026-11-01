@@ -156,10 +156,10 @@ pub fn help(topic: HelpTopic) -> &'static str {
             "Использование: prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n\nКоманда устарела: используйте prec-bsl fix --mode all"
         }
         HelpTopic::Check => {
-            "Использование: prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --exclude-rules <list>    Список правил для исключения через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n\nКоманда только диагностирует нарушения и никогда не изменяет файлы.\nКод выхода: 0 — нарушений нет, 1 — есть нарушения, 2 — ошибка выполнения."
+            "Использование: prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>]\n\nПараметры:\n  --config <path>           Путь к v8config.json\n  --source-dir <list>       Список корней исходников через запятую\n  --rules <list>            Список правил через запятую\n  --exclude-rules <list>    Список правил для исключения через запятую\n  --format text|json        Формат вывода, по умолчанию text\n  --mode <m>                Набор файлов: all (по умолчанию), changed, index, worktree\n\nКоманда только диагностирует нарушения и никогда не изменяет файлы.\nКод выхода: 0 — нарушений нет, 1 — есть нарушения, 2 — ошибка выполнения."
         }
         HelpTopic::Fix => {
-            "Использование: prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --exclude-rules <list>    Список правил для исключения через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n  --dry-run             Показать изменения (дифф), не записывая их в файлы\n  --restage             После применения правок добавить исправленные файлы в Git index (не влияет на dry-run)\n\nКод выхода: 0 — правок не потребовалось, 1 — правки применены (в dry-run: есть что применять), 2 — ошибка."
+            "Использование: prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]\n\nПараметры:\n  --config <path>           Путь к v8config.json\n  --source-dir <list>       Список корней исходников через запятую\n  --rules <list>            Список правил через запятую\n  --exclude-rules <list>    Список правил для исключения через запятую\n  --format text|json        Формат вывода, по умолчанию text\n  --mode <m>                Набор файлов: all (по умолчанию), changed, index, worktree\n  --dry-run                 Показать изменения (дифф), не записывая их в файлы\n  --restage                 После применения правок добавить исправленные файлы в Git index (не влияет на dry-run)\n\nКод выхода: 0 — правок не потребовалось, 1 — правки применены (в dry-run: есть что применять), 2 — ошибка."
         }
     }
 }
@@ -849,6 +849,9 @@ mod tests {
     fn check_and_fix_help_mention_exclude_rules() {
         assert!(help(HelpTopic::Check).contains("--exclude-rules"));
         assert!(help(HelpTopic::Fix).contains("--exclude-rules"));
+        // Спека: hook и exec-rules не предлагают флаг.
+        assert!(!help(HelpTopic::PrekHook).contains("--exclude-rules"));
+        assert!(!help(HelpTopic::ExecRules).contains("--exclude-rules"));
     }
 
     #[test]
