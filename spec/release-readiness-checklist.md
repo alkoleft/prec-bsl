@@ -47,6 +47,8 @@ Unsupported by product decision:
   `--ignore-remote-merge-commit`.
 - `prec-bsl exec-rules <repo>` supports `--config`, comma-separated
   `--source-dir`, comma-separated `--rules`, and `--format text|json`.
+- `prec-bsl check` / `prec-bsl fix` additionally support comma-separated
+  `--exclude-rules` to subtract rules from the resolved set.
 - Hook mode uses Git staged-file discovery through
   `git diff --name-status --staged --no-renames`.
 - Modified files are reported and restaging is explicit in the Git layer.

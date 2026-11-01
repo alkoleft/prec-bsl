@@ -98,7 +98,7 @@ fn metadata_sync_reports_stale_edt_object_from_staged_object_file() {
     );
 
     assert!(report.results.iter().any(|result| {
-        result.path == PathBuf::from("src/CommonModules/Лишний")
+        result.path == Path::new("src/CommonModules/Лишний")
             && result
                 .message
                 .contains("unreferenced metadata object directory")
@@ -170,7 +170,7 @@ fn metadata_sync_reports_case_only_edt_directory_mismatch() {
     );
 
     assert!(report.results.iter().any(|result| {
-        result.path == PathBuf::from("src/CommonModules/модуль")
+        result.path == Path::new("src/CommonModules/модуль")
             && result.message.contains("differs by case")
     }));
 }

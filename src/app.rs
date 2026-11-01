@@ -47,6 +47,7 @@ pub fn run_prek_hook(args: &PrekHookArgs) -> i32 {
         &repo_root,
         args.config.clone(),
         args.rules.as_ref().map(|rules| rules.0.clone()),
+        None,
     ) else {
         return 1;
     };
@@ -94,6 +95,7 @@ pub fn run_exec_rules(args: &ExecRulesArgs) -> i32 {
         &repo_root,
         args.config.clone(),
         args.rules.as_ref().map(|rules| rules.0.clone()),
+        None,
         explicit_source_dirs.as_deref(),
         PipelineMode::ExecRules,
         args.format,
@@ -128,6 +130,7 @@ pub fn run_check(args: &CheckArgs) -> i32 {
         args.config.clone(),
         args.source_dirs.as_ref().map(|dirs| dirs.0.clone()),
         args.rules.as_ref().map(|rules| rules.0.clone()),
+        args.exclude_rules.as_ref().map(|rules| rules.0.clone()),
         args.format,
         args.mode,
     )
@@ -145,6 +148,7 @@ pub fn run_fix(args: &FixArgs) -> i32 {
         args.config.clone(),
         args.source_dirs.as_ref().map(|dirs| dirs.0.clone()),
         args.rules.as_ref().map(|rules| rules.0.clone()),
+        args.exclude_rules.as_ref().map(|rules| rules.0.clone()),
         args.format,
         args.mode,
     )
@@ -158,12 +162,16 @@ enum CheckFixRun {
     Fix { dry_run: bool, restage: bool },
 }
 
+// 8 positional args: scenario flags stay flat until the 3rd one arrives
+// (issue #14 plan: bundling resolve-wiring params is deferred by design).
+#[expect(clippy::too_many_arguments)]
 fn run_check_or_fix(
     repo: &Path,
     run: CheckFixRun,
     config_path: Option<PathBuf>,
     source_dirs_value: Option<String>,
     rules_value: Option<String>,
+    rule_exclusions: Option<String>,
     format: OutputFormat,
     mode: FileSelectionMode,
 ) -> i32 {
@@ -180,6 +188,7 @@ fn run_check_or_fix(
         &repo_root,
         config_path,
         rules_value,
+        rule_exclusions,
         explicit_source_dirs.as_deref(),
         pipeline_mode,
         format,
@@ -266,6 +275,7 @@ fn resolve_config_and_roots(
     repo_root: &Path,
     config_path: Option<PathBuf>,
     rule_override: Option<String>,
+    rule_exclusions: Option<String>,
     source_dirs: Option<&[PathBuf]>,
     mode: PipelineMode,
     format: OutputFormat,
@@ -273,7 +283,7 @@ fn resolve_config_and_roots(
     crate::config::ResolvedConfig,
     Vec<crate::source_files::SourceRoot>,
 )> {
-    let config = resolve_config_for_run(repo_root, config_path, rule_override)?;
+    let config = resolve_config_for_run(repo_root, config_path, rule_override, rule_exclusions)?;
 
     let resolution = match source_dirs {
         Some(source_dirs) => resolve_source_roots(repo_root, source_dirs),
@@ -289,10 +299,12 @@ fn resolve_config_for_run(
     repo_root: &Path,
     config_path: Option<PathBuf>,
     rule_override: Option<String>,
+    rule_exclusions: Option<String>,
 ) -> Option<crate::config::ResolvedConfig> {
     let mut config_request = ConfigResolveRequest::new(repo_root);
     config_request.config_path = config_path;
     config_request.rule_override = rule_override;
+    config_request.rule_exclusions = rule_exclusions;
     match resolve_config(&config_request) {
         Ok(config) => Some(config),
         Err(error) => {

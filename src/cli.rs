@@ -52,6 +52,7 @@ pub struct CheckArgs {
     pub config: Option<PathBuf>,
     pub source_dirs: Option<SourceDirList>,
     pub rules: Option<RuleList>,
+    pub exclude_rules: Option<RuleList>,
     pub format: OutputFormat,
     pub mode: FileSelectionMode,
 }
@@ -62,6 +63,7 @@ pub struct FixArgs {
     pub config: Option<PathBuf>,
     pub source_dirs: Option<SourceDirList>,
     pub rules: Option<RuleList>,
+    pub exclude_rules: Option<RuleList>,
     pub format: OutputFormat,
     pub mode: FileSelectionMode,
     pub dry_run: bool,
@@ -154,10 +156,10 @@ pub fn help(topic: HelpTopic) -> &'static str {
             "Использование: prec-bsl exec-rules <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n\nКоманда устарела: используйте prec-bsl fix --mode all"
         }
         HelpTopic::Check => {
-            "Использование: prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n\nКоманда только диагностирует нарушения и никогда не изменяет файлы.\nКод выхода: 0 — нарушений нет, 1 — есть нарушения, 2 — ошибка выполнения."
+            "Использование: prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>]\n\nПараметры:\n  --config <path>           Путь к v8config.json\n  --source-dir <list>       Список корней исходников через запятую\n  --rules <list>            Список правил через запятую\n  --exclude-rules <list>    Список правил для исключения через запятую\n  --format text|json        Формат вывода, по умолчанию text\n  --mode <m>                Набор файлов: all (по умолчанию), changed, index, worktree\n\nКоманда только диагностирует нарушения и никогда не изменяет файлы.\nКод выхода: 0 — нарушений нет, 1 — есть нарушения, 2 — ошибка выполнения."
         }
         HelpTopic::Fix => {
-            "Использование: prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]\n\nПараметры:\n  --config <path>       Путь к v8config.json\n  --source-dir <list>   Список корней исходников через запятую\n  --rules <list>        Список правил через запятую\n  --format text|json    Формат вывода, по умолчанию text\n  --mode <m>            Набор файлов: all (по умолчанию), changed, index, worktree\n  --dry-run             Показать изменения (дифф), не записывая их в файлы\n  --restage             После применения правок добавить исправленные файлы в Git index (не влияет на dry-run)\n\nКод выхода: 0 — правок не потребовалось, 1 — правки применены (в dry-run: есть что применять), 2 — ошибка."
+            "Использование: prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]\n\nПараметры:\n  --config <path>           Путь к v8config.json\n  --source-dir <list>       Список корней исходников через запятую\n  --rules <list>            Список правил через запятую\n  --exclude-rules <list>    Список правил для исключения через запятую\n  --format text|json        Формат вывода, по умолчанию text\n  --mode <m>                Набор файлов: all (по умолчанию), changed, index, worktree\n  --dry-run                 Показать изменения (дифф), не записывая их в файлы\n  --restage                 После применения правок добавить исправленные файлы в Git index (не влияет на dry-run)\n\nКод выхода: 0 — правок не потребовалось, 1 — правки применены (в dry-run: есть что применять), 2 — ошибка."
         }
     }
 }
@@ -301,6 +303,7 @@ fn parse_check(args: &[OsString]) -> Result<CliCommand, CliError> {
         config: parsed.config,
         source_dirs: parsed.source_dirs,
         rules: parsed.rules,
+        exclude_rules: parsed.exclude_rules,
         format: parsed.format,
         mode: parsed.mode,
     }))
@@ -328,6 +331,7 @@ fn parse_fix(args: &[OsString]) -> Result<CliCommand, CliError> {
         config: parsed.config,
         source_dirs: parsed.source_dirs,
         rules: parsed.rules,
+        exclude_rules: parsed.exclude_rules,
         format: parsed.format,
         mode: parsed.mode,
         dry_run: parsed.dry_run,
@@ -341,6 +345,7 @@ struct CommonCommandArgs {
     config: Option<PathBuf>,
     source_dirs: Option<SourceDirList>,
     rules: Option<RuleList>,
+    exclude_rules: Option<RuleList>,
     format: OutputFormat,
     mode: FileSelectionMode,
     dry_run: bool,
@@ -390,6 +395,13 @@ fn parse_common_argument(
         }
         "--rules" => {
             parsed.rules = Some(RuleList(required_utf8_value(args, index, "--rules")?));
+        }
+        "--exclude-rules" => {
+            parsed.exclude_rules = Some(RuleList(required_utf8_value(
+                args,
+                index,
+                "--exclude-rules",
+            )?));
         }
         "--format" => {
             parsed.format = parse_format(&required_utf8_value(args, index, "--format")?)?;
@@ -676,6 +688,26 @@ mod tests {
     }
 
     #[test]
+    fn prek_hook_rejects_exclude_rules() {
+        let error = parse_args(["prek-hook", "--exclude-rules", "В"]).unwrap_err();
+
+        assert_eq!(
+            error.message(),
+            "неизвестный параметр для prek-hook: --exclude-rules"
+        );
+    }
+
+    #[test]
+    fn exec_rules_rejects_exclude_rules() {
+        let error = parse_args(["exec-rules", ".", "--exclude-rules", "В"]).unwrap_err();
+
+        assert_eq!(
+            error.message(),
+            "неизвестный параметр для exec-rules: --exclude-rules"
+        );
+    }
+
+    #[test]
     fn invalid_format_is_clear_error() {
         let error = parse_args(["prek-hook", "--format", "yaml"]).unwrap_err();
 
@@ -724,6 +756,7 @@ mod tests {
                 config: Some(PathBuf::from("v8config.json")),
                 source_dirs: Some(SourceDirList("src,exts/rat".to_owned())),
                 rules: Some(RuleList("УдалениеЛишнихКонцевыхПробелов".to_owned())),
+                exclude_rules: None,
                 format: OutputFormat::Json,
                 mode: FileSelectionMode::Changed,
             })
@@ -741,10 +774,84 @@ mod tests {
                 config: None,
                 source_dirs: None,
                 rules: None,
+                exclude_rules: None,
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::All,
             })
         );
+    }
+
+    #[test]
+    fn check_parses_exclude_rules() {
+        let command = parse_args(["check", "repo", "--exclude-rules", "В"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::Check(CheckArgs {
+                repo: PathBuf::from("repo"),
+                config: None,
+                source_dirs: None,
+                rules: None,
+                exclude_rules: Some(RuleList("В".to_owned())),
+                format: OutputFormat::Text,
+                mode: FileSelectionMode::All,
+            })
+        );
+    }
+
+    #[test]
+    fn fix_parses_exclude_rules() {
+        let command = parse_args(["fix", "repo", "--exclude-rules", "В"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::Fix(FixArgs {
+                repo: PathBuf::from("repo"),
+                config: None,
+                source_dirs: None,
+                rules: None,
+                exclude_rules: Some(RuleList("В".to_owned())),
+                format: OutputFormat::Text,
+                mode: FileSelectionMode::All,
+                dry_run: false,
+                restage: false,
+            })
+        );
+    }
+
+    #[test]
+    fn check_exclude_rules_requires_value() {
+        let error = parse_args(["check", ".", "--exclude-rules"]).unwrap_err();
+
+        assert_eq!(error.message(), "не указано значение для --exclude-rules");
+    }
+
+    #[test]
+    fn check_repeated_exclude_rules_last_wins() {
+        let command =
+            parse_args(["check", ".", "--exclude-rules", "А", "--exclude-rules", "В"]).unwrap();
+
+        assert_eq!(
+            command,
+            CliCommand::Check(CheckArgs {
+                repo: PathBuf::from("."),
+                config: None,
+                source_dirs: None,
+                rules: None,
+                exclude_rules: Some(RuleList("В".to_owned())),
+                format: OutputFormat::Text,
+                mode: FileSelectionMode::All,
+            })
+        );
+    }
+
+    #[test]
+    fn check_and_fix_help_mention_exclude_rules() {
+        assert!(help(HelpTopic::Check).contains("--exclude-rules"));
+        assert!(help(HelpTopic::Fix).contains("--exclude-rules"));
+        // Спека: hook и exec-rules не предлагают флаг.
+        assert!(!help(HelpTopic::PrekHook).contains("--exclude-rules"));
+        assert!(!help(HelpTopic::ExecRules).contains("--exclude-rules"));
     }
 
     #[test]
@@ -758,6 +865,7 @@ mod tests {
                 config: None,
                 source_dirs: None,
                 rules: None,
+                exclude_rules: None,
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::Worktree,
                 dry_run: true,
@@ -777,6 +885,7 @@ mod tests {
                 config: None,
                 source_dirs: None,
                 rules: None,
+                exclude_rules: None,
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::Index,
                 dry_run: false,
@@ -796,6 +905,7 @@ mod tests {
                 config: None,
                 source_dirs: None,
                 rules: None,
+                exclude_rules: None,
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::Index,
                 dry_run: false,
@@ -815,6 +925,7 @@ mod tests {
                 config: None,
                 source_dirs: None,
                 rules: None,
+                exclude_rules: None,
                 format: OutputFormat::Text,
                 mode: FileSelectionMode::All,
                 dry_run: true,

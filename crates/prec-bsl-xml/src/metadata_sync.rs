@@ -92,9 +92,7 @@ impl SyncTarget {
             });
         }
 
-        if context.file.staged_status.is_none() {
-            return None;
-        }
+        context.file.staged_status.as_ref()?;
 
         match context.file.kind {
             SourceFileKind::EdtMetadata if is_edt_object_description(&context.file.repo_path) => {
@@ -778,7 +776,7 @@ mod tests {
         let metadata_dir = repo.join("src/CommonModules");
         fs::create_dir_all(&metadata_dir).unwrap();
         let original_permissions = fs::metadata(&metadata_dir).unwrap().permissions();
-        fs::set_permissions(&metadata_dir, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&metadata_dir, fs::Permissions::from_mode(0o0)).unwrap();
 
         let result = super::read_dir_entries(&repo, std::path::Path::new("src/CommonModules"));
 

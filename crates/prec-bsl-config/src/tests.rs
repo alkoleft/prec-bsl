@@ -396,6 +396,225 @@ fn config_cli_rule_override_takes_precedence_over_disabled_scenarios() {
 }
 
 #[test]
+fn config_rule_exclusions_subtract_from_default_set() {
+    let repo = temp_repo("rule_exclusions_subtract_from_default_set");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some("УдалениеЛишнихКонцевыхПробелов".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    let enabled = config.scenarios.enabled_scenarios();
+    assert!(!enabled.contains(&"УдалениеЛишнихКонцевыхПробелов"));
+    let expected: Vec<&str> = test_catalog()
+        .supported()
+        .map(|scenario| scenario.id)
+        .filter(|id| *id != "УдалениеЛишнихКонцевыхПробелов")
+        .collect();
+    assert_eq!(enabled, expected);
+}
+
+#[test]
+fn config_rule_exclusions_subtract_from_explicit_rules() {
+    let repo = temp_repo("rule_exclusions_subtract_from_explicit_rules");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_override = Some(
+        "УдалениеЛишнихКонцевыхПробелов,УдалениеЛишнихПустыхСтрок,ПроверкаНецензурныхСлов"
+            .to_owned(),
+    );
+    request.rule_exclusions = Some("УдалениеЛишнихПустыхСтрок".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    assert_eq!(
+        config.scenarios.enabled_scenarios(),
+        vec!["УдалениеЛишнихКонцевыхПробелов", "ПроверкаНецензурныхСлов"]
+    );
+}
+
+#[test]
+fn config_rule_exclusions_union_with_disabled_scenarios() {
+    let repo = temp_repo("rule_exclusions_union_with_disabled_scenarios");
+    write_config(
+        &repo.join(CONFIG_FILE_NAME),
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": [
+                        "УдалениеЛишнихКонцевыхПробелов.os",
+                        "УдалениеЛишнихПустыхСтрок.os",
+                        "ПроверкаНецензурныхСлов.os"
+                    ],
+                    "ОтключенныеСценарии": ["УдалениеЛишнихКонцевыхПробелов.os"]
+                }
+            }"#,
+    );
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some("УдалениеЛишнихПустыхСтрок".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    let enabled = config.scenarios.enabled_scenarios();
+    assert!(!enabled.contains(&"УдалениеЛишнихКонцевыхПробелов"));
+    assert!(!enabled.contains(&"УдалениеЛишнихПустыхСтрок"));
+    assert_eq!(enabled, vec!["ПроверкаНецензурныхСлов"]);
+}
+
+#[test]
+fn config_rule_exclusions_apply_to_project_sections() {
+    let repo = temp_repo("rule_exclusions_apply_to_project_sections");
+    write_config(
+        &repo.join(CONFIG_FILE_NAME),
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": ["УдалениеЛишнихКонцевыхПробелов.os"],
+                    "Проекты": {
+                        "configuration": {
+                            "ГлобальныеСценарии": [
+                                "УдалениеЛишнихПустыхСтрок.os",
+                                "ПроверкаНецензурныхСлов.os"
+                            ]
+                        }
+                    }
+                }
+            }"#,
+    );
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some("УдалениеЛишнихПустыхСтрок".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        vec!["ПроверкаНецензурныхСлов"]
+    );
+}
+
+#[test]
+fn config_rule_exclusions_inherit_for_none_projects() {
+    let repo = temp_repo("rule_exclusions_inherit_for_none_projects");
+    write_config(
+        &repo.join(CONFIG_FILE_NAME),
+        r#"{
+                "Precommt4onecСценарии": {
+                    "ГлобальныеСценарии": [
+                        "УдалениеЛишнихКонцевыхПробелов.os",
+                        "УдалениеЛишнихПустыхСтрок.os"
+                    ],
+                    "Проекты": {
+                        "configuration": {
+                            "ИспользоватьСценарииРепозитория": false
+                        }
+                    }
+                }
+            }"#,
+    );
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some("УдалениеЛишнихПустыхСтрок".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("configuration/src/Модуль.bsl")),
+        vec!["УдалениеЛишнихКонцевыхПробелов"]
+    );
+}
+
+#[test]
+fn config_rule_exclusions_empty_list_is_noop() {
+    let repo = temp_repo("rule_exclusions_empty_list_is_noop");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some(String::new());
+
+    let config = resolve_config(&request).unwrap();
+
+    let expected: Vec<String> = test_catalog()
+        .supported()
+        .map(|scenario| scenario.id.to_owned())
+        .collect();
+    assert_eq!(
+        config.enabled_scenarios_for_path(Path::new("src/Модуль.bsl")),
+        expected
+    );
+}
+
+#[test]
+fn config_rule_exclusions_normalize_ids() {
+    let repo = temp_repo("rule_exclusions_normalize_ids");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions =
+        Some("УдалениеЛишнихПустыхСтрок.os, ПроверкаНецензурныхСлов".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    let enabled = config.scenarios.enabled_scenarios();
+    assert!(!enabled.contains(&"УдалениеЛишнихПустыхСтрок"));
+    assert!(!enabled.contains(&"ПроверкаНецензурныхСлов"));
+    assert!(enabled.contains(&"УдалениеЛишнихКонцевыхПробелов"));
+}
+
+#[test]
+fn config_rule_exclusions_known_id_not_in_set_is_noop() {
+    let repo = temp_repo("rule_exclusions_known_id_not_in_set_is_noop");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_override =
+        Some("УдалениеЛишнихКонцевыхПробелов,УдалениеЛишнихПустыхСтрок".to_owned());
+    // Реальный id каталога, НЕ входящий в набор от rule_override: исключать
+    // нечего — молчаливый no-op, консистентно с `ОтключенныеСценарии`.
+    request.rule_exclusions = Some("ПроверкаНецензурныхСлов".to_owned());
+
+    let config = resolve_config(&request).unwrap();
+
+    assert_eq!(
+        config.scenarios.enabled_scenarios(),
+        vec![
+            "УдалениеЛишнихКонцевыхПробелов",
+            "УдалениеЛишнихПустыхСтрок"
+        ]
+    );
+}
+
+#[test]
+fn config_rule_exclusions_unknown_id_is_error() {
+    let repo = temp_repo("rule_exclusions_unknown_id_is_error");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some("НесуществующийСценарий".to_owned());
+
+    let error = resolve_config(&request).unwrap_err();
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert_eq!(
+        error.validation_messages(),
+        &["unsupported repository-local scenario in exclude list: НесуществующийСценарий"]
+    );
+}
+
+#[test]
+fn config_rule_exclusions_unsupported_id_is_error() {
+    let repo = temp_repo("rule_exclusions_unsupported_id_is_error");
+
+    let mut request = ConfigResolveRequest::new(&repo);
+    request.rule_exclusions = Some(UNSUPPORTED_ORDINARY_FORMS.to_owned());
+
+    let error = resolve_config(&request).unwrap_err();
+
+    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert_eq!(
+        error.validation_messages(),
+        &[format!(
+            "unsupported built-in scenario in exclude list: {UNSUPPORTED_ORDINARY_FORMS}"
+        )]
+    );
+}
+
+#[test]
 fn config_enabled_unsupported_ordinary_forms_fails_validation() {
     let error = parse_config_str(
         r#"{

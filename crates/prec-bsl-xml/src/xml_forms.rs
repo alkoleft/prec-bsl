@@ -206,10 +206,10 @@ pub fn correct_edt_form_text(
         Err(message) => return XmlFormCorrection::Failed(message),
     };
 
-    if let Some(base_elements) = base_elements {
-        if let Err(message) = restore_base_form_links(&mut elements, base_elements) {
-            return XmlFormCorrection::Failed(message);
-        }
+    if let Some(base_elements) = base_elements
+        && let Err(message) = restore_base_form_links(&mut elements, base_elements)
+    {
+        return XmlFormCorrection::Failed(message);
     }
 
     replace_invalid_and_duplicate_ids(&mut elements);

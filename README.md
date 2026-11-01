@@ -120,7 +120,7 @@ staged-файлы через `git diff --name-status --staged --no-renames`, з�
 Проверка без изменения файлов:
 
 ```text
-prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>]
+prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>]
 ```
 
 `check` только диагностирует нарушения и никогда не пишет в файлы: фиксеры
@@ -132,6 +132,12 @@ prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [
 найденные нецензурные слова). Коды выхода: `0` - нарушений нет, `1` - есть
 нарушения, `2` - ошибка выполнения.
 
+`--exclude-rules <list>` (доступен только в `check`/`fix`) вычитает
+перечисленные правила из уже резолвнутого набора — дефолтного, из
+`v8config.json` или заданного через `--rules`. Вычитание работает вместе с
+`ОтключенныеСценарии` (вычитаются оба списка), а неизвестное имя в
+`--exclude-rules` — ошибка выполнения (exit 2).
+
 Предупреждения в `check`/`fix` считаются нарушениями (exit 1). Hook-режим
 (`prek-hook`) в этом отличается намеренно: там предупреждение не блокирует
 коммит (контракт precommit4onec), а блокируют только ошибки и незаревьюенные
@@ -140,7 +146,7 @@ prec-bsl check <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [
 Применение фикстеров:
 
 ```text
-prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]
+prec-bsl fix <repo> [--config <path>] [--source-dir <list>] [--rules <list>] [--exclude-rules <list>] [--format text|json] [--mode <m>] [--dry-run] [--restage]
 ```
 
 `fix` применяет фиксеры к файлам. `--dry-run` показывает, что изменилось бы
@@ -203,6 +209,9 @@ prec-bsl fix . --mode worktree --dry-run
 ```bash
 # проверка только изменённых файлов перед коммитом
 prec-bsl check . --mode changed --rules УдалениеЛишнихКонцевыхПробелов
+
+# исключить отдельные правила из резолвнутого набора
+prec-bsl check . --mode changed --exclude-rules УдалениеЛишнихКонцевыхПробелов,ПроверкаДублейПроцедурИФункций
 
 # применить фиксеры ко всем исходникам репозитория
 prec-bsl fix . --mode all

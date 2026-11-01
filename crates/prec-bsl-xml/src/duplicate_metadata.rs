@@ -195,10 +195,9 @@ fn collect_metadata_entries(input: &str, format: DuplicateMetadataFormat) -> Vec
             Ok(Event::Text(event)) => {
                 if let Some(entry) = active.as_mut()
                     && stack.len() == entry.parent_depth + 1
+                    && let Ok(text) = event.decode()
                 {
-                    if let Ok(text) = event.decode() {
-                        entry.text.push_str(&text);
-                    }
+                    entry.text.push_str(&text);
                 }
             }
             Ok(Event::CData(_event)) => {

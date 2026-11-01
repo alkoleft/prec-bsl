@@ -10,7 +10,7 @@ use crate::model::{
 use crate::path::resolve_repo_path;
 use crate::raw::parse_raw_config;
 use crate::scenario::{ScenarioCatalog, normalize_scenario_id};
-use crate::validation::{add_validation_warnings, validate_config};
+use crate::validation::{add_validation_warnings, validate_config, validate_exclude_list_scenario};
 
 pub(crate) const CONFIG_FILE_NAME: &str = "v8config.json";
 
@@ -19,6 +19,7 @@ pub struct ConfigResolveRequest {
     pub repo_root: PathBuf,
     pub config_path: Option<PathBuf>,
     pub rule_override: Option<String>,
+    pub rule_exclusions: Option<String>,
 }
 
 impl ConfigResolveRequest {
@@ -27,6 +28,7 @@ impl ConfigResolveRequest {
             repo_root: repo_root.into(),
             config_path: None,
             rule_override: None,
+            rule_exclusions: None,
         }
     }
 }
@@ -78,6 +80,29 @@ pub fn resolve_config_with_catalog(
         for project in config.scenarios.projects.values_mut() {
             project.global_scenarios = Some(scenarios.clone());
             project.disabled_scenarios = Some(Vec::new());
+        }
+    }
+
+    if let Some(rule_exclusions) = &request.rule_exclusions {
+        let exclusions = parse_scenario_list(rule_exclusions);
+        if !exclusions.is_empty() {
+            let mut errors = Vec::new();
+            for exclusion in &exclusions {
+                validate_exclude_list_scenario(exclusion, catalog, &mut errors);
+            }
+            if !errors.is_empty() {
+                return Err(ConfigError::Validation { errors });
+            }
+
+            config
+                .scenarios
+                .global_scenarios
+                .retain(|scenario| !exclusions.contains(scenario));
+            for project in config.scenarios.projects.values_mut() {
+                if let Some(list) = &mut project.global_scenarios {
+                    list.retain(|scenario| !exclusions.contains(scenario));
+                }
+            }
         }
     }
 

@@ -189,7 +189,7 @@ fn duplicate_methods_handles_nested_preprocessor_branches_conservatively() {
         report
             .results
             .iter()
-            .filter(|result| result.path == PathBuf::from("src/Модуль.bsl"))
+            .filter(|result| result.path == Path::new("src/Модуль.bsl"))
             .count(),
         2
     );

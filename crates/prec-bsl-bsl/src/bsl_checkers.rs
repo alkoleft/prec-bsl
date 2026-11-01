@@ -344,17 +344,16 @@ fn collect_method_definitions(
     if matches!(
         node.kind(),
         PROCEDURE_DEFINITION_KIND | FUNCTION_DEFINITION_KIND
-    ) {
-        if let Some(name) = node.child_by_field_name("name") {
-            definitions.push(MethodDefinition {
-                name: name
-                    .utf8_text(input.as_bytes())
-                    .expect("tree-sitter name span must point to valid UTF-8 source")
-                    .to_owned(),
-                name_span: BslByteSpan::new(name.start_byte(), name.end_byte()),
-                branch_context: BranchContext::default(),
-            });
-        }
+    ) && let Some(name) = node.child_by_field_name("name")
+    {
+        definitions.push(MethodDefinition {
+            name: name
+                .utf8_text(input.as_bytes())
+                .expect("tree-sitter name span must point to valid UTF-8 source")
+                .to_owned(),
+            name_span: BslByteSpan::new(name.start_byte(), name.end_byte()),
+            branch_context: BranchContext::default(),
+        });
     }
 
     let mut cursor = node.walk();
