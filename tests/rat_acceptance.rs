@@ -83,7 +83,7 @@ fn rat_source_roots_copy_to_tempdir_without_mutating_checkout() {
     assert!(
         copied_files
             .iter()
-            .any(|path| path.to_string_lossy().chars().any(|char| !char.is_ascii())),
+            .any(|path| !path.to_string_lossy().is_ascii()),
         "temporary RAT copy must preserve Cyrillic paths"
     );
 
@@ -139,15 +139,11 @@ fn rat_live_v8config_keeps_removed_unit_test_processing_disabled() {
     let disabled = scenario_strings(scenario_config, "ОтключенныеСценарии");
 
     assert!(
-        enabled
-            .iter()
-            .any(|scenario| *scenario == "УдалениеЛишнихКонцевыхПробелов.os"),
+        enabled.contains(&"УдалениеЛишнихКонцевыхПробелов.os"),
         "RAT live config must exercise reference global scenarios"
     );
     assert!(
-        disabled
-            .iter()
-            .any(|scenario| *scenario == "РазборОбычныхФормНаИсходники"),
+        disabled.contains(&"РазборОбычныхФормНаИсходники"),
         "disabled unsupported built-in scenario must remain parse-compatible"
     );
     assert!(

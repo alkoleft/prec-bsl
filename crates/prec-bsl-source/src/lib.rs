@@ -578,22 +578,19 @@ fn discover_source_root_for_path(repo_root: &Path, repo_path: &Path) -> Option<P
         return Some(source_root);
     }
 
-    for candidate in ancestor_candidates(repo_path) {
-        if repo_root
-            .join(&candidate)
-            .join("Configuration")
-            .join("Configuration.mdo")
-            .is_file()
-            || repo_root
-                .join(&candidate)
-                .join("Configuration.xml")
+    ancestor_candidates(repo_path)
+        .into_iter()
+        .find(|candidate| {
+            repo_root
+                .join(candidate)
+                .join("Configuration")
+                .join("Configuration.mdo")
                 .is_file()
-        {
-            return Some(candidate);
-        }
-    }
-
-    None
+                || repo_root
+                    .join(candidate)
+                    .join("Configuration.xml")
+                    .is_file()
+        })
 }
 
 fn direct_configuration_source_root(repo_path: &Path) -> Option<PathBuf> {

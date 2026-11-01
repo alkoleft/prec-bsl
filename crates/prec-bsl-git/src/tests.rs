@@ -124,7 +124,7 @@ fn git_index_restaging_treats_paths_as_literals_not_pathspec_magic() {
     assert!(
         files
             .iter()
-            .all(|file| file.path != PathBuf::from("src/Normal.bsl")),
+            .all(|file| file.path != Path::new("src/Normal.bsl")),
         "literal restaging must not expand pathspec magic and stage unrelated paths: {files:#?}"
     );
 }
@@ -299,7 +299,7 @@ fn git_porcelain_parser_zones_select_index_or_worktree_changes() {
 fn assert_staged<'a>(files: &'a [StagedFile], status: StagedStatus, path: &str) -> &'a StagedFile {
     files
         .iter()
-        .find(|file| file.status == status && file.path == PathBuf::from(path))
+        .find(|file| file.status == status && file.path == Path::new(path))
         .unwrap_or_else(|| panic!("missing staged entry {status:?} {path}; got: {files:#?}"))
 }
 

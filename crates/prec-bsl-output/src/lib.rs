@@ -8,16 +8,11 @@ use prec_bsl_pipeline::{
     PipelineMode, PipelineReport, ScenarioResult, ScenarioResultStatus, SourceSpan,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OutputFormat {
+    #[default]
     Text,
     Json,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 pub fn render_report(report: &PipelineReport, format: OutputFormat) -> String {
@@ -298,9 +293,9 @@ pub fn render_json_report(report: &PipelineReport) -> String {
     serde_json::to_string_pretty(&payload).expect("output payload must be serializable")
 }
 
-fn grouped_results<'a>(
-    results: Vec<&'a ScenarioResult>,
-) -> BTreeMap<&'a str, BTreeMap<&'a Path, Vec<&'a ScenarioResult>>> {
+fn grouped_results(
+    results: Vec<&ScenarioResult>,
+) -> BTreeMap<&str, BTreeMap<&Path, Vec<&ScenarioResult>>> {
     let mut grouped = BTreeMap::new();
     for result in results {
         grouped
@@ -400,10 +395,10 @@ fn text_message(message: &str) -> String {
     if let Some(value) = message.strip_prefix("missing source root: ") {
         return format!("не найден корень исходников: {value}");
     }
-    if let Some(value) = message.strip_prefix("matched dictionary word '") {
-        if let Some((word, line)) = value.split_once("' at line ") {
-            return format!("найдено слово из словаря '{word}' в строке {line}");
-        }
+    if let Some(value) = message.strip_prefix("matched dictionary word '")
+        && let Some((word, line)) = value.split_once("' at line ")
+    {
+        return format!("найдено слово из словаря '{word}' в строке {line}");
     }
     if let Some(value) = message.strip_prefix("String length ")
         && let Some((length, rest)) = value.split_once(" exceeded maximum ")

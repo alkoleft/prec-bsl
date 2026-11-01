@@ -80,7 +80,7 @@ fn source_root_reports_existing_roots_outside_repository() {
     let repo = temp_repo("reports_outside_roots_repo");
     let outside = temp_repo("reports_outside_roots_external");
 
-    let resolution = resolve_source_roots(&repo, &[outside.clone()]);
+    let resolution = resolve_source_roots(&repo, std::slice::from_ref(&outside));
 
     assert!(resolution.roots.is_empty());
     assert_eq!(
@@ -112,7 +112,7 @@ fn source_root_preserves_multiple_exec_rules_roots_per_file() {
 
     let configuration_file = files
         .iter()
-        .find(|file| file.repo_path == PathBuf::from("configuration/src/ОбщийМодуль.bsl"))
+        .find(|file| file.repo_path == Path::new("configuration/src/ОбщийМодуль.bsl"))
         .unwrap();
     assert_eq!(
         configuration_file.source_root.repo_relative_path,
@@ -125,7 +125,7 @@ fn source_root_preserves_multiple_exec_rules_roots_per_file() {
 
     let extension_file = files
         .iter()
-        .find(|file| file.repo_path == PathBuf::from("extensions/Расширение/src/Object.mdo"))
+        .find(|file| file.repo_path == Path::new("extensions/Расширение/src/Object.mdo"))
         .unwrap();
     assert_eq!(
         extension_file.source_root.repo_relative_path,
