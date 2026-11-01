@@ -891,10 +891,258 @@ fn check_respects_explicit_empty_global_scenarios_array() {
     );
 }
 
+/// `--exclude-rules` subtracts the listed rules from the resolved default
+/// set: with no `v8config.json` every supported scenario would run, and the
+/// fixture triggers violations from two of them (the trailing-whitespace
+/// fixer `B` and the duplicate-methods checker `A`). Excluding `B` keeps
+/// the checker violation of `A` and drops the fixer modification of `B`.
+#[test]
+fn check_exclude_rules_removes_rule_from_default_set() {
+    let repo = TempGitRepo::new("exclude_defaults");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+            "--exclude-rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ПроверкаДублейПроцедурИФункций"),
+        "the non-excluded checker must still report violations:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("duplicate procedure or function definition: Тест"),
+        "the duplicate-methods violation must stay in the report:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "the excluded fixer must not appear in the report:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("удалены лишние пробелы или табы в конце строк"),
+        "the excluded fixer's modification must not be proposed:\n{stdout}"
+    );
+}
+
+/// `--rules` and `--exclude-rules` combine: the explicit set `A,B` minus
+/// `B` runs only `A`. This guards against the exclusion being wiped by the
+/// disabled-scenarios cleanup that an explicit `--rules` override performs.
+#[test]
+fn check_exclude_rules_with_explicit_rules() {
+    let repo = TempGitRepo::new("exclude_explicit_rules");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+            "--rules",
+            "ПроверкаДублейПроцедурИФункций,УдалениеЛишнихКонцевыхПробелов",
+            "--exclude-rules",
+            "УдалениеЛишнихКонцевыхПробелов",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ПроверкаДублейПроцедурИФункций"),
+        "the non-excluded rule from --rules must report violations:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "the excluded rule must not run even with an explicit --rules set:\n{stdout}"
+    );
+}
+
+/// `--exclude-rules` unions with `ОтключенныеСценарии` from `v8config.json`:
+/// the config disables one of the two rules triggered by the fixture, the
+/// CLI excludes the other, so no violation survives and `check` exits 0.
+#[test]
+fn check_exclude_rules_union_with_disabled() {
+    let repo = TempGitRepo::new("exclude_union_disabled");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
+    write_file(
+        repo.path().join("v8config.json"),
+        concat!(
+            "{\n",
+            "  \"Precommt4onecСценарии\": {\n",
+            "    \"ОтключенныеСценарии\": [\"УдалениеЛишнихКонцевыхПробелов\"]\n",
+            "  }\n",
+            "}\n",
+        ),
+    );
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+            "--exclude-rules",
+            "ПроверкаДублейПроцедурИФункций",
+        ],
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "config-disabled and CLI-excluded rules must leave no violations: {}",
+        output_text(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "the config-disabled rule must not run:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("ПроверкаДублейПроцедурИФункций"),
+        "the CLI-excluded rule must not run:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("duplicate procedure or function definition"),
+        "no duplicate-methods violation may survive the union:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("удалены лишние пробелы или табы в конце строк"),
+        "no trailing-whitespace modification may survive the union:\n{stdout}"
+    );
+}
+
+/// A typo in `--exclude-rules` is an execution error, not a silent no-op:
+/// the unknown name would otherwise bring the rule back into the run.
+#[test]
+fn check_exclude_rules_unknown_name_fails() {
+    let repo = TempGitRepo::new("exclude_unknown_name");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), CLEAN_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--exclude-rules",
+            "НесуществующийСценарий",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(2), "{}", output_text(&output));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("НесуществующийСценарий"),
+        "the error must name the unknown scenario: {stderr}"
+    );
+    assert!(
+        stderr.contains("unsupported"),
+        "the error must classify the name as unsupported: {stderr}"
+    );
+}
+
+/// The `fix` wiring honors `--exclude-rules`: `fix --dry-run` with the fixer
+/// rule excluded reports the would-be modification only from the remaining
+/// rules, and the excluded fixer's edit is absent from the proposed diff.
+#[test]
+fn fix_exclude_rules_dry_run_removes_rule_from_default_set() {
+    let repo = TempGitRepo::new("exclude_fix_dry_run");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "fix",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+            "--dry-run",
+            "--exclude-rules",
+            "ПроверкаДублейПроцедурИФункций",
+        ],
+    );
+
+    assert_eq!(output.status.code(), Some(1), "{}", output_text(&output));
+    assert_eq!(
+        fs::read_to_string(repo.path().join(&module)).unwrap(),
+        DOUBLE_DIRTY_MODULE,
+        "fix --dry-run must not modify the file"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("УдалениеЛишнихКонцевыхПробелов"),
+        "the non-excluded fixer must still propose its edit:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Предлагаемые изменения (не записаны):"),
+        "the dry-run diff must be shown:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("+Процедура Тест()"),
+        "the proposed diff must include the trailing-whitespace fix:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("ПроверкаДублейПроцедурИФункций"),
+        "the excluded checker must not appear in the report:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("duplicate procedure or function definition"),
+        "the excluded checker must not report violations:\n{stdout}"
+    );
+}
+
 const DIRTY_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\n";
 const DIRTYER_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры\t\n";
 const DIRTYEST_MODULE: &str = "Процедура Тест()   \nКонецПроцедуры \t \n";
 const CLEAN_MODULE: &str = "Процедура Тест()\nКонецПроцедуры\n";
+/// One module triggering exactly two default-set violations: a trailing
+/// whitespace line (fixed by `УдалениеЛишнихКонцевыхПробелов`) and two
+/// procedure definitions with the same name (reported by
+/// `ПроверкаДублейПроцедурИФункций`).
+const DOUBLE_DIRTY_MODULE: &str = concat!(
+    "Процедура Тест()   \n",
+    "    Сообщить(\"а\");\n",
+    "КонецПроцедуры\n",
+    "\n",
+    "Процедура Тест()\n",
+    "    Сообщить(\"б\");\n",
+    "КонецПроцедуры\n",
+);
 
 struct TempGitRepo {
     path: PathBuf,
