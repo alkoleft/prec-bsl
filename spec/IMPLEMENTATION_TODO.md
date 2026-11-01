@@ -25,7 +25,7 @@ Roadmap style:
 Implementation work for the `--exclude-rules` CLI flag, tracked by
 `alkoleft/prec-bsl` issue #14. Completed tasks move to `spec/archive/`.
 
-### T56. IN PROGRESS: Implement `--exclude-rules` for the `check`/`fix` commands
+### T56. DONE: Implement `--exclude-rules` for the `check`/`fix` commands
 
 prec-bsl issue: `alkoleft/prec-bsl` #14. Implementation plan (kept in the main
 checkout outside version control, `docs/superpowers/plans/`):

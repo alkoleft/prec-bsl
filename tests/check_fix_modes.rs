@@ -981,8 +981,7 @@ fn check_exclude_rules_with_explicit_rules() {
 /// the config disables one of the two rules triggered by the fixture, the
 /// CLI excludes the other, so no violation survives and `check` exits 0.
 #[test]
-fn check_exclude_rules_union_with_disabled() {
-    let repo = TempGitRepo::new("exclude_union_disabled");
+fn check_exclude_rules_union_with_disabled() {    let repo = TempGitRepo::new("exclude_union_disabled");
     let module = PathBuf::from("src/Модуль.bsl");
     write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
     write_file(
@@ -1034,6 +1033,50 @@ fn check_exclude_rules_union_with_disabled() {
     assert!(
         !stdout.contains("удалены лишние пробелы или табы в конце строк"),
         "no trailing-whitespace modification may survive the union:\n{stdout}"
+    );
+}
+
+/// Spec Decision Table: excluding every rule of the resolved set leaves an
+/// empty enabled set, and `check` exits 0 without running any scenario
+/// (deliberate opt-out, consistent with an explicit empty scenario list).
+#[test]
+fn check_exclude_rules_all_rules_exits_zero() {
+    let repo = TempGitRepo::new("exclude_all_rules");
+    let module = PathBuf::from("src/Модуль.bsl");
+    write_file(repo.path().join(&module), DOUBLE_DIRTY_MODULE);
+    run_git(repo.path(), ["add", "."]);
+    run_git(repo.path(), ["commit", "-m", "baseline"]);
+
+    let output = run_prec_bsl(
+        repo.path(),
+        [
+            "check",
+            repo.path().to_str().unwrap(),
+            "--source-dir",
+            "src",
+            "--mode",
+            "all",
+            "--rules",
+            "УдалениеЛишнихКонцевыхПробелов,ПроверкаДублейПроцедурИФункций",
+            "--exclude-rules",
+            "УдалениеЛишнихКонцевыхПробелов,ПроверкаДублейПроцедурИФункций",
+        ],
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "excluding every rule of the set is a deliberate opt-out, not an error: {}",
+        output_text(&output)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("duplicate procedure or function definition"),
+        "no scenario may run when every rule is excluded:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("удалены лишние пробелы или табы в конце строк"),
+        "no scenario may run when every rule is excluded:\n{stdout}"
     );
 }
 
