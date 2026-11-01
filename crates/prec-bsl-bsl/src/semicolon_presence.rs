@@ -822,9 +822,11 @@ mod tests {
             // preprocessor region body (probe (f)/(t3))
             "#Если Сервер Тогда\n    X = 1\n#КонецЕсли\n".to_owned(),
             // MISSING node does not block the statement (probe (r9)):
-            // the label fix-inserted `;` changes the tree shape (see
-            // `fix_is_idempotent` — the label case is NOT in the matrix
-            // because the fix output is ERROR-shaped there).
+            // the label case is in the matrix and runs in
+            // `fix_is_idempotent` (idempotence holds there as a no-op
+            // refusal), but it is excluded from
+            // `fix_clears_all_violations_from_the_detector` because the
+            // fixed output (`~Метка;`) re-parses as an ERROR node.
             "Процедура П()\n    ~Метка\nКонецПроцедуры".to_owned(),
             // two missing semicolons in one file (insertion count)
             "Если Истина Тогда\n    А = 1\nКонецЕсли\nБ = 2\n".to_owned(),

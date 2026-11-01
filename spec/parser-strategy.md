@@ -685,8 +685,11 @@ Deliberate non-parity with `bsl-language-server` (explicit, accepted):
    while the tree-sitter parse of `~Метка;` becomes an ERROR region, so
    the fixer refuses its own output as unsafe and idempotence for that
    input is a no-op refusal. Accepted as documented behavior; the case
-   is pinned in the module's unit tests (`fix_is_idempotent` label
-   exclusion and the detector's label probe).
+   is pinned in the module's unit tests (the label input is part of the
+   `fixer_mutation_inputs` matrix: it runs in `fix_is_idempotent` as a
+   no-op refusal, but is excluded from
+   `fix_clears_all_violations_from_the_detector` because the fixed
+   output re-parses as an ERROR node; plus the detector's label probe).
 3. Check-mode diagnostics carry the stop-token span (bsl-ls reports the
    stop-token range); message text is a stable EN template with the
    1-based line, not an LSP range object.
