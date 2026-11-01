@@ -88,8 +88,7 @@ impl ScenarioConfig {
                     .unwrap_or(&self.global_scenarios),
                 disabled_scenarios: project
                     .disabled_scenarios
-                    .as_ref()
-                    .map(Vec::as_slice)
+                    .as_deref()
                     .unwrap_or(&[]),
                 settings: project.settings.as_ref(),
             })
