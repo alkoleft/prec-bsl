@@ -158,3 +158,24 @@ fn validate_enabled_scenarios(
         }
     }
 }
+
+/// Classifies a scenario name from the CLI exclude list against the catalog.
+/// Unknown names and unsupported built-in scenarios are hard errors: a typo
+/// would silently bring the excluded rule back into the run. Called inline
+/// from the resolve exclusion block because the retained lists no longer
+/// contain the excluded names when `validate_config` runs.
+pub(crate) fn validate_exclude_list_scenario(
+    scenario: &str,
+    catalog: ScenarioCatalog<'_>,
+    errors: &mut Vec<String>,
+) {
+    match catalog.find(scenario).map(|definition| definition.support) {
+        Some(ScenarioSupport::RequiredV1 | ScenarioSupport::Compatibility) => {}
+        Some(ScenarioSupport::Unsupported) => errors.push(format!(
+            "unsupported built-in scenario in exclude list: {scenario}"
+        )),
+        None => errors.push(format!(
+            "unsupported repository-local scenario in exclude list: {scenario}"
+        )),
+    }
+}
